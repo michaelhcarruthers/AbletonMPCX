@@ -123,6 +123,71 @@ def set_loop(enabled: bool | None = None, loop_start: float | None = None, loop_
     return _send("set_loop", params)
 
 @mcp.tool()
+def set_swing_amount(value: float) -> dict:
+    """Set the global swing amount (0.0-1.0)."""
+    if not 0.0 <= value <= 1.0:
+        raise ValueError("swing_amount must be between 0.0 and 1.0")
+    return _send("set_swing_amount", {"value": value})
+
+@mcp.tool()
+def set_groove_amount(value: float) -> dict:
+    """Set the global groove amount (0.0-1.0)."""
+    if not 0.0 <= value <= 1.0:
+        raise ValueError("groove_amount must be between 0.0 and 1.0")
+    return _send("set_groove_amount", {"value": value})
+
+@mcp.tool()
+def set_back_to_arranger(value: bool) -> dict:
+    """Enable or disable Back to Arranger mode."""
+    return _send("set_back_to_arranger", {"value": value})
+
+@mcp.tool()
+def set_clip_trigger_quantization(value: int) -> dict:
+    """Set the global clip trigger quantization (0-13, matching Live's ClipTriggerQuantization enum)."""
+    if not 0 <= value <= 13:
+        raise ValueError("clip_trigger_quantization must be between 0 and 13")
+    return _send("set_clip_trigger_quantization", {"value": value})
+
+@mcp.tool()
+def set_midi_recording_quantization(value: int) -> dict:
+    """Set the MIDI recording quantization (0-8, matching Live's RecordingQuantization enum)."""
+    if not 0 <= value <= 8:
+        raise ValueError("midi_recording_quantization must be between 0 and 8")
+    return _send("set_midi_recording_quantization", {"value": value})
+
+@mcp.tool()
+def set_scale_mode(scale_mode: bool) -> dict:
+    """Enable or disable scale mode."""
+    return _send("set_scale_mode", {"scale_mode": scale_mode})
+
+@mcp.tool()
+def set_scale_name(scale_name: str) -> dict:
+    """Set the scale name (e.g. 'Major', 'Minor', 'Dorian')."""
+    return _send("set_scale_name", {"scale_name": scale_name})
+
+@mcp.tool()
+def set_root_note(root_note: int) -> dict:
+    """Set the root note for the scale (0=C, 1=C#, ..., 11=B)."""
+    if not 0 <= root_note <= 11:
+        raise ValueError("root_note must be between 0 and 11")
+    return _send("set_root_note", {"root_note": root_note})
+
+@mcp.tool()
+def set_or_delete_cue() -> dict:
+    """Toggle (create or delete) a cue point at the current playback position."""
+    return _send("set_or_delete_cue")
+
+@mcp.tool()
+def re_enable_automation() -> dict:
+    """Re-enable automation that has been overridden."""
+    return _send("re_enable_automation")
+
+@mcp.tool()
+def play_selection() -> dict:
+    """Play the current selection in the Arrangement."""
+    return _send("play_selection")
+
+@mcp.tool()
 def start_playing() -> dict:
     """Start playback from the insert marker."""
     return _send("start_playing")
@@ -271,6 +336,40 @@ def set_follow_song(follow_song: bool) -> dict:
     """Enable or disable Follow Song."""
     return _send("set_follow_song", {"follow_song": follow_song})
 
+@mcp.tool()
+def get_draw_mode() -> dict:
+    """Return whether Draw Mode is enabled in the current view."""
+    return _send("get_draw_mode")
+
+@mcp.tool()
+def set_draw_mode(draw_mode: bool) -> dict:
+    """Enable or disable Draw Mode."""
+    return _send("set_draw_mode", {"draw_mode": draw_mode})
+
+# ---------------------------------------------------------------------------
+# Master Track
+# ---------------------------------------------------------------------------
+
+@mcp.tool()
+def get_master_track() -> dict:
+    """Return the master track's volume, pan and crossfader values."""
+    return _send("get_master_track")
+
+@mcp.tool()
+def set_master_volume(value: float) -> dict:
+    """Set the master track volume (0.0-1.0)."""
+    return _send("set_master_volume", {"value": value})
+
+@mcp.tool()
+def set_master_pan(value: float) -> dict:
+    """Set the master track panning (-1.0 = full left, 0 = centre, 1.0 = full right)."""
+    return _send("set_master_pan", {"value": value})
+
+@mcp.tool()
+def set_crossfader(value: float) -> dict:
+    """Set the master crossfader position (-1.0 = full A, 0 = centre, 1.0 = full B)."""
+    return _send("set_crossfader", {"value": value})
+
 # ---------------------------------------------------------------------------
 # Track
 # ---------------------------------------------------------------------------
@@ -289,6 +388,11 @@ def get_track_info(track_index: int) -> dict:
 def set_track_name(track_index: int, name: str) -> dict:
     """Rename the track at track_index."""
     return _send("set_track_name", {"track_index": track_index, "name": name})
+
+@mcp.tool()
+def set_track_color(track_index: int, color: int) -> dict:
+    """Set the track color as an RGB integer (0x00rrggbb)."""
+    return _send("set_track_color", {"track_index": track_index, "color": color})
 
 @mcp.tool()
 def set_track_mute(track_index: int, mute: bool) -> dict:
@@ -324,6 +428,13 @@ def set_track_send(track_index: int, send_index: int, value: float) -> dict:
 def stop_track_clips(track_index: int) -> dict:
     """Stop all clips on the track at track_index."""
     return _send("stop_track_clips", {"track_index": track_index})
+
+@mcp.tool()
+def set_track_fold_state(track_index: int, fold_state: int) -> dict:
+    """Set the fold state of a group track (0=unfolded, 1=folded)."""
+    if fold_state not in (0, 1):
+        raise ValueError("fold_state must be 0 (unfolded) or 1 (folded)")
+    return _send("set_track_fold_state", {"track_index": track_index, "fold_state": fold_state})
 
 @mcp.tool()
 def get_return_tracks() -> list:
@@ -363,6 +474,11 @@ def create_clip(track_index: int, slot_index: int, length: float = 4.0) -> dict:
 def delete_clip(track_index: int, slot_index: int) -> dict:
     """Delete the clip in the slot at (track_index, slot_index)."""
     return _send("delete_clip", {"track_index": track_index, "slot_index": slot_index})
+
+@mcp.tool()
+def duplicate_clip_slot(track_index: int, slot_index: int) -> dict:
+    """Duplicate the clip slot at (track_index, slot_index) to the next empty slot below."""
+    return _send("duplicate_clip_slot", {"track_index": track_index, "slot_index": slot_index})
 
 # ---------------------------------------------------------------------------
 # Clip
@@ -429,6 +545,20 @@ def set_clip_gain(track_index: int, slot_index: int, gain: float) -> dict:
 def set_clip_warp_mode(track_index: int, slot_index: int, warp_mode: int) -> dict:
     """Set the warp mode of an audio clip (0=Beats, 1=Tones, 2=Texture, 3=Re-Pitch, 4=Complex, 6=Complex Pro)."""
     return _send("set_clip_warp_mode", {"track_index": track_index, "slot_index": slot_index, "warp_mode": warp_mode})
+
+@mcp.tool()
+def set_clip_launch_mode(track_index: int, slot_index: int, launch_mode: int) -> dict:
+    """Set the clip launch mode (0=Trigger, 1=Gate, 2=Toggle, 3=Repeat)."""
+    if not 0 <= launch_mode <= 3:
+        raise ValueError("launch_mode must be between 0 and 3")
+    return _send("set_clip_launch_mode", {"track_index": track_index, "slot_index": slot_index, "launch_mode": launch_mode})
+
+@mcp.tool()
+def set_clip_launch_quantization(track_index: int, slot_index: int, launch_quantization: int) -> dict:
+    """Set the clip launch quantization (0-13, matching Live's ClipTriggerQuantization enum)."""
+    if not 0 <= launch_quantization <= 13:
+        raise ValueError("launch_quantization must be between 0 and 13")
+    return _send("set_clip_launch_quantization", {"track_index": track_index, "slot_index": slot_index, "launch_quantization": launch_quantization})
 
 @mcp.tool()
 def fire_clip(track_index: int, slot_index: int) -> dict:
@@ -560,6 +690,21 @@ def set_device_parameter(track_index: int, device_index: int, parameter_index: i
         "parameter_index": parameter_index,
         "value": value,
     })
+
+@mcp.tool()
+def set_device_enabled(track_index: int, device_index: int, enabled: bool) -> dict:
+    """Enable or disable the device at (track_index, device_index)."""
+    return _send("set_device_enabled", {"track_index": track_index, "device_index": device_index, "enabled": enabled})
+
+@mcp.tool()
+def delete_device(track_index: int, device_index: int) -> dict:
+    """Delete the device at (track_index, device_index)."""
+    return _send("delete_device", {"track_index": track_index, "device_index": device_index})
+
+@mcp.tool()
+def duplicate_device(track_index: int, device_index: int) -> dict:
+    """Duplicate the device at (track_index, device_index)."""
+    return _send("duplicate_device", {"track_index": track_index, "device_index": device_index})
 
 # ---------------------------------------------------------------------------
 # MixerDevice
