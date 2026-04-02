@@ -782,6 +782,95 @@ def load_browser_item(uri: str, track_index: int = 0) -> dict:
     return _send("load_browser_item", {"uri": uri, "track_index": track_index})
 
 # ---------------------------------------------------------------------------
+# Mix-oriented abstraction tools
+# ---------------------------------------------------------------------------
+
+@mcp.tool()
+def get_track_snapshot(track_index: int = 0) -> str:
+    """
+    Return a consolidated snapshot for a single track: metadata, mixer sends,
+    and full device chain with parsed parameters and schema type detection.
+    """
+    result = _send("get_track_snapshot", {"track_index": track_index})
+    return json.dumps(result, indent=2)
+
+@mcp.tool()
+def get_selected_track_snapshot() -> str:
+    """
+    Return the same consolidated snapshot as get_track_snapshot but for the
+    currently selected track in Ableton's session view.
+    """
+    result = _send("get_selected_track_snapshot", {})
+    return json.dumps(result, indent=2)
+
+@mcp.tool()
+def get_mix_snapshot() -> str:
+    """
+    Return a compact mix overview of ALL tracks: tempo, time signature,
+    transport state, per-track mixer values and device name summaries,
+    return tracks, and master track state.
+    """
+    result = _send("get_mix_snapshot", {})
+    return json.dumps(result, indent=2)
+
+@mcp.tool()
+def get_stock_mix_context(track_index: int = 0) -> str:
+    """
+    Return mix-relevant parameters for known stock devices on a track,
+    filtering out non-mix parameters. For unknown devices, all parameters
+    are returned. Includes schema_type identification per device.
+    """
+    result = _send("get_stock_mix_context", {"track_index": track_index})
+    return json.dumps(result, indent=2)
+
+@mcp.tool()
+def apply_named_parameter_change(
+    track_index: int = 0,
+    device_index: int = 0,
+    parameter_name: str = "",
+    value: float = 0.0,
+) -> str:
+    """
+    Set a device parameter by name (case-insensitive substring match).
+    Returns an error listing available names if the match is ambiguous or not found.
+    """
+    result = _send("apply_named_parameter_change", {
+        "track_index": track_index,
+        "device_index": device_index,
+        "parameter_name": parameter_name,
+        "value": value,
+    })
+    return json.dumps(result, indent=2)
+
+@mcp.tool()
+def insert_stock_device(
+    track_index: int = 0,
+    device_name: str = "compressor",
+    position: int = -1,
+) -> str:
+    """
+    Insert a named stock Ableton device onto a track by searching the browser.
+    Supported names include: eq eight, compressor, limiter, saturator, utility,
+    auto filter, reverb, delay, redux, chorus, phaser, gate, amp, cabinet,
+    multiband dynamics, drum rack, instrument rack, audio effect rack, and more.
+    """
+    result = _send("insert_stock_device", {
+        "track_index": track_index,
+        "device_name": device_name,
+        "position": position,
+    })
+    return json.dumps(result, indent=2)
+
+@mcp.tool()
+def get_device_chain_summary(track_index: int = 0) -> str:
+    """
+    Return a compact ordered summary of the device chain for a track,
+    including device index, name, type, active state, and schema type.
+    """
+    result = _send("get_device_chain_summary", {"track_index": track_index})
+    return json.dumps(result, indent=2)
+
+# ---------------------------------------------------------------------------
 # Entry point
 # ---------------------------------------------------------------------------
 

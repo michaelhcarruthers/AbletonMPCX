@@ -19,6 +19,61 @@ import Live  # noqa: F401 — provided by Ableton's Python environment
 from _Framework.ControlSurface import ControlSurface
 
 
+# ---------------------------------------------------------------------------
+# Mix-oriented abstraction constants
+# ---------------------------------------------------------------------------
+
+STOCK_DEVICE_PATHS = {
+    "eq eight": "audio_effects/EQ Eight",
+    "eq 8": "audio_effects/EQ Eight",
+    "compressor": "audio_effects/Compressor",
+    "limiter": "audio_effects/Limiter",
+    "saturator": "audio_effects/Saturator",
+    "utility": "audio_effects/Utility",
+    "auto filter": "audio_effects/Auto Filter",
+    "reverb": "audio_effects/Reverb",
+    "delay": "audio_effects/Delay",
+    "redux": "audio_effects/Redux",
+    "chorus": "audio_effects/Chorus",
+    "phaser": "audio_effects/Phaser",
+    "gate": "audio_effects/Gate",
+    "amp": "audio_effects/Amp",
+    "cabinet": "audio_effects/Cabinet",
+    "multiband dynamics": "audio_effects/Multiband Dynamics",
+    "drum rack": "instruments/Drum Rack",
+    "instrument rack": "instruments/Instrument Rack",
+    "audio effect rack": "audio_effects/Audio Effect Rack",
+    "midi effect rack": "midi_effects/MIDI Effect Rack",
+    "arpeggiator": "midi_effects/Arpeggiator",
+    "chord": "midi_effects/Chord",
+    "note length": "midi_effects/Note Length",
+    "pitch": "midi_effects/Pitch",
+    "random": "midi_effects/Random",
+    "scale": "midi_effects/Scale",
+    "velocity": "midi_effects/Velocity",
+}
+
+MIX_PARAMETER_KEYWORDS = {
+    "eq_eight": ["freq", "gain", "q", "filter type", "on a", "on b", "on 1", "on 2", "on 3", "on 4", "on 5", "on 6", "on 7", "on 8"],
+    "compressor": ["threshold", "ratio", "attack", "release", "knee", "output", "makeup", "dry/wet", "lookahead", "gain"],
+    "limiter": ["ceiling", "release", "lookahead", "true peak", "gain"],
+    "saturator": ["drive", "output", "dry/wet", "type", "soft clip", "base", "freq", "width"],
+    "utility": ["gain", "width", "mute", "bass mono", "mid-side", "mono"],
+    "auto_filter": ["filter type", "freq", "resonance", "drive", "dry/wet", "attack", "release"],
+    "reverb": ["room size", "decay", "predelay", "wet", "dry", "diffusion", "reflections"],
+    "delay": ["time", "feedback", "dry/wet", "sync", "l delay", "r delay"],
+    "redux": ["bit", "sample rate", "downsample"],
+    "chorus_flanger": ["rate", "depth", "feedback", "dry/wet", "delay"],
+    "phaser_flanger": ["poles", "rate", "freq", "feedback", "dry/wet"],
+    "gate": ["threshold", "return", "attack", "hold", "release", "floor", "lookahead"],
+    "amp": ["amp type", "bass", "mid", "treble", "drive", "volume", "dry/wet", "presence"],
+    "cabinet": ["speaker", "microphone", "dry/wet"],
+    "multiband_dynamics": ["threshold", "ratio", "attack", "release", "output", "gain", "band"],
+    "drum_rack": [],
+    "unknown": [],
+}
+
+
 def create_instance(c_instance):
     return AbletonMPCX(c_instance)
 
@@ -1439,3 +1494,366 @@ class AbletonMPCX(ControlSurface):
 
         self._run_on_main_thread(fn)
         return {}
+
+    # ------------------------------------------------------------------
+    # Mix-oriented abstraction helpers
+    # ------------------------------------------------------------------
+
+    def _detect_schema_type(self, device):
+        """Return a schema type string for a known stock Ableton device."""
+        class_name = ""
+        try:
+            class_name = device.class_name or ""
+        except Exception:
+            pass
+        name = ""
+        try:
+            name = device.name or ""
+        except Exception:
+            pass
+
+        if "Eq8" in class_name or "eq eight" in name.lower():
+            return "eq_eight"
+        elif "Compressor" in class_name:
+            return "compressor"
+        elif "Limiter" in class_name:
+            return "limiter"
+        elif "Saturator" in class_name:
+            return "saturator"
+        elif "Utility" in class_name:
+            return "utility"
+        elif "AutoFilter" in class_name:
+            return "auto_filter"
+        elif "Reverb" in class_name:
+            return "reverb"
+        elif "Delay" in class_name:
+            return "delay"
+        elif "Redux" in class_name:
+            return "redux"
+        elif "Chorus" in class_name:
+            return "chorus_flanger"
+        elif "Phaser" in class_name:
+            return "phaser_flanger"
+        elif "Gate" in class_name:
+            return "gate"
+        elif "Amp" in class_name:
+            return "amp"
+        elif "Cabinet" in class_name:
+            return "cabinet"
+        elif "MultibandDynamics" in class_name or "multiband" in name.lower():
+            return "multiband_dynamics"
+        elif "DrumGroupDevice" in class_name or "drum rack" in name.lower():
+            return "drum_rack"
+        elif "InstrumentRack" in class_name:
+            return "instrument_rack"
+        else:
+            return "unknown"
+
+    def _serialize_device_parameters(self, device):
+        """Return a dict of {param_name: {value, value_string, min, max, default_value, is_quantized}}."""
+        result = {}
+        for p in device.parameters:
+            try:
+                result[p.name] = {
+                    "value": p.value,
+                    "value_string": p.str_for_value(p.value),
+                    "min": p.min,
+                    "max": p.max,
+                    "default_value": p.default_value,
+                    "is_quantized": p.is_quantized,
+                }
+            except Exception:
+                pass
+        return result
+
+    def _get_track_snapshot_data(self, track, track_index):
+        """Assemble the full snapshot dict for a single track."""
+        mixer = track.mixer_device
+        sends = [{"index": i, "value": s.value} for i, s in enumerate(mixer.sends)]
+
+        # Volume as dB string when possible
+        vol_value = mixer.volume.value
+        try:
+            vol_string = mixer.volume.str_for_value(vol_value)
+        except Exception:
+            vol_string = str(vol_value)
+
+        device_chain = []
+        for i, device in enumerate(track.devices):
+            schema_type = self._detect_schema_type(device)
+            try:
+                class_display_name = device.class_display_name
+            except AttributeError:
+                class_display_name = device.class_name
+            device_entry = {
+                "index": i,
+                "name": device.name,
+                "class_name": device.class_name,
+                "class_display_name": class_display_name,
+                "type": int(device.type),
+                "is_active": device.is_active,
+                "schema_type": schema_type,
+                "parsed_parameters": self._serialize_device_parameters(device),
+            }
+            device_chain.append(device_entry)
+
+        track_type = "midi" if track.has_midi_input else "audio"
+
+        return {
+            "index": track_index,
+            "name": track.name,
+            "color": self._color(track),
+            "type": track_type,
+            "mute": track.mute,
+            "solo": track.solo,
+            "arm": track.arm if hasattr(track, "arm") else False,
+            "volume": vol_value,
+            "volume_string": vol_string,
+            "pan": mixer.panning.value,
+            "sends": sends,
+            "device_chain": device_chain,
+        }
+
+    def _cmd_get_track_snapshot(self, params):
+        track_index = int(params["track_index"])
+        track = self._get_track(track_index)
+        return self._get_track_snapshot_data(track, track_index)
+
+    def _cmd_get_selected_track_snapshot(self, params):
+        selected = self.song.view.selected_track
+        tracks = list(self.song.tracks)
+        track_index = -1
+        for i, t in enumerate(tracks):
+            if t == selected:
+                track_index = i
+                break
+        if track_index == -1:
+            raise RuntimeError(
+                "Selected track is not a regular track (may be master or return track). "
+                "Please select a regular track from the session view."
+            )
+        return self._get_track_snapshot_data(selected, track_index)
+
+    def _cmd_get_mix_snapshot(self, params):
+        s = self.song
+        time_sig = "{}/{}".format(int(s.signature_numerator), int(s.signature_denominator))
+
+        tracks_list = []
+        for i, track in enumerate(s.tracks):
+            mixer = track.mixer_device
+            device_summary = [d.name for d in track.devices]
+            tracks_list.append({
+                "index": i,
+                "name": track.name,
+                "type": "midi" if track.has_midi_input else "audio",
+                "mute": track.mute,
+                "solo": track.solo,
+                "arm": track.arm if hasattr(track, "arm") else False,
+                "volume": mixer.volume.value,
+                "pan": mixer.panning.value,
+                "device_summary": device_summary,
+            })
+
+        return_tracks_list = []
+        for i, track in enumerate(s.return_tracks):
+            mixer = track.mixer_device
+            device_summary = [d.name for d in track.devices]
+            return_tracks_list.append({
+                "index": i,
+                "name": track.name,
+                "volume": mixer.volume.value,
+                "device_summary": device_summary,
+            })
+
+        master = s.master_track
+        master_mixer = master.mixer_device
+        master_info = {
+            "volume": master_mixer.volume.value,
+            "pan": master_mixer.panning.value,
+        }
+        try:
+            master_info["crossfader"] = master_mixer.crossfader.value
+        except AttributeError:
+            master_info["crossfader"] = 0.0
+
+        return {
+            "tempo": s.tempo,
+            "time_signature": time_sig,
+            "is_playing": s.is_playing,
+            "tracks": tracks_list,
+            "return_tracks": return_tracks_list,
+            "master": master_info,
+        }
+
+    def _get_stock_mix_context_data(self, track_index):
+        track = self._get_track(track_index)
+        devices_out = []
+        for i, device in enumerate(track.devices):
+            schema_type = self._detect_schema_type(device)
+            keywords = MIX_PARAMETER_KEYWORDS.get(schema_type, [])
+
+            # Drum rack: special handling — pad names + notes
+            if schema_type == "drum_rack":
+                pads = []
+                try:
+                    for pad in device.drum_pads:
+                        if pad.chains:
+                            pads.append({"note": pad.note, "name": pad.name})
+                except AttributeError:
+                    pass
+                devices_out.append({
+                    "index": i,
+                    "name": device.name,
+                    "schema_type": schema_type,
+                    "pads": pads,
+                })
+                continue
+
+            # For unknown schema type, return all params
+            if schema_type == "unknown" or not keywords:
+                filtered_params = self._serialize_device_parameters(device)
+            else:
+                filtered_params = {}
+                for p in device.parameters:
+                    p_name_lower = p.name.lower()
+                    if any(kw in p_name_lower for kw in keywords):
+                        try:
+                            filtered_params[p.name] = {
+                                "value": p.value,
+                                "value_string": p.str_for_value(p.value),
+                                "min": p.min,
+                                "max": p.max,
+                            }
+                        except Exception:
+                            pass
+
+            devices_out.append({
+                "index": i,
+                "name": device.name,
+                "schema_type": schema_type,
+                "parameters": filtered_params,
+            })
+
+        return {"track_index": track_index, "track_name": track.name, "devices": devices_out}
+
+    def _cmd_get_stock_mix_context(self, params):
+        track_index = int(params["track_index"])
+        return self._get_stock_mix_context_data(track_index)
+
+    def _cmd_apply_named_parameter_change(self, params):
+        track_index = int(params["track_index"])
+        device_index = int(params["device_index"])
+        parameter_name = str(params["parameter_name"])
+        value = float(params["value"])
+        device = self._get_device(track_index, device_index)
+        name_lower = parameter_name.lower()
+        matches = []
+        for p in device.parameters:
+            if name_lower in p.name.lower():
+                matches.append(p)
+        if len(matches) == 0:
+            available = [p.name for p in device.parameters]
+            raise ValueError(
+                "No parameter matching '{}' found on device '{}'. "
+                "Available parameters: {}".format(parameter_name, device.name, available)
+            )
+        if len(matches) > 1:
+            matched_names = [p.name for p in matches]
+            raise ValueError(
+                "Ambiguous parameter name '{}' matched {} parameters on device '{}': {}. "
+                "Please be more specific.".format(
+                    parameter_name, len(matches), device.name, matched_names
+                )
+            )
+        param = matches[0]
+        clamped = max(param.min, min(param.max, value))
+        def fn():
+            param.value = clamped
+        self._run_on_main_thread(fn)
+        return {"parameter_name": param.name, "value": clamped}
+
+    def _cmd_insert_stock_device(self, params):
+        track_index = int(params["track_index"])
+        device_name = str(params["device_name"])
+        position = int(params.get("position", -1))
+        key = device_name.lower().strip()
+        path = STOCK_DEVICE_PATHS.get(key)
+        if path is None:
+            supported = sorted(STOCK_DEVICE_PATHS.keys())
+            raise ValueError(
+                "Unrecognized device name '{}'. Supported names: {}".format(device_name, supported)
+            )
+        track = self._get_track(track_index)
+        app = self._ControlSurface__c_instance.application()
+        browser = app.browser
+
+        parts = [p for p in path.split("/") if p]
+        root_map = {
+            "instruments": browser.instruments,
+            "audio_effects": browser.audio_effects,
+            "midi_effects": browser.midi_effects,
+        }
+        if not parts or parts[0] not in root_map:
+            raise ValueError("Invalid browser path: {}".format(path))
+
+        current = root_map[parts[0]]
+        for part in parts[1:]:
+            found = None
+            for child in current.children:
+                if child.name.lower() == part.lower():
+                    found = child
+                    break
+            if found is None:
+                raise ValueError("Browser path segment '{}' not found in path '{}'".format(part, path))
+            current = found
+
+        # Find the first loadable (non-folder) item
+        item = None
+        if not current.is_folder:
+            item = current
+        else:
+            for child in current.children:
+                if not child.is_folder:
+                    item = child
+                    break
+
+        if item is None:
+            raise ValueError("No loadable item found at browser path '{}'".format(path))
+
+        def fn():
+            self.song.view.selected_track = track
+            browser.load_item(item)
+
+        self._run_on_main_thread(fn)
+
+        result = {"track_index": track_index, "device_name": device_name, "path": path}
+        if position != -1:
+            result["position_note"] = (
+                "Device loaded at end of chain. Reordering to position {} is not "
+                "supported via the LOM API — please reorder manually.".format(position)
+            )
+        return result
+
+    def _get_device_chain_summary_data(self, track_index):
+        track = self._get_track(track_index)
+        devices = []
+        type_map = {0: "instrument", 1: "audio_effect", 2: "midi_effect"}
+        for i, device in enumerate(track.devices):
+            schema_type = self._detect_schema_type(device)
+            devices.append({
+                "index": i,
+                "name": device.name,
+                "type": type_map.get(int(device.type), "unknown"),
+                "is_active": device.is_active,
+                "schema_type": schema_type,
+            })
+        return {
+            "track_index": track_index,
+            "track_name": track.name,
+            "device_count": len(devices),
+            "devices": devices,
+        }
+
+    def _cmd_get_device_chain_summary(self, params):
+        track_index = int(params["track_index"])
+        return self._get_device_chain_summary_data(track_index)
