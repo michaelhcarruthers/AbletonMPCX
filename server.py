@@ -384,8 +384,30 @@ def get_tracks() -> list:
 
 @mcp.tool()
 def get_track_info(track_index: int) -> dict:
-    """Return full details for the track at track_index, including clip slots and devices."""
+    """Return full details for the track at track_index, including clip slots and devices. Use track_index=-1 to target the master track."""
     return _send("get_track_info", {"track_index": track_index})
+
+@mcp.tool()
+def get_track_names(include_returns: bool = False, include_master: bool = False) -> list:
+    """
+    Return a lightweight list of all track names and their indices.
+    Much faster than get_tracks() when you only need names.
+
+    Args:
+        include_returns: If True, also include return tracks (marked with is_return=True).
+        include_master: If True, also include the master track at index -1.
+
+    Returns:
+        List of dicts with 'index' and 'name' keys.
+        Return tracks also include 'is_return': True when include_returns is True.
+        Master track also includes 'is_master': True when include_master is True.
+        Use the returned indices with any track_index parameter.
+        Master track is always at index -1.
+    """
+    return _send("get_track_names", {
+        "include_returns": include_returns,
+        "include_master": include_master,
+    })
 
 @mcp.tool()
 def set_track_name(track_index: int, name: str) -> dict:
@@ -671,7 +693,7 @@ def fire_scene(scene_index: int) -> dict:
 
 @mcp.tool()
 def get_devices(track_index: int) -> list:
-    """Return all devices on the track at track_index."""
+    """Return all devices on the track at track_index. Use track_index=-1 to target the master track."""
     return _send("get_devices", {"track_index": track_index})
 
 @mcp.tool()
@@ -681,12 +703,12 @@ def get_device_info(track_index: int, device_index: int) -> dict:
 
 @mcp.tool()
 def get_device_parameters(track_index: int, device_index: int) -> dict:
-    """Return all automatable parameters for the device at (track_index, device_index)."""
+    """Return all automatable parameters for the device at (track_index, device_index). Use track_index=-1 to target the master track."""
     return _send("get_device_parameters", {"track_index": track_index, "device_index": device_index})
 
 @mcp.tool()
 def set_device_parameter(track_index: int, device_index: int, parameter_index: int, value: float) -> dict:
-    """Set a device parameter by index. Value is clamped to min/max automatically."""
+    """Set a device parameter by index. Value is clamped to min/max automatically. Use track_index=-1 to target the master track."""
     return _send("set_device_parameter", {
         "track_index": track_index,
         "device_index": device_index,
@@ -696,17 +718,17 @@ def set_device_parameter(track_index: int, device_index: int, parameter_index: i
 
 @mcp.tool()
 def set_device_enabled(track_index: int, device_index: int, enabled: bool) -> dict:
-    """Enable or disable the device at (track_index, device_index)."""
+    """Enable or disable the device at (track_index, device_index). Use track_index=-1 to target the master track."""
     return _send("set_device_enabled", {"track_index": track_index, "device_index": device_index, "enabled": enabled})
 
 @mcp.tool()
 def delete_device(track_index: int, device_index: int) -> dict:
-    """Delete the device at (track_index, device_index)."""
+    """Delete the device at (track_index, device_index). Use track_index=-1 to target the master track."""
     return _send("delete_device", {"track_index": track_index, "device_index": device_index})
 
 @mcp.tool()
 def duplicate_device(track_index: int, device_index: int) -> dict:
-    """Duplicate the device at (track_index, device_index)."""
+    """Duplicate the device at (track_index, device_index). Use track_index=-1 to target the master track."""
     return _send("duplicate_device", {"track_index": track_index, "device_index": device_index})
 
 # ---------------------------------------------------------------------------
@@ -715,7 +737,7 @@ def duplicate_device(track_index: int, device_index: int) -> dict:
 
 @mcp.tool()
 def get_mixer_device(track_index: int) -> dict:
-    """Return the mixer device state (volume, pan, sends) for the track."""
+    """Return the mixer device state (volume, pan, sends) for the track. Use track_index=-1 to target the master track."""
     return _send("get_mixer_device", {"track_index": track_index})
 
 @mcp.tool()
