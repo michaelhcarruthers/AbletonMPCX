@@ -1546,3 +1546,58 @@ class AbletonMPCX(ControlSurface):
 
         self._run_on_main_thread(fn)
         return {}
+
+    def _cmd_add_native_device(self, params):
+        """Insert a native Ableton device onto a track by searching the browser by name or URI fragment."""
+        track_index = int(params["track_index"])
+        device_name = str(params["device_name"]).lower()
+        track = self._get_track(track_index)
+        try:
+            browser = self.application().browser
+        except AttributeError:
+            raise RuntimeError("Browser not supported in this version of Ableton Live")
+
+        def _find_by_name(node):
+            try:
+                children = node.children
+            except AttributeError:
+                return None
+            for child in children:
+                try:
+                    if device_name in child.name.lower():
+                        return child
+                    uri = str(getattr(child, "uri", "") or "")
+                    if device_name in uri.lower():
+                        return child
+                    if child.is_folder:
+                        found = _find_by_name(child)
+                        if found is not None:
+                            return found
+                except AttributeError:
+                    continue
+            return None
+
+        found_item = None
+        for category_attr in ("instruments", "audio_effects", "midi_effects", "plugins"):
+            try:
+                category = getattr(browser, category_attr)
+                found_item = _find_by_name(category)
+                if found_item is not None:
+                    break
+            except AttributeError:
+                continue
+
+        if found_item is None:
+            raise RuntimeError(
+                "Device '{}' not found in browser. Try names like: "
+                "'Compressor', 'Glue Compressor', 'EQ Eight', 'Limiter', "
+                "'Multiband Dynamics', 'Saturator', 'Auto Filter', 'Reverb', "
+                "'Delay', 'Utility', 'Drum Rack', 'Instrument Rack'".format(params["device_name"])
+            )
+
+        def fn():
+            self._song.view.selected_track = track
+            browser.load_item(found_item)
+
+        self._run_on_main_thread(fn)
+        return {"device_name": found_item.name}
