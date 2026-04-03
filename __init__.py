@@ -574,13 +574,17 @@ class AbletonMPCX(ControlSurface):
         result = []
         for i, track in enumerate(self._song.tracks):
             mixer = track.mixer_device
+            try:
+                arm_val = track.arm
+            except (AttributeError, RuntimeError):
+                arm_val = False
             result.append({
                 "index": i,
                 "name": track.name,
                 "color": self._color(track),
                 "mute": track.mute,
                 "solo": track.solo,
-                "arm": track.arm if hasattr(track, "arm") else False,
+                "arm": arm_val,
                 "volume": mixer.volume.value,
                 "pan": mixer.panning.value,
                 "is_midi_track": track.has_midi_input,
@@ -606,13 +610,17 @@ class AbletonMPCX(ControlSurface):
                 entry["is_recording"] = clip.is_recording
             clip_slots_summary.append(entry)
         devices_summary = [{"index": k, "name": d.name, "class_name": d.class_name} for k, d in enumerate(track.devices)]
+        try:
+            arm_val = track.arm
+        except (AttributeError, RuntimeError):
+            arm_val = False
         info = {
             "index": track_index,
             "name": track.name,
             "color": self._color(track),
             "mute": track.mute,
             "solo": track.solo,
-            "arm": track.arm if hasattr(track, "arm") else False,
+            "arm": arm_val,
             "volume": mixer.volume.value,
             "pan": mixer.panning.value,
             "sends": sends,
@@ -783,9 +791,10 @@ class AbletonMPCX(ControlSurface):
         track = self._get_track(int(params["track_index"]))
         fold_state = int(params["fold_state"])
         def fn():
-            if not getattr(track, "is_foldable", False):
-                raise RuntimeError("Track {} is not a group track and does not support fold_state".format(params["track_index"]))
-            track.fold_state = fold_state
+            try:
+                track.fold_state = fold_state
+            except (AttributeError, RuntimeError):
+                raise RuntimeError("track at index {} is not foldable".format(int(params["track_index"])))
         self._run_on_main_thread(fn)
         return {}
 
@@ -886,18 +895,20 @@ class AbletonMPCX(ControlSurface):
 
     def _cmd_get_notes(self, params):
         clip = self._get_clip(int(params["track_index"]), int(params["slot_index"]))
-        if not clip.is_midi_clip:
-            raise RuntimeError("Clip is not a MIDI clip")
-        notes = []
-        for note in clip.get_notes(0, 0, clip.length, 128):
-            notes.append({
-                "pitch": note[0],
-                "start_time": note[1],
-                "duration": note[2],
-                "velocity": note[3],
-                "mute": note[4],
-            })
-        return {"notes": notes}
+        def fn():
+            if not clip.is_midi_clip:
+                raise RuntimeError("Clip is not a MIDI clip")
+            notes = []
+            for note in clip.get_notes(0, 0, clip.length, 128):
+                notes.append({
+                    "pitch": note[0],
+                    "start_time": note[1],
+                    "duration": note[2],
+                    "velocity": note[3],
+                    "mute": note[4],
+                })
+            return {"notes": notes}
+        return self._run_on_main_thread(fn)
 
     # -------------------------------------------------------------------------
     # Clip (write)
