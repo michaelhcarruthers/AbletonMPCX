@@ -16,6 +16,12 @@ try:
 except ImportError:
     import queue
 
+try:
+    TimeoutError
+except NameError:
+    # Python 2 (Ableton Live < 11)
+    TimeoutError = RuntimeError
+
 import Live  # noqa: F401 – provided by Ableton's Python environment
 
 from _Framework.ControlSurface import ControlSurface
@@ -88,26 +94,25 @@ class AbletonMPCX(ControlSurface):
 
     def _handle_connection(self, conn):
         try:
-            data = b""
-            request = None
             conn.settimeout(5.0)
-            while True:
-                chunk = conn.recv(65536)
-                if not chunk:
-                    break
-                data += chunk
-                try:
-                    request = json.loads(data.decode("utf-8"))
-                    break
-                except ValueError:
-                    continue
-            if not data or request is None:
+            # Read 4-byte length prefix
+            header = self._recv_exactly(conn, 4)
+            if not header:
                 return
+            msg_len = int.from_bytes(header, "big")
+            if msg_len > 10 * 1024 * 1024:  # 10 MB sanity cap
+                raise RuntimeError("Incoming message too large: {} bytes".format(msg_len))
+            data = self._recv_exactly(conn, msg_len)
+            if data is None:
+                return
+            request = json.loads(data.decode("utf-8"))
             response = self._dispatch(request)
-            conn.sendall(json.dumps(response).encode("utf-8"))
+            payload = json.dumps(response).encode("utf-8")
+            conn.sendall(len(payload).to_bytes(4, "big") + payload)
         except Exception as e:
             try:
-                conn.sendall(json.dumps({"status": "error", "error": str(e)}).encode("utf-8"))
+                err_payload = json.dumps({"status": "error", "error": str(e)}).encode("utf-8")
+                conn.sendall(len(err_payload).to_bytes(4, "big") + err_payload)
             except Exception:
                 pass
         finally:
@@ -115,6 +120,16 @@ class AbletonMPCX(ControlSurface):
                 conn.close()
             except Exception:
                 pass
+
+    def _recv_exactly(self, conn, n):
+        """Read exactly n bytes from conn, returning None if the connection closes early."""
+        buf = b""
+        while len(buf) < n:
+            chunk = conn.recv(min(65536, n - len(buf)))
+            if not chunk:
+                return None
+            buf += chunk
+        return buf
 
     # -------------------------------------------------------------------------
     # Dispatch
@@ -144,7 +159,13 @@ class AbletonMPCX(ControlSurface):
                 result_queue.put(("error", str(exc)))
 
         self.schedule_message(0, wrapper)
-        kind, value = result_queue.get(timeout=self.THREAD_TIMEOUT)
+        try:
+            kind, value = result_queue.get(timeout=self.THREAD_TIMEOUT)
+        except queue.Empty:
+            raise TimeoutError(
+                "Live main thread did not respond within {}s. "
+                "Live may be busy or the Remote Script may have crashed.".format(self.THREAD_TIMEOUT)
+            )
         if kind == "error":
             raise RuntimeError(value)
         return value
@@ -212,13 +233,6 @@ class AbletonMPCX(ControlSurface):
             return getattr(obj, attr)
         except AttributeError:
             return default
-
-    @staticmethod
-    def _require(params, *keys):
-        """Raise a clear error if any required param key is missing."""
-        for key in keys:
-            if key not in params:
-                raise ValueError("Missing required parameter: '{}'".format(key))
 
     # -------------------------------------------------------------------------
     # Application
@@ -1304,9 +1318,10 @@ class AbletonMPCX(ControlSurface):
     def _cmd_set_device_parameter_human(self, params):
         """
         Set a device parameter using human-readable units.
-        Accepts 'hz' for frequency, 'ms' for time, 'db' for gain/level,
+        Accepts 'hz' for frequency (clamped to param range), 'ms' for time,
         or 'normalized' to pass through a raw 0-1 value.
-        Raises ValueError for unrecognised units.
+        'db' is NOT supported — use 'normalized' instead.
+        Raises ValueError for unsupported units.
         """
         device = self._get_device(int(params["track_index"]), int(params["device_index"]))
         param_index = int(params["parameter_index"])
@@ -1324,26 +1339,24 @@ class AbletonMPCX(ControlSurface):
             return max(lo, min(hi, v))
 
         if unit == "hz":
-            # Log-scale frequency mapping: normalized = log(hz/min) / log(max/min)
-            freq_min = p_min if p_min > 0 else 1.0
-            if p_max <= freq_min:
-                raise ValueError("Parameter does not appear to be a frequency parameter")
-            normalized = math.log(value / freq_min) / math.log(p_max / freq_min)
-            normalized = clamp(normalized, 0.0, 1.0)
-            # Map normalized 0-1 to actual param range
-            val = freq_min + normalized * (p_max - freq_min)
+            # Live stores frequency parameters in Hz directly.
+            # Just clamp to the parameter's valid range.
+            val = clamp(value, p_min, p_max)
         elif unit == "ms":
             # Linear ms mapping within param range (which is already in ms for attack/release)
             val = clamp(value, p_min, p_max)
         elif unit == "db":
-            # dB to linear amplitude: param range is typically 0-1 linear
-            # Convert dB to linear: linear = 10^(db/20)
-            linear = 10.0 ** (value / 20.0)
-            val = clamp(linear, p_min, p_max)
+            # Live's volume/gain parameters do not use a standard linear-amplitude curve.
+            # Use 'normalized' and consult get_device_parameters to understand the range.
+            raise ValueError(
+                "Unit 'db' is not supported — Live's gain parameters use an internal curve. "
+                "Use unit='normalized' with a value in [0.0, 1.0] instead, or use "
+                "set_device_parameter with a raw value from get_device_parameters."
+            )
         elif unit == "normalized":
             val = p_min + clamp(value, 0.0, 1.0) * (p_max - p_min)
         else:
-            raise ValueError("Unrecognised unit '{}'. Valid units: 'hz', 'ms', 'db', 'normalized'".format(unit))
+            raise ValueError("Unrecognised unit '{}'. Valid units: 'hz', 'ms', 'normalized'".format(unit))
 
         def fn():
             param.value = val
