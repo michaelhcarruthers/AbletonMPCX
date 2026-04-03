@@ -843,9 +843,10 @@ def set_device_parameter_human(
     Use track_index=-1 for the master track.
 
     unit options:
-      'hz'         — frequency in Hertz (log scale, e.g. 1000.0 for 1 kHz)
-      'ms'         — time in milliseconds (linear, e.g. 10.0 for 10ms attack)
-      'db'         — decibels (e.g. -6.0 for -6 dB, converted to linear amplitude)
+      'hz'         — frequency in Hertz, log-scale mapped to parameter range
+      'ms'         — time in milliseconds, linearly clamped to parameter range
+      'db'         — NOT supported: raises ValueError. dB conversion is device-dependent.
+                     Use 'normalized' and consult get_device_parameters() for the raw range.
       'normalized' — raw 0.0–1.0 value mapped to the parameter's full range (default)
 
     Returns the actual value set and the parameter's min/max for reference.
@@ -857,8 +858,8 @@ def set_device_parameter_human(
       # Set Compressor attack to 5ms
       set_device_parameter_human(0, 1, 3, 5.0, unit="ms")
 
-      # Set output gain to -3 dB
-      set_device_parameter_human(0, 2, 8, -3.0, unit="db")
+      # Set output gain (use normalized — check get_device_parameters for range)
+      set_device_parameter_human(0, 2, 8, 0.85, unit="normalized")
     """
     return _send("set_device_parameter_human", {
         "track_index": track_index,
@@ -2436,6 +2437,74 @@ def observer_status() -> dict:
         "queue_length": queue_len,
         "last_snapshot_track_count": last_snap.get("track_count", 0) if last_snap else None,
         "last_snapshot_tempo": last_snap.get("tempo") if last_snap else None,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Phase 7: Song creation from brief
+# ---------------------------------------------------------------------------
+
+_STYLE_PRESETS: dict[str, dict] = {
+    "snoop": {"bpm": 90, "tracks": [("Drums", "midi"), ("Bass", "midi"), ("Melody", "midi"), ("FX", "midi")]},
+    "hip_hop": {"bpm": 90, "tracks": [("Drums", "midi"), ("Bass", "midi"), ("Melody", "midi"), ("FX", "midi")]},
+    "boom_bap": {"bpm": 85, "tracks": [("Drums", "midi"), ("Bass", "midi"), ("Sample", "audio"), ("Lead", "midi")]},
+    "trap": {"bpm": 140, "tracks": [("808", "midi"), ("HiHat", "midi"), ("Melody", "midi"), ("FX", "midi")]},
+    "lofi": {"bpm": 75, "tracks": [("Drums", "midi"), ("Bass", "midi"), ("Piano", "midi"), ("Texture", "audio")]},
+}
+_STYLE_FREE: dict = {"bpm": 120, "tracks": [("MIDI 1", "midi"), ("MIDI 2", "midi"), ("MIDI 3", "midi"), ("Audio 1", "audio")]}
+
+
+@mcp.tool()
+def create_song_from_brief(
+    style: str,
+    key: str | None = None,
+    bpm: float | None = None,
+) -> dict:
+    """
+    Create a skeleton arrangement from a music style brief.
+
+    Supported styles: 'snoop', 'hip_hop', 'boom_bap', 'trap', 'lofi', or any value for a generic layout.
+
+    Args:
+        style: Music style preset.
+        key: Optional musical key (e.g. 'C', 'F#m'). Stored as metadata; no Ableton command is issued.
+        bpm: Override BPM. Uses style default if not provided.
+
+    Returns:
+        style, bpm, key, tracks_created, track_names, warnings
+    """
+    preset = _STYLE_PRESETS.get(style, _STYLE_FREE)
+    bpm_used: float = bpm if bpm is not None else float(preset["bpm"])
+    tracks: list[tuple[str, str]] = preset["tracks"]
+    warnings: list[str] = []
+
+    # 1. Set tempo
+    _send_logged("set_tempo", {"tempo": bpm_used})
+
+    # 2. Create tracks and rename them
+    track_names: list[str] = []
+    for idx, (name, track_type) in enumerate(tracks):
+        if track_type == "audio":
+            _send_logged("create_audio_track", {"index": idx})
+        else:
+            _send_logged("create_midi_track", {"index": idx})
+        _send_logged("set_track_name", {"track_index": idx, "name": name})
+        track_names.append(name)
+
+    # 3. Warn if key was provided (no set_song_key command available)
+    if key is not None:
+        warnings.append(
+            f"Key '{key}' noted but no set_song_key command is available; "
+            "set the key manually in Ableton."
+        )
+
+    return {
+        "style": style,
+        "bpm": bpm_used,
+        "key": key,
+        "tracks_created": len(track_names),
+        "track_names": track_names,
+        "warnings": warnings,
     }
 
 

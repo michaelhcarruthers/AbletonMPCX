@@ -189,7 +189,7 @@ def cmd_log(args: list[str]):
         except ValueError:
             pass
     result = get_operation_log(n)
-    entries = result.get("log", [])
+    entries = result.get("entries", [])
     print(f"📊 Operation log (last {len(entries)}):")
     for e in entries:
         ts = e.get("ts", "")[:19]
@@ -237,7 +237,7 @@ def cmd_note(args: list[str]):
         return
     text = " ".join(args)
     result = add_project_note(text)
-    print(f"✅ Note added: {result.get('note', text)}")
+    print(f"✅ Note added (id={result.get('note_id', '?')}, ts={result.get('timestamp', '?')}): {text}")
 
 
 def cmd_song(args: list[str]):
