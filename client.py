@@ -41,6 +41,7 @@ from server import (  # noqa: E402
     add_project_note,
     get_pending_suggestions,
     create_song_from_brief,
+    observer_status,
 )
 
 # ---------------------------------------------------------------------------
@@ -64,6 +65,7 @@ Available commands:
   note <text>                     Add a project note
   song <style> [key] [bpm]        Create a song from a style brief
   pending                         Show pending observer suggestions
+  observer                        Show observer thread status
   help                            Show this help
   quit / exit                     Exit
 """
@@ -284,6 +286,19 @@ def cmd_pending(_args: list[str]):
             print(f"   → {action}")
 
 
+def cmd_observer(args: list[str]) -> None:
+    result = observer_status()
+    running = result.get("running", False)
+    interval = result.get("poll_interval_seconds", "?")
+    queue_len = result.get("queue_length", 0)
+    last_tracks = result.get("last_snapshot_track_count", "?")
+    icon = "✅" if running else "❌"
+    print("  {} Observer thread: {}".format(icon, "running" if running else "stopped"))
+    print("  📊 Poll interval: {}s  |  Queue length: {}  |  Last seen tracks: {}".format(
+        interval, queue_len, last_tracks
+    ))
+
+
 COMMANDS = {
     "snapshot": cmd_snapshot,
     "diff": cmd_diff,
@@ -296,6 +311,7 @@ COMMANDS = {
     "note": cmd_note,
     "song": cmd_song,
     "pending": cmd_pending,
+    "observer": cmd_observer,
 }
 
 # ---------------------------------------------------------------------------
