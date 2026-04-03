@@ -717,6 +717,45 @@ def set_device_parameter(track_index: int, device_index: int, parameter_index: i
     })
 
 @mcp.tool()
+def set_device_parameter_human(
+    track_index: int,
+    device_index: int,
+    parameter_index: int,
+    value: float,
+    unit: str = "normalized",
+) -> dict:
+    """
+    Set a device parameter using human-readable units.
+
+    Use track_index=-1 for the master track.
+
+    unit options:
+      'hz'         — frequency in Hertz (log scale, e.g. 1000.0 for 1 kHz)
+      'ms'         — time in milliseconds (linear, e.g. 10.0 for 10ms attack)
+      'db'         — decibels (e.g. -6.0 for -6 dB, converted to linear amplitude)
+      'normalized' — raw 0.0–1.0 value mapped to the parameter's full range (default)
+
+    Returns the actual value set and the parameter's min/max for reference.
+
+    Examples:
+      # Set EQ Eight band 1 frequency to 200 Hz
+      set_device_parameter_human(0, 0, 2, 200.0, unit="hz")
+
+      # Set Compressor attack to 5ms
+      set_device_parameter_human(0, 1, 3, 5.0, unit="ms")
+
+      # Set output gain to -3 dB
+      set_device_parameter_human(0, 2, 8, -3.0, unit="db")
+    """
+    return _send("set_device_parameter_human", {
+        "track_index": track_index,
+        "device_index": device_index,
+        "parameter_index": parameter_index,
+        "value": value,
+        "unit": unit,
+    })
+
+@mcp.tool()
 def set_device_enabled(track_index: int, device_index: int, enabled: bool) -> dict:
     """Enable or disable the device at (track_index, device_index). Use track_index=-1 to target the master track."""
     return _send("set_device_enabled", {"track_index": track_index, "device_index": device_index, "enabled": enabled})
@@ -831,6 +870,79 @@ def add_native_device(track_index: int, device_name: str) -> dict:
         dict with 'device_name' key confirming the matched device name.
     """
     return _send("add_native_device", {"track_index": track_index, "device_name": device_name})
+
+@mcp.tool()
+def set_mixer_snapshot(states: list[dict]) -> dict:
+    """
+    Set volume, pan, sends, mute, and/or arm on multiple tracks in a single call.
+
+    Much more efficient than calling set_track_volume / set_track_pan individually.
+    All changes are applied in the same audio cycle.
+
+    Use track_index=-1 in a state dict to target the master track.
+
+    Each state dict can contain:
+      track_index (int, required)
+      volume      (float 0.0–1.0, optional)
+      pan         (float -1.0 to 1.0, optional)
+      sends       (list of floats 0.0–1.0, optional — indexed from 0)
+      mute        (bool, optional)
+      arm         (bool, optional)
+
+    Example:
+      set_mixer_snapshot([
+        {"track_index": 0, "volume": 0.8, "pan": -0.2},
+        {"track_index": 1, "volume": 0.75, "sends": [0.6, 0.0]},
+        {"track_index": -1, "volume": 0.85},
+      ])
+    """
+    return _send("set_mixer_snapshot", {"states": states})
+
+@mcp.tool()
+def set_return_track_volume(index: int, value: float) -> dict:
+    """Set the volume of the return track at index (0.0-1.0)."""
+    return _send("set_return_track_volume", {"index": index, "value": value})
+
+@mcp.tool()
+def set_return_track_pan(index: int, value: float) -> dict:
+    """Set the panning of the return track at index (-1.0 to 1.0)."""
+    return _send("set_return_track_pan", {"index": index, "value": value})
+
+@mcp.tool()
+def set_return_track_name(index: int, name: str) -> dict:
+    """Rename the return track at index."""
+    return _send("set_return_track_name", {"index": index, "name": name})
+
+@mcp.tool()
+def set_return_track_mute(index: int, mute: bool) -> dict:
+    """Mute or unmute the return track at index."""
+    return _send("set_return_track_mute", {"index": index, "mute": mute})
+
+@mcp.tool()
+def begin_undo_step(name: str = "MCP Operation") -> dict:
+    """
+    Begin a named undo step. All changes made until end_undo_step() will be
+    grouped into a single Cmd+Z undo action in Live.
+
+    Always call end_undo_step() after you are done, even if an error occurs.
+
+    Example:
+      begin_undo_step("Master chain setup")
+      add_native_device(-1, "EQ Eight")
+      add_native_device(-1, "Compressor")
+      add_native_device(-1, "Limiter")
+      end_undo_step()
+      # Now Cmd+Z removes all three devices at once
+    """
+    return _send("begin_undo_step", {"name": name})
+
+@mcp.tool()
+def end_undo_step() -> dict:
+    """
+    Close the current undo step opened by begin_undo_step().
+    All changes since begin_undo_step() will be undoable as a single action.
+    """
+    return _send("end_undo_step", {})
 
 # ---------------------------------------------------------------------------
 # Entry point
