@@ -39,6 +39,7 @@ def _ableton_socket():
 
 def _send(command: str, params: dict[str, Any] | None = None) -> Any:
     payload = json.dumps({"command": command, "params": params or {}}).encode()
+    response = None
     with _ableton_socket() as sock:
         sock.sendall(payload)
         chunks: list[bytes] = []
@@ -52,6 +53,8 @@ def _send(command: str, params: dict[str, Any] | None = None) -> Any:
                 break
             except json.JSONDecodeError:
                 continue
+    if response is None:
+        raise RuntimeError("No valid JSON response received from Ableton")
     if response.get("status") != "ok":
         raise RuntimeError(f"Ableton error: {response.get('error', 'unknown')}")
     return response.get("result")
@@ -265,7 +268,7 @@ def delete_return_track(index: int) -> dict:
 @mcp.tool()
 def duplicate_scene(index: int) -> dict:
     """Duplicate the scene at index."""
-    return _send("duplicate_scene", {"index": index})
+    return _send("duplicate_scene", {"scene_index": index})
 
 @mcp.tool()
 def duplicate_track(track_index: int) -> dict:

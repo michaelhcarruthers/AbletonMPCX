@@ -1321,6 +1321,11 @@ class AbletonMPCX(ControlSurface):
             raise RuntimeError("Device does not support drum pads (not a Drum Rack)")
         result = []
         for pad in drum_pads:
+            try:
+                if not list(pad.chains):
+                    continue
+            except AttributeError:
+                continue
             result.append({
                 "note": pad.note,
                 "name": pad.name,
@@ -1484,10 +1489,41 @@ class AbletonMPCX(ControlSurface):
         uri = str(params["uri"])
         track_index = int(params.get("track_index", 0))
         track = self._get_track(track_index)
-        def fn():
+
+        def _find_item(node, target_uri):
             try:
-                browser.load_item(uri, track)
+                children = node.children
             except AttributeError:
-                raise RuntimeError("load_item not supported in this version of Ableton Live")
+                return None
+            for child in children:
+                child_uri = getattr(child, "uri", None)
+                if child_uri and str(child_uri) == target_uri:
+                    return child
+                if child.is_folder:
+                    found = _find_item(child, target_uri)
+                    if found is not None:
+                        return found
+            return None
+
+        found_item = None
+        for attr in ("instruments", "sounds", "drums", "audio_effects", "midi_effects", "plugins", "clips", "samples"):
+            try:
+                root = getattr(browser, attr)
+                found_item = _find_item(root, uri)
+                if found_item is not None:
+                    break
+            except AttributeError:
+                continue
+
+        if found_item is None:
+            raise RuntimeError("No browser item found with URI: {}".format(uri))
+
+        def fn():
+            self._song.view.selected_track = track
+            try:
+                browser.load_item(found_item)
+            except AttributeError:
+                raise RuntimeError("browser.load_item() not supported in this version of Ableton Live")
+
         self._run_on_main_thread(fn)
         return {}
