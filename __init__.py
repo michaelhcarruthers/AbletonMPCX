@@ -158,6 +158,8 @@ class AbletonMPCX(ControlSurface):
         return self.song()
 
     def _get_track(self, track_index):
+        if track_index == -1:
+            return self._song.master_track
         tracks = list(self._song.tracks)
         if track_index < 0 or track_index >= len(tracks):
             raise IndexError("track_index {} out of range (0-{})".format(track_index, len(tracks) - 1))
@@ -593,6 +595,18 @@ class AbletonMPCX(ControlSurface):
                 "device_count": len(list(track.devices)),
                 "clip_slot_count": len(list(track.clip_slots)),
             })
+        return result
+
+    def _cmd_get_track_names(self, params):
+        """Return a lightweight list of all track names and indices."""
+        result = []
+        for i, track in enumerate(self._song.tracks):
+            result.append({"index": i, "name": track.name})
+        if params.get("include_returns", False):
+            for i, track in enumerate(self._song.return_tracks):
+                result.append({"index": i, "name": track.name, "is_return": True})
+        if params.get("include_master", False):
+            result.append({"index": -1, "name": self._song.master_track.name, "is_master": True})
         return result
 
     def _cmd_get_track_info(self, params):
