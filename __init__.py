@@ -620,7 +620,7 @@ class AbletonMPCX(ControlSurface):
             "is_midi_track": track.has_midi_input,
             "is_audio_track": track.has_audio_input,
             "is_foldable": track.is_foldable if hasattr(track, "is_foldable") else False,
-            "fold_state": int(track.fold_state) if hasattr(track, "fold_state") else 0,
+            "fold_state": self._safe_fold_state(track),
             "clip_slots": clip_slots_summary,
             "devices": devices_summary,
         }
@@ -773,10 +773,18 @@ class AbletonMPCX(ControlSurface):
         self._run_on_main_thread(fn)
         return {}
 
+    def _safe_fold_state(self, track):
+        try:
+            return int(track.fold_state)
+        except (AttributeError, RuntimeError):
+            return 0
+
     def _cmd_set_track_fold_state(self, params):
         track = self._get_track(int(params["track_index"]))
         fold_state = int(params["fold_state"])
         def fn():
+            if not getattr(track, "is_foldable", False):
+                raise RuntimeError("Track {} is not a group track and does not support fold_state".format(params["track_index"]))
             track.fold_state = fold_state
         self._run_on_main_thread(fn)
         return {}
