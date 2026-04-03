@@ -43,26 +43,32 @@ def _ableton_socket():
             pass
 
 
+def _recv_exactly(sock, n: int) -> bytes | None:
+    buf = b""
+    while len(buf) < n:
+        chunk = sock.recv(min(65536, n - len(buf)))
+        if not chunk:
+            return None
+        buf += chunk
+    return buf
+
+
 def _send(command: str, params: dict[str, Any] | None = None) -> Any:
-    payload = json.dumps({"command": command, "params": params or {}}).encode()
-    response = None
+    payload = json.dumps({"command": command, "params": params or {}}).encode("utf-8")
     with _ableton_socket() as sock:
-        sock.sendall(payload)
-        chunks: list[bytes] = []
-        while True:
-            chunk = sock.recv(65536)
-            if not chunk:
-                break
-            chunks.append(chunk)
-            try:
-                response = json.loads(b"".join(chunks).decode())
-                break
-            except json.JSONDecodeError:
-                continue
-    if response is None:
-        raise RuntimeError("No valid JSON response received from Ableton")
-    if response.get("status") != "ok":
-        raise RuntimeError(f"Ableton error: {response.get('error', 'unknown')}")
+        sock.sendall(len(payload).to_bytes(4, "big") + payload)
+        header = _recv_exactly(sock, 4)
+        if not header:
+            raise RuntimeError("Connection closed before response header")
+        msg_len = int.from_bytes(header, "big")
+        if msg_len > 10 * 1024 * 1024:
+            raise RuntimeError("Response too large: {} bytes".format(msg_len))
+        data = _recv_exactly(sock, msg_len)
+        if data is None:
+            raise RuntimeError("Connection closed before response body")
+    response = json.loads(data.decode("utf-8"))
+    if response.get("status") == "error":
+        raise RuntimeError(response.get("error", "unknown error"))
     return response.get("result")
 
 
@@ -835,10 +841,13 @@ def set_device_parameter_human(
     Use track_index=-1 for the master track.
 
     unit options:
-      'hz'         — frequency in Hertz (log scale, e.g. 1000.0 for 1 kHz)
+      'hz'         — frequency in Hertz, clamped directly to the parameter's range
       'ms'         — time in milliseconds (linear, e.g. 10.0 for 10ms attack)
-      'db'         — decibels (e.g. -6.0 for -6 dB, converted to linear amplitude)
       'normalized' — raw 0.0–1.0 value mapped to the parameter's full range (default)
+
+    Note: 'db' is not supported — Live's gain parameters use an internal non-standard
+    curve. Use unit='normalized' with a value in [0.0, 1.0] instead, or use
+    set_device_parameter with a raw value from get_device_parameters.
 
     Returns the actual value set and the parameter's min/max for reference.
 
@@ -848,9 +857,6 @@ def set_device_parameter_human(
 
       # Set Compressor attack to 5ms
       set_device_parameter_human(0, 1, 3, 5.0, unit="ms")
-
-      # Set output gain to -3 dB
-      set_device_parameter_human(0, 2, 8, -3.0, unit="db")
     """
     return _send("set_device_parameter_human", {
         "track_index": track_index,
