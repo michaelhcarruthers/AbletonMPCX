@@ -1037,6 +1037,107 @@ def end_undo_step() -> dict:
     return _send("end_undo_step", {})
 
 # ---------------------------------------------------------------------------
+# Protocol versioning and capability discovery
+# ---------------------------------------------------------------------------
+
+@mcp.tool()
+def get_protocol_version() -> dict:
+    """Return the AbletonMPCX protocol version string."""
+    return _send("get_protocol_version")
+
+
+@mcp.tool()
+def get_selected_context() -> dict:
+    """
+    Return everything currently selected/focused in Live:
+    selected_track, selected_scene, detail_clip (open in Detail View),
+    and appointed_device (focused device).
+
+    Use this at the start of a workflow to orient without making extra calls.
+    """
+    return _send("get_selected_context")
+
+
+@mcp.tool()
+def get_capabilities() -> dict:
+    """
+    Return the full list of available MCP tools with their parameter schemas.
+
+    Returns:
+        protocol_version: the AbletonMPCX protocol version
+        tool_count: number of registered tools
+        tools: list of {name, description, parameters: [{name, type, required, default}]}
+
+    Use this for self-configuration — an agent can call this once to know
+    exactly what commands are available and what parameters they accept.
+    """
+    import inspect
+
+    tools = []
+    # Iterate over all functions in this module decorated with @mcp.tool()
+    # FastMCP stores registered tools in mcp._tools (dict of name -> tool)
+    try:
+        registered = mcp._tool_manager._tools  # FastMCP internal
+    except AttributeError:
+        try:
+            registered = mcp._tools
+        except AttributeError:
+            registered = {}
+
+    for tool_name, tool_obj in registered.items():
+        try:
+            fn = tool_obj.fn
+            sig = inspect.signature(fn)
+            params = []
+            for pname, param in sig.parameters.items():
+                entry = {"name": pname}
+                if param.annotation != inspect.Parameter.empty:
+                    try:
+                        entry["type"] = str(param.annotation.__name__) if hasattr(param.annotation, "__name__") else str(param.annotation)
+                    except Exception:
+                        entry["type"] = "any"
+                entry["required"] = param.default == inspect.Parameter.empty
+                if param.default != inspect.Parameter.empty:
+                    entry["default"] = param.default
+                params.append(entry)
+            tools.append({
+                "name": tool_name,
+                "description": (fn.__doc__ or "").strip().split("\n")[0],
+                "parameters": params,
+            })
+        except Exception:
+            tools.append({"name": tool_name, "description": "", "parameters": []})
+
+    # Get protocol version from Ableton side
+    try:
+        version_info = _send("get_protocol_version")
+        protocol_version = version_info.get("protocol_version", "unknown")
+    except Exception:
+        protocol_version = "unknown"
+
+    return {
+        "protocol_version": protocol_version,
+        "tool_count": len(tools),
+        "tools": sorted(tools, key=lambda t: t["name"]),
+    }
+
+
+@mcp.tool()
+def get_session_snapshot() -> dict:
+    """
+    Return a full normalised snapshot of the current session in a single call.
+
+    Includes: tempo, time signature, transport state, all tracks (with mixer
+    values and device list), return tracks, master track devices, and scene list.
+    Does NOT include clip notes (use get_notes per clip for that).
+
+    Use this at the start of a session to orient an agent completely,
+    or before/after a set of changes to compare state.
+    """
+    return _send("get_session_snapshot")
+
+
+# ---------------------------------------------------------------------------
 # Entry point
 # ---------------------------------------------------------------------------
 

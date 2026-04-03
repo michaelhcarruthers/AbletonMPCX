@@ -30,6 +30,7 @@ class AbletonMPCX(ControlSurface):
     HOST = "localhost"
     PORT = 9877
     THREAD_TIMEOUT = 10.0  # seconds to wait for scheduled mutations
+    PROTOCOL_VERSION = "1.0.0"
 
     # -------------------------------------------------------------------------
     # Lifecycle
@@ -211,6 +212,13 @@ class AbletonMPCX(ControlSurface):
             return getattr(obj, attr)
         except AttributeError:
             return default
+
+    @staticmethod
+    def _require(params, *keys):
+        """Raise a clear error if any required param key is missing."""
+        for key in keys:
+            if key not in params:
+                raise ValueError("Missing required parameter: '{}'".format(key))
 
     # -------------------------------------------------------------------------
     # Application
@@ -1851,3 +1859,155 @@ class AbletonMPCX(ControlSurface):
 
         self._run_on_main_thread(fn)
         return {"device_name": found_item.name}
+
+    # -------------------------------------------------------------------------
+    # Protocol versioning
+    # -------------------------------------------------------------------------
+
+    def _cmd_get_protocol_version(self, params):
+        return {"protocol_version": self.PROTOCOL_VERSION}
+
+    # -------------------------------------------------------------------------
+    # Capability / context discovery
+    # -------------------------------------------------------------------------
+
+    def _cmd_get_selected_context(self, params):
+        """Return the currently selected track, scene, clip slot, and appointed device."""
+        view = self._song.view
+        context = {}
+
+        # Selected track
+        try:
+            sel_track = view.selected_track
+            all_tracks = list(self._song.tracks)
+            try:
+                track_idx = all_tracks.index(sel_track)
+            except ValueError:
+                track_idx = -1
+            context["selected_track"] = {"index": track_idx, "name": sel_track.name}
+        except AttributeError:
+            context["selected_track"] = None
+
+        # Selected scene
+        try:
+            sel_scene = view.selected_scene
+            all_scenes = list(self._song.scenes)
+            try:
+                scene_idx = all_scenes.index(sel_scene)
+            except ValueError:
+                scene_idx = -1
+            context["selected_scene"] = {"index": scene_idx, "name": sel_scene.name}
+        except AttributeError:
+            context["selected_scene"] = None
+
+        # Detail clip (clip open in Detail View)
+        try:
+            detail_clip = view.detail_clip
+            if detail_clip is not None:
+                context["detail_clip"] = {"name": detail_clip.name, "is_midi_clip": detail_clip.is_midi_clip}
+            else:
+                context["detail_clip"] = None
+        except AttributeError:
+            context["detail_clip"] = None
+
+        # Appointed device
+        try:
+            device = self._song.appointed_device
+            if device is not None:
+                all_tracks = list(self._song.tracks)
+                master = self._song.master_track
+                found = None
+                for ti, t in enumerate(all_tracks):
+                    for di, d in enumerate(t.devices):
+                        if d == device:
+                            found = {"track_index": ti, "device_index": di, "name": device.name, "class_name": device.class_name}
+                            break
+                    if found:
+                        break
+                if not found:
+                    for di, d in enumerate(master.devices):
+                        if d == device:
+                            found = {"track_index": -1, "device_index": di, "name": device.name, "class_name": device.class_name}
+                            break
+                context["appointed_device"] = found
+            else:
+                context["appointed_device"] = None
+        except AttributeError:
+            context["appointed_device"] = None
+
+        return context
+
+    def _cmd_get_session_snapshot(self, params):
+        """
+        Return a full normalised snapshot of the current session state.
+        Includes song info, all tracks (with mixer + device list), return tracks,
+        master track, and scene list. Does NOT include clip notes (too large).
+        """
+        s = self._song
+        snapshot = {}
+
+        # Song-level
+        snapshot["tempo"] = s.tempo
+        snapshot["time_signature"] = "{}/{}".format(s.signature_numerator, s.signature_denominator)
+        snapshot["is_playing"] = s.is_playing
+        for attr in ("exclusive_arm", "exclusive_solo", "select_on_launch", "groove_amount", "swing_amount"):
+            try:
+                snapshot[attr] = getattr(s, attr)
+            except AttributeError:
+                pass
+
+        # Tracks
+        tracks = []
+        for i, track in enumerate(s.tracks):
+            mixer = track.mixer_device
+            try:
+                arm_val = track.arm
+            except (AttributeError, RuntimeError):
+                arm_val = False
+            t = {
+                "index": i,
+                "name": track.name,
+                "color": self._color(track),
+                "mute": track.mute,
+                "solo": track.solo,
+                "arm": arm_val,
+                "volume": mixer.volume.value,
+                "pan": mixer.panning.value,
+                "sends": [send.value for send in mixer.sends],
+                "is_midi_track": track.has_midi_input,
+                "is_audio_track": track.has_audio_input,
+                "device_count": len(list(track.devices)),
+                "devices": [{"index": di, "name": d.name, "class_name": d.class_name, "is_active": d.is_active} for di, d in enumerate(track.devices)],
+                "clip_count": sum(1 for slot in track.clip_slots if slot.has_clip),
+            }
+            tracks.append(t)
+        snapshot["tracks"] = tracks
+
+        # Return tracks
+        returns = []
+        for i, track in enumerate(s.return_tracks):
+            mixer = track.mixer_device
+            returns.append({
+                "index": i,
+                "name": track.name,
+                "volume": mixer.volume.value,
+                "pan": mixer.panning.value,
+                "mute": track.mute,
+            })
+        snapshot["return_tracks"] = returns
+
+        # Master track
+        master = s.master_track
+        master_mixer = master.mixer_device
+        snapshot["master_track"] = {
+            "volume": master_mixer.volume.value,
+            "pan": master_mixer.panning.value,
+            "devices": [{"index": di, "name": d.name, "class_name": d.class_name, "is_active": d.is_active} for di, d in enumerate(master.devices)],
+        }
+
+        # Scenes
+        snapshot["scenes"] = [{"index": i, "name": scene.name} for i, scene in enumerate(s.scenes)]
+        snapshot["scene_count"] = len(snapshot["scenes"])
+        snapshot["track_count"] = len(tracks)
+
+        return snapshot
