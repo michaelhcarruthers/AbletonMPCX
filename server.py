@@ -5,8 +5,10 @@ Bridges the MCP protocol to the Ableton Remote Script running inside Live.
 """
 from __future__ import annotations
 
+import copy
 import json
 import socket
+import time
 from contextlib import contextmanager
 from typing import Any
 
@@ -1135,6 +1137,184 @@ def get_session_snapshot() -> dict:
     or before/after a set of changes to compare state.
     """
     return _send("get_session_snapshot")
+
+
+# ---------------------------------------------------------------------------
+# Snapshot store (in-process, ephemeral)
+# ---------------------------------------------------------------------------
+
+_snapshots: dict[str, dict] = {}
+
+
+@mcp.tool()
+def take_snapshot(label: str) -> dict:
+    """
+    Take a named snapshot of the current session state and store it in memory.
+
+    The snapshot is retrieved via get_session_snapshot() and stored under the
+    given label. Use diff_snapshots(label_a, label_b) to compare two snapshots.
+
+    Labels are ephemeral — they are lost when the MCP server restarts.
+
+    Args:
+        label: A name for this snapshot, e.g. 'before_eq', 'after_mix', 'v1'.
+
+    Returns:
+        label, track_count, scene_count, timestamp_ms
+    """
+    snapshot = _send("get_session_snapshot")
+    snapshot["_label"] = label
+    snapshot["_timestamp_ms"] = int(time.time() * 1000)
+    _snapshots[label] = snapshot
+    return {
+        "label": label,
+        "track_count": snapshot.get("track_count", 0),
+        "scene_count": snapshot.get("scene_count", 0),
+        "timestamp_ms": snapshot["_timestamp_ms"],
+    }
+
+
+@mcp.tool()
+def list_snapshots() -> dict:
+    """
+    List all stored snapshots by label and timestamp.
+
+    Returns:
+        snapshots: list of {label, track_count, scene_count, timestamp_ms}
+    """
+    return {
+        "snapshots": [
+            {
+                "label": label,
+                "track_count": s.get("track_count", 0),
+                "scene_count": s.get("scene_count", 0),
+                "timestamp_ms": s.get("_timestamp_ms", 0),
+            }
+            for label, s in sorted(_snapshots.items(), key=lambda x: x[1].get("_timestamp_ms", 0))
+        ]
+    }
+
+
+@mcp.tool()
+def delete_snapshot(label: str) -> dict:
+    """Delete a stored snapshot by label."""
+    if label not in _snapshots:
+        raise ValueError("No snapshot with label '{}'".format(label))
+    del _snapshots[label]
+    return {"deleted": label}
+
+
+def _diff_value(a, b, path: str, changes: list):
+    """Recursively diff two values, appending changes to the list."""
+    if type(a) != type(b):
+        changes.append({"path": path, "before": a, "after": b})
+        return
+    if isinstance(a, dict):
+        all_keys = set(a.keys()) | set(b.keys())
+        for k in sorted(all_keys):
+            if k.startswith("_"):
+                continue
+            child_path = "{}.{}".format(path, k)
+            if k not in a:
+                changes.append({"path": child_path, "before": None, "after": b[k]})
+            elif k not in b:
+                changes.append({"path": child_path, "before": a[k], "after": None})
+            else:
+                _diff_value(a[k], b[k], child_path, changes)
+    elif isinstance(a, list):
+        # For lists of dicts with an "index" key (tracks, scenes, devices), diff by index
+        if a and b and isinstance(a[0], dict) and "index" in a[0]:
+            a_map = {item["index"]: item for item in a}
+            b_map = {item["index"]: item for item in b}
+            all_indices = sorted(set(a_map.keys()) | set(b_map.keys()))
+            for idx in all_indices:
+                child_path = "{}[{}]".format(path, idx)
+                if idx not in a_map:
+                    changes.append({"path": child_path, "before": None, "after": b_map[idx]})
+                elif idx not in b_map:
+                    changes.append({"path": child_path, "before": a_map[idx], "after": None})
+                else:
+                    _diff_value(a_map[idx], b_map[idx], child_path, changes)
+        else:
+            if a != b:
+                changes.append({"path": path, "before": a, "after": b})
+    else:
+        if a != b:
+            changes.append({"path": path, "before": a, "after": b})
+
+
+@mcp.tool()
+def diff_snapshots(label_a: str, label_b: str) -> dict:
+    """
+    Compare two named snapshots and return what changed between them.
+
+    Args:
+        label_a: Label of the 'before' snapshot.
+        label_b: Label of the 'after' snapshot.
+
+    Returns:
+        label_a, label_b, change_count, changes: list of {path, before, after}
+
+    The 'path' uses dot notation, e.g.:
+        'tracks[0].volume'        — track 0 volume changed
+        'tracks[2].devices[1].is_active'  — device enabled/disabled
+        'master_track.volume'     — master volume changed
+        'tempo'                   — song tempo changed
+
+    Example workflow:
+        take_snapshot('before')
+        set_master_volume(0.9)
+        add_native_device(0, 'EQ Eight')
+        take_snapshot('after')
+        diff_snapshots('before', 'after')
+    """
+    if label_a not in _snapshots:
+        raise ValueError("No snapshot with label '{}'".format(label_a))
+    if label_b not in _snapshots:
+        raise ValueError("No snapshot with label '{}'".format(label_b))
+
+    a = _snapshots[label_a]
+    b = _snapshots[label_b]
+
+    changes: list = []
+    _diff_value(a, b, "session", changes)
+
+    return {
+        "label_a": label_a,
+        "label_b": label_b,
+        "change_count": len(changes),
+        "changes": changes,
+    }
+
+
+@mcp.tool()
+def diff_snapshot_vs_live(label: str) -> dict:
+    """
+    Compare a stored snapshot against the current live session state.
+
+    Equivalent to: take_snapshot('_live_now') then diff_snapshots(label, '_live_now'),
+    but without permanently storing the live snapshot.
+
+    Args:
+        label: Label of the stored 'before' snapshot to compare against live.
+
+    Returns:
+        label, change_count, changes: list of {path, before, after}
+    """
+    if label not in _snapshots:
+        raise ValueError("No snapshot with label '{}'".format(label))
+
+    live = _send("get_session_snapshot")
+    a = _snapshots[label]
+
+    changes: list = []
+    _diff_value(a, live, "session", changes)
+
+    return {
+        "label": label,
+        "change_count": len(changes),
+        "changes": changes,
+    }
 
 
 # ---------------------------------------------------------------------------
