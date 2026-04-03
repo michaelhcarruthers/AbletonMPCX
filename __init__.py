@@ -6,6 +6,7 @@ Listens on localhost:9877 for JSON commands from server.py.
 from __future__ import absolute_import, print_function, unicode_literals
 
 import json
+import math
 import socket
 import threading
 import traceback
@@ -393,6 +394,21 @@ class AbletonMPCX(ControlSurface):
         self._run_on_main_thread(fn)
         return {}
 
+    def _cmd_begin_undo_step(self, params):
+        """Open a named undo step. All mutations until end_undo_step are grouped."""
+        name = str(params.get("name", "MCP Operation"))
+        def fn():
+            self._song.begin_undo_step(name)
+        self._run_on_main_thread(fn)
+        return {}
+
+    def _cmd_end_undo_step(self, params):
+        """Close the current undo step, grouping all changes into one Cmd+Z action."""
+        def fn():
+            self._song.end_undo_step()
+        self._run_on_main_thread(fn)
+        return {}
+
     def _cmd_capture_midi(self, params):
         destination = int(params.get("destination", 0))
         def fn():
@@ -652,6 +668,38 @@ class AbletonMPCX(ControlSurface):
             })
         return result
 
+    def _cmd_set_return_track_volume(self, params):
+        track = self._get_return_track(int(params["index"]))
+        val = float(params["value"])
+        def fn():
+            track.mixer_device.volume.value = val
+        self._run_on_main_thread(fn)
+        return {}
+
+    def _cmd_set_return_track_pan(self, params):
+        track = self._get_return_track(int(params["index"]))
+        val = float(params["value"])
+        def fn():
+            track.mixer_device.panning.value = val
+        self._run_on_main_thread(fn)
+        return {}
+
+    def _cmd_set_return_track_name(self, params):
+        track = self._get_return_track(int(params["index"]))
+        name = str(params["name"])
+        def fn():
+            track.name = name
+        self._run_on_main_thread(fn)
+        return {}
+
+    def _cmd_set_return_track_mute(self, params):
+        track = self._get_return_track(int(params["index"]))
+        mute = bool(params["mute"])
+        def fn():
+            track.mute = mute
+        self._run_on_main_thread(fn)
+        return {}
+
     # -------------------------------------------------------------------------
     # Track (write)
     # -------------------------------------------------------------------------
@@ -765,6 +813,33 @@ class AbletonMPCX(ControlSurface):
             send.value = val
         self._run_on_main_thread(fn)
         return {}
+
+    def _cmd_set_mixer_snapshot(self, params):
+        """Apply volume, pan, sends, mute, arm to multiple tracks in a single main-thread call."""
+        states = params.get("states", [])
+        def fn():
+            for state in states:
+                track_index = int(state["track_index"])
+                track = self._get_track(track_index)
+                mixer = track.mixer_device
+                if "volume" in state:
+                    mixer.volume.value = float(state["volume"])
+                if "pan" in state:
+                    mixer.panning.value = float(state["pan"])
+                if "sends" in state:
+                    send_list = list(mixer.sends)
+                    for i, val in enumerate(state["sends"]):
+                        if i < len(send_list):
+                            send_list[i].value = float(val)
+                if "mute" in state:
+                    track.mute = bool(state["mute"])
+                if "arm" in state:
+                    try:
+                        track.arm = bool(state["arm"])
+                    except (AttributeError, RuntimeError):
+                        pass
+        self._run_on_main_thread(fn)
+        return {"tracks_updated": len(states)}
 
     def _cmd_set_crossfade_assign(self, params):
         track = self._get_track(int(params["track_index"]))
@@ -1091,6 +1166,43 @@ class AbletonMPCX(ControlSurface):
             param.value = val
         self._run_on_main_thread(fn)
         return {}
+
+    def _cmd_set_device_parameter_human(self, params):
+        """Set a device parameter using human-readable units (hz, ms, db, or normalized)."""
+        device = self._get_device(int(params["track_index"]), int(params["device_index"]))
+        param_index = int(params["parameter_index"])
+        parameters = list(device.parameters)
+        if param_index < 0 or param_index >= len(parameters):
+            raise IndexError("parameter_index {} out of range".format(param_index))
+        param = parameters[param_index]
+        value = float(params["value"])
+        unit = str(params.get("unit", "normalized")).lower()
+        p_min = param.min
+        p_max = param.max
+
+        def clamp(v, lo, hi):
+            return max(lo, min(hi, v))
+
+        if unit == "hz":
+            safe_min = p_min if p_min > 0 else 1.0
+            if p_max <= safe_min:
+                raise ValueError("Parameter does not appear to be a frequency parameter (min={}, max={})".format(p_min, p_max))
+            normalized = math.log(max(value, safe_min) / safe_min) / math.log(p_max / safe_min)
+            val = safe_min + clamp(normalized, 0.0, 1.0) * (p_max - safe_min)
+        elif unit == "ms":
+            val = clamp(value, p_min, p_max)
+        elif unit == "db":
+            linear = 10.0 ** (value / 20.0)
+            val = clamp(linear, p_min, p_max)
+        elif unit == "normalized":
+            val = p_min + clamp(value, 0.0, 1.0) * (p_max - p_min)
+        else:
+            val = clamp(value, p_min, p_max)
+
+        def fn():
+            param.value = val
+        self._run_on_main_thread(fn)
+        return {"value_set": val, "param_min": p_min, "param_max": p_max}
 
     def _cmd_set_device_on_off(self, params):
         device = self._get_device(int(params["track_index"]), int(params["device_index"]))

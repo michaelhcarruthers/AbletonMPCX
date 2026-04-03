@@ -221,6 +221,32 @@ def redo() -> dict:
     return _send("redo")
 
 @mcp.tool()
+def begin_undo_step(name: str = "MCP Operation") -> dict:
+    """
+    Begin a named undo step. All changes made until end_undo_step() will be
+    grouped into a single Cmd+Z undo action in Ableton Live.
+
+    Always call end_undo_step() after finishing, even if an error occurs.
+
+    Example:
+      begin_undo_step("Master chain setup")
+      add_native_device(-1, "EQ Eight")
+      add_native_device(-1, "Compressor")
+      add_native_device(-1, "Limiter")
+      end_undo_step()
+      # Now a single Cmd+Z removes all three devices
+    """
+    return _send("begin_undo_step", {"name": name})
+
+@mcp.tool()
+def end_undo_step() -> dict:
+    """
+    Close the undo step opened by begin_undo_step().
+    All changes since begin_undo_step() become a single undoable action.
+    """
+    return _send("end_undo_step")
+
+@mcp.tool()
 def capture_midi(destination: int = 0) -> dict:
     """Capture recently played MIDI. destination: 0=auto, 1=session, 2=arrangement."""
     return _send("capture_midi", {"destination": destination})
@@ -428,6 +454,33 @@ def set_track_send(track_index: int, send_index: int, value: float) -> dict:
     return _send("set_track_send", {"track_index": track_index, "send_index": send_index, "value": value})
 
 @mcp.tool()
+def set_mixer_snapshot(states: list[dict]) -> dict:
+    """
+    Set volume, pan, sends, mute and/or arm on multiple tracks in a single call.
+
+    All changes are applied in the same audio cycle. Much more efficient than
+    individual set_track_volume / set_track_pan calls.
+
+    Use track_index=-1 in a state dict to target the master track.
+
+    Each state dict may contain:
+      track_index (int, required)
+      volume      (float 0.0-1.0, optional)
+      pan         (float -1.0 to 1.0, optional)
+      sends       (list of floats 0.0-1.0, optional)
+      mute        (bool, optional)
+      arm         (bool, optional)
+
+    Example:
+      set_mixer_snapshot([
+        {"track_index": 0, "volume": 0.8, "pan": -0.2},
+        {"track_index": 1, "volume": 0.75, "sends": [0.6, 0.0]},
+        {"track_index": -1, "volume": 0.85},
+      ])
+    """
+    return _send("set_mixer_snapshot", {"states": states})
+
+@mcp.tool()
 def stop_track_clips(track_index: int) -> dict:
     """Stop all clips on the track at track_index."""
     return _send("stop_track_clips", {"track_index": track_index})
@@ -443,6 +496,26 @@ def set_track_fold_state(track_index: int, fold_state: int) -> dict:
 def get_return_tracks() -> list:
     """Return all return tracks with name and volume."""
     return _send("get_return_tracks")
+
+@mcp.tool()
+def set_return_track_volume(index: int, value: float) -> dict:
+    """Set the volume of the return track at index (0.0-1.0)."""
+    return _send("set_return_track_volume", {"index": index, "value": value})
+
+@mcp.tool()
+def set_return_track_pan(index: int, value: float) -> dict:
+    """Set the panning of the return track at index (-1.0 to 1.0)."""
+    return _send("set_return_track_pan", {"index": index, "value": value})
+
+@mcp.tool()
+def set_return_track_name(index: int, name: str) -> dict:
+    """Rename the return track at index."""
+    return _send("set_return_track_name", {"index": index, "name": name})
+
+@mcp.tool()
+def set_return_track_mute(index: int, mute: bool) -> dict:
+    """Mute or unmute the return track at index."""
+    return _send("set_return_track_mute", {"index": index, "mute": mute})
 
 # ---------------------------------------------------------------------------
 # ClipSlot
@@ -692,6 +765,40 @@ def set_device_parameter(track_index: int, device_index: int, parameter_index: i
         "device_index": device_index,
         "parameter_index": parameter_index,
         "value": value,
+    })
+
+@mcp.tool()
+def set_device_parameter_human(
+    track_index: int,
+    device_index: int,
+    parameter_index: int,
+    value: float,
+    unit: str = "normalized",
+) -> dict:
+    """
+    Set a device parameter using human-readable units.
+
+    Use track_index=-1 for the master track.
+
+    unit options:
+      'hz'         — frequency in Hertz, log scale (e.g. 1000.0 for 1 kHz)
+      'ms'         — time in milliseconds, linear (e.g. 10.0 for 10ms attack)
+      'db'         — decibels converted to linear amplitude (e.g. -6.0 for -6 dB)
+      'normalized' — raw 0.0-1.0 mapped to the parameter's full range (default)
+
+    Returns the actual internal value set and the parameter's min/max.
+
+    Examples:
+      set_device_parameter_human(0, 0, 2, 200.0, unit="hz")   # EQ freq to 200 Hz
+      set_device_parameter_human(0, 1, 3, 5.0, unit="ms")     # Compressor attack 5ms
+      set_device_parameter_human(-1, 0, 8, -3.0, unit="db")   # Output gain -3 dB
+    """
+    return _send("set_device_parameter_human", {
+        "track_index": track_index,
+        "device_index": device_index,
+        "parameter_index": parameter_index,
+        "value": value,
+        "unit": unit,
     })
 
 @mcp.tool()
