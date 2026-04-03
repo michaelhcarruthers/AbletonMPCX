@@ -8,6 +8,7 @@ from __future__ import absolute_import, print_function, unicode_literals
 import json
 import math
 import socket
+import struct
 import threading
 import traceback
 
@@ -99,7 +100,7 @@ class AbletonMPCX(ControlSurface):
             header = self._recv_exactly(conn, 4)
             if not header:
                 return
-            msg_len = int.from_bytes(header, "big")
+            msg_len = struct.unpack(">I", header)[0]
             if msg_len > 10 * 1024 * 1024:  # 10 MB sanity cap
                 raise RuntimeError("Incoming message too large: {} bytes".format(msg_len))
             data = self._recv_exactly(conn, msg_len)
@@ -108,11 +109,11 @@ class AbletonMPCX(ControlSurface):
             request = json.loads(data.decode("utf-8"))
             response = self._dispatch(request)
             payload = json.dumps(response).encode("utf-8")
-            conn.sendall(len(payload).to_bytes(4, "big") + payload)
+            conn.sendall(struct.pack(">I", len(payload)) + payload)
         except Exception as e:
             try:
                 err_payload = json.dumps({"status": "error", "error": str(e)}).encode("utf-8")
-                conn.sendall(len(err_payload).to_bytes(4, "big") + err_payload)
+                conn.sendall(struct.pack(">I", len(err_payload)) + err_payload)
             except Exception:
                 pass
         finally:
@@ -729,7 +730,7 @@ class AbletonMPCX(ControlSurface):
                 entry["is_playing"] = clip.is_playing
                 entry["is_recording"] = clip.is_recording
             clip_slots_summary.append(entry)
-        devices_summary = [{"index": k, "name": d.name, "class_name": d.class_name} for k, d in enumerate(track.devices)]
+        devices_summary = [{"index": k, "name": d.name, "class_name": d.class_name, "is_active": d.is_active} for k, d in enumerate(track.devices)]
         try:
             arm_val = track.arm
         except (AttributeError, RuntimeError):
@@ -1963,7 +1964,8 @@ class AbletonMPCX(ControlSurface):
         snapshot["tempo"] = s.tempo
         snapshot["time_signature"] = "{}/{}".format(s.signature_numerator, s.signature_denominator)
         snapshot["is_playing"] = s.is_playing
-        for attr in ("exclusive_arm", "exclusive_solo", "select_on_launch", "groove_amount", "swing_amount"):
+        for attr in ("exclusive_arm", "exclusive_solo", "select_on_launch", "groove_amount", "swing_amount",
+                     "scale_mode", "scale_name", "root_note"):
             try:
                 snapshot[attr] = getattr(s, attr)
             except AttributeError:

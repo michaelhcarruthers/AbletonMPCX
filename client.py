@@ -69,13 +69,18 @@ Available commands:
 """
 
 
+_NOTE_NAMES = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"]
+
+
 def _print_session(snap: dict):
     tracks = snap.get("tracks", [])
     master = snap.get("master_track", {})
+    root_note = snap.get("root_note")
+    root_note_name = _NOTE_NAMES[int(root_note) % 12] if root_note is not None else "?"
     print("📊 Session Snapshot")
     print(
         f"   Tempo: {snap.get('tempo', '?')} BPM  |  "
-        f"Key: {snap.get('root_note_name', '?')} {snap.get('scale_name', '')}  |  "
+        f"Key: {root_note_name} {snap.get('scale_name', '')}  |  "
         f"Playing: {'Yes' if snap.get('is_playing') else 'No'}"
     )
     print(
@@ -122,7 +127,7 @@ def _maybe_auto_suggest():
         suggestions = result.get("suggestions", [])
         high = [s for s in suggestions if s.get("priority") in ("high", "critical")]
         for s in high:
-            print(f"💡 {s.get('message', s.get('suggestion', ''))}")
+            print(f"💡 {s.get('reason', s.get('action', ''))}")
     except Exception:
         pass
 
@@ -205,7 +210,7 @@ def cmd_suggest(_args: list[str]):
     print(f"💡 Suggestions ({len(suggestions)}):")
     for s in suggestions:
         priority = s.get("priority", "")
-        msg = s.get("message", s.get("suggestion", ""))
+        msg = s.get("reason", s.get("action", ""))
         print(f"   [{priority}] {msg}")
 
 
