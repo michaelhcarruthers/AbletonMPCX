@@ -250,7 +250,7 @@ def create_scene(index: int = -1) -> dict:
 @mcp.tool()
 def delete_scene(index: int) -> dict:
     """Delete the scene at index."""
-    return _send("delete_scene", {"index": index})
+    return _send("delete_scene", {"scene_index": index})
 
 @mcp.tool()
 def delete_track(track_index: int) -> dict:

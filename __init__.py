@@ -87,6 +87,7 @@ class AbletonMPCX(ControlSurface):
     def _handle_connection(self, conn):
         try:
             data = b""
+            request = None
             conn.settimeout(5.0)
             while True:
                 chunk = conn.recv(65536)
@@ -98,7 +99,7 @@ class AbletonMPCX(ControlSurface):
                     break
                 except ValueError:
                     continue
-            if not data:
+            if not data or request is None:
                 return
             response = self._dispatch(request)
             conn.sendall(json.dumps(response).encode("utf-8"))
@@ -999,14 +1000,14 @@ class AbletonMPCX(ControlSurface):
     def _cmd_add_notes(self, params):
         clip = self._get_clip(int(params["track_index"]), int(params["slot_index"]))
         notes = params.get("notes", [])
-        # notes: list of {pitch, start_time, duration, velocity, mute}
-        note_tuples = [
-            (int(n["pitch"], float(n["start_time"]), float(n["duration"]),
+        note_tuples = tuple(
+            (int(n["pitch"]), float(n["start_time"]), float(n["duration"]),
              int(n.get("velocity", 100)), bool(n.get("mute", False)))
             for n in notes
-        ]
+        )
         def fn():
-            clip.set_notes(tuple(note_tuples))
+            existing = clip.get_notes(0, 0, clip.length, 128)
+            clip.set_notes(existing + note_tuples)
         self._run_on_main_thread(fn)
         return {"note_count": len(note_tuples)}
 
@@ -1182,5 +1183,311 @@ class AbletonMPCX(ControlSurface):
                 scene.time_signature_denominator = int(params["denominator"])
             if "enabled" in params:
                 scene.time_signature_enabled = bool(params["enabled"])
+        self._run_on_main_thread(fn)
+        return {}
+
+    # -------------------------------------------------------------------------
+    # Clip (additional operations)
+    # -------------------------------------------------------------------------
+
+    def _cmd_crop_clip(self, params):
+        clip = self._get_clip(int(params["track_index"]), int(params["slot_index"]))
+        def fn():
+            clip.crop()
+        self._run_on_main_thread(fn)
+        return {}
+
+    def _cmd_duplicate_clip_loop(self, params):
+        clip = self._get_clip(int(params["track_index"]), int(params["slot_index"]))
+        def fn():
+            clip.duplicate_loop()
+        self._run_on_main_thread(fn)
+        return {}
+
+    def _cmd_quantize_clip(self, params):
+        clip = self._get_clip(int(params["track_index"]), int(params["slot_index"]))
+        grid = int(params["quantization_grid"])
+        amount = float(params.get("amount", 1.0))
+        def fn():
+            clip.quantize(grid, amount)
+        self._run_on_main_thread(fn)
+        return {}
+
+    def _cmd_apply_note_modifications(self, params):
+        clip = self._get_clip(int(params["track_index"]), int(params["slot_index"]))
+        modifications = params.get("notes", [])
+        def fn():
+            existing = clip.get_notes(0, 0, clip.length, 128)
+            mod_map = {}
+            for m in modifications:
+                key = (int(m["pitch"]), float(m["start_time"]))
+                mod_map[key] = m
+            updated = []
+            for note in existing:
+                key = (note[0], note[1])
+                if key in mod_map:
+                    m = mod_map[key]
+                    updated.append((
+                        int(m.get("pitch", note[0])),
+                        float(m.get("start_time", note[1])),
+                        float(m.get("duration", note[2])),
+                        int(m.get("velocity", note[3])),
+                        bool(m.get("mute", note[4])),
+                    ))
+                else:
+                    updated.append(note)
+            clip.set_notes(tuple(updated))
+        self._run_on_main_thread(fn)
+        return {}
+
+    def _cmd_select_all_notes(self, params):
+        clip = self._get_clip(int(params["track_index"]), int(params["slot_index"]))
+        def fn():
+            clip.select_all_notes()
+        self._run_on_main_thread(fn)
+        return {}
+
+    def _cmd_deselect_all_notes(self, params):
+        clip = self._get_clip(int(params["track_index"]), int(params["slot_index"]))
+        def fn():
+            clip.deselect_all_notes()
+        self._run_on_main_thread(fn)
+        return {}
+
+    # -------------------------------------------------------------------------
+    # Device (additional operations)
+    # -------------------------------------------------------------------------
+
+    def _cmd_get_device_info(self, params):
+        return self._cmd_get_device_parameters(params)
+
+    def _cmd_set_device_enabled(self, params):
+        return self._cmd_set_device_on_off(params)
+
+    def _cmd_duplicate_device(self, params):
+        track = self._get_track(int(params["track_index"]))
+        device_index = int(params["device_index"])
+        def fn():
+            track.duplicate_device(device_index)
+        self._run_on_main_thread(fn)
+        return {}
+
+    # -------------------------------------------------------------------------
+    # MixerDevice
+    # -------------------------------------------------------------------------
+
+    def _cmd_get_mixer_device(self, params):
+        track = self._get_track(int(params["track_index"]))
+        mixer = track.mixer_device
+        result = {
+            "volume": mixer.volume.value,
+            "panning": mixer.panning.value,
+        }
+        try:
+            result["sends"] = [s.value for s in mixer.sends]
+        except AttributeError:
+            result["sends"] = []
+        try:
+            result["crossfade_assign"] = int(mixer.crossfade_assign)
+        except AttributeError:
+            pass
+        return result
+
+    # -------------------------------------------------------------------------
+    # RackDevice
+    # -------------------------------------------------------------------------
+
+    def _cmd_get_rack_chains(self, params):
+        device = self._get_device(int(params["track_index"]), int(params["device_index"]))
+        try:
+            chains = device.chains
+        except AttributeError:
+            raise RuntimeError("Device does not support chains (not a Rack)")
+        result = []
+        for i, chain in enumerate(chains):
+            result.append({
+                "index": i,
+                "name": chain.name,
+                "mute": chain.mute,
+                "solo": self._safe(chain, "solo", False),
+            })
+        return result
+
+    def _cmd_get_rack_drum_pads(self, params):
+        device = self._get_device(int(params["track_index"]), int(params["device_index"]))
+        try:
+            drum_pads = device.drum_pads
+        except AttributeError:
+            raise RuntimeError("Device does not support drum pads (not a Drum Rack)")
+        result = []
+        for pad in drum_pads:
+            result.append({
+                "note": pad.note,
+                "name": pad.name,
+                "mute": pad.mute,
+                "solo": self._safe(pad, "solo", False),
+            })
+        return result
+
+    def _cmd_randomize_rack_macros(self, params):
+        device = self._get_device(int(params["track_index"]), int(params["device_index"]))
+        def fn():
+            try:
+                device.randomize_macros()
+            except AttributeError:
+                raise RuntimeError("Device does not support randomize_macros (not a Rack)")
+        self._run_on_main_thread(fn)
+        return {}
+
+    def _cmd_store_rack_variation(self, params):
+        device = self._get_device(int(params["track_index"]), int(params["device_index"]))
+        def fn():
+            try:
+                device.store_variation()
+            except AttributeError:
+                raise RuntimeError("Device does not support store_variation (not a Rack)")
+        self._run_on_main_thread(fn)
+        return {}
+
+    # -------------------------------------------------------------------------
+    # GroovePool
+    # -------------------------------------------------------------------------
+
+    def _cmd_get_grooves(self, params):
+        try:
+            groove_pool = self._song.groove_pool
+            grooves = groove_pool.grooves
+        except AttributeError:
+            return []
+        result = []
+        for i, groove in enumerate(grooves):
+            result.append({
+                "index": i,
+                "name": groove.name,
+                "base": self._safe(groove, "base", None),
+                "quantization": self._safe(groove, "quantization", None),
+                "timing": self._safe(groove, "timing", None),
+                "random": self._safe(groove, "random", None),
+                "velocity": self._safe(groove, "velocity", None),
+            })
+        return result
+
+    # -------------------------------------------------------------------------
+    # Browser
+    # -------------------------------------------------------------------------
+
+    def _cmd_get_browser_tree(self, params):
+        try:
+            browser = self.application().browser
+        except AttributeError:
+            raise RuntimeError("Browser not supported in this version of Ableton Live")
+        category_type = params.get("category_type", "all")
+        category_map = {
+            "instruments": "instruments",
+            "sounds": "sounds",
+            "drums": "drums",
+            "audio_effects": "audio_effects",
+            "midi_effects": "midi_effects",
+        }
+
+        def _iter_items(items, depth):
+            result = []
+            for item in items:
+                entry = {
+                    "name": item.name,
+                    "is_folder": item.is_folder,
+                    "uri": self._safe(item, "uri", None),
+                }
+                if depth > 0 and item.is_folder:
+                    try:
+                        entry["children"] = _iter_items(item.children, depth - 1)
+                    except AttributeError:
+                        pass
+                result.append(entry)
+            return result
+
+        if category_type == "all":
+            roots = []
+            for attr in ("instruments", "sounds", "drums", "audio_effects", "midi_effects"):
+                try:
+                    root = getattr(browser, attr)
+                    roots.append({
+                        "name": attr,
+                        "children": _iter_items(root.children, 1),
+                    })
+                except AttributeError:
+                    pass
+            return {"tree": roots}
+        attr = category_map.get(category_type)
+        if attr is None:
+            raise ValueError("Unknown category_type: {}".format(category_type))
+        try:
+            root = getattr(browser, attr)
+        except AttributeError:
+            raise RuntimeError("Category '{}' not supported by browser".format(category_type))
+        return {"tree": _iter_items(root.children, 1)}
+
+    def _cmd_get_browser_items_at_path(self, params):
+        try:
+            browser = self.application().browser
+        except AttributeError:
+            raise RuntimeError("Browser not supported in this version of Ableton Live")
+        path = str(params["path"])
+        segments = [s for s in path.split("/") if s]
+        if not segments:
+            raise ValueError("path must not be empty")
+        attr_map = {
+            "instruments": "instruments",
+            "sounds": "sounds",
+            "drums": "drums",
+            "audio_effects": "audio_effects",
+            "midi_effects": "midi_effects",
+        }
+        root_attr = attr_map.get(segments[0])
+        if root_attr is None:
+            raise ValueError("Unknown root category: {}. Must be one of: {}".format(
+                segments[0], ", ".join(attr_map)))
+        try:
+            node = getattr(browser, root_attr)
+        except AttributeError:
+            raise RuntimeError("Category '{}' not supported by browser".format(segments[0]))
+        for segment in segments[1:]:
+            found = None
+            try:
+                for child in node.children:
+                    if child.name == segment:
+                        found = child
+                        break
+            except AttributeError:
+                pass
+            if found is None:
+                raise RuntimeError("Path segment '{}' not found under '{}'".format(
+                    segment, getattr(node, "name", "?")))
+            node = found
+        items = []
+        try:
+            for item in node.children:
+                items.append({
+                    "name": item.name,
+                    "is_folder": item.is_folder,
+                    "uri": self._safe(item, "uri", None),
+                })
+        except AttributeError:
+            pass
+        return {"items": items}
+
+    def _cmd_load_browser_item(self, params):
+        try:
+            browser = self.application().browser
+        except AttributeError:
+            raise RuntimeError("Browser not supported in this version of Ableton Live")
+        uri = str(params["uri"])
+        track_index = int(params.get("track_index", 0))
+        track = self._get_track(track_index)
+        def fn():
+            try:
+                browser.load_item(uri, track)
+            except AttributeError:
+                raise RuntimeError("load_item not supported in this version of Ableton Live")
         self._run_on_main_thread(fn)
         return {}
