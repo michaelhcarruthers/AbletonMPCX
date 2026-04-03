@@ -784,6 +784,32 @@ def load_browser_item(uri: str, track_index: int = 0) -> dict:
     """
     return _send("load_browser_item", {"uri": uri, "track_index": track_index})
 
+@mcp.tool()
+def add_native_device(track_index: int, device_name: str) -> dict:
+    """
+    Add a native Ableton device to a track by name.
+
+    Searches the browser by display name (case-insensitive substring match).
+    The device is loaded onto the currently selected track position.
+
+    Common device names:
+    - Mix/Dynamics: 'Compressor', 'Glue Compressor', 'Multiband Dynamics',
+                    'Limiter', 'Gate', 'Saturator'
+    - EQ/Filter:    'EQ Eight', 'EQ Three', 'Auto Filter'
+    - Time-based:   'Reverb', 'Delay', 'Echo', 'Chorus-Ensemble'
+    - Utility:      'Utility', 'Spectrum', 'Tuner'
+    - Instruments:  'Drum Rack', 'Instrument Rack', 'Simpler', 'Operator',
+                    'Wavetable', 'Analog', 'Electric', 'Tension'
+
+    Args:
+        track_index: Zero-based index of the track to add the device to.
+        device_name: Display name of the device (case-insensitive substring).
+
+    Returns:
+        dict with 'device_name' key confirming the matched device name.
+    """
+    return _send("add_native_device", {"track_index": track_index, "device_name": device_name})
+
 # ---------------------------------------------------------------------------
 # Entry point
 # ---------------------------------------------------------------------------
