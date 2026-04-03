@@ -43,26 +43,34 @@ def _ableton_socket():
             pass
 
 
+def _recv_exactly(sock, n: int) -> bytes | None:
+    """Read exactly n bytes from sock. Returns None if connection closes early."""
+    buf = b""
+    while len(buf) < n:
+        chunk = sock.recv(min(65536, n - len(buf)))
+        if not chunk:
+            return None
+        buf += chunk
+    return buf
+
+
 def _send(command: str, params: dict[str, Any] | None = None) -> Any:
-    payload = json.dumps({"command": command, "params": params or {}}).encode()
-    response = None
+    payload = json.dumps({"command": command, "params": params or {}}).encode("utf-8")
     with _ableton_socket() as sock:
-        sock.sendall(payload)
-        chunks: list[bytes] = []
-        while True:
-            chunk = sock.recv(65536)
-            if not chunk:
-                break
-            chunks.append(chunk)
-            try:
-                response = json.loads(b"".join(chunks).decode())
-                break
-            except json.JSONDecodeError:
-                continue
-    if response is None:
-        raise RuntimeError("No valid JSON response received from Ableton")
-    if response.get("status") != "ok":
-        raise RuntimeError(f"Ableton error: {response.get('error', 'unknown')}")
+        sock.sendall(len(payload).to_bytes(4, "big") + payload)
+        # Read 4-byte length header
+        header = _recv_exactly(sock, 4)
+        if not header:
+            raise RuntimeError("Connection closed before response header")
+        msg_len = int.from_bytes(header, "big")
+        if msg_len > 10 * 1024 * 1024:
+            raise RuntimeError("Response too large: {} bytes".format(msg_len))
+        data = _recv_exactly(sock, msg_len)
+        if data is None:
+            raise RuntimeError("Connection closed before response body")
+    response = json.loads(data.decode("utf-8"))
+    if response.get("status") == "error":
+        raise RuntimeError(response["error"])
     return response.get("result")
 
 
