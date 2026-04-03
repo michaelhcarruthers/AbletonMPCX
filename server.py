@@ -54,7 +54,7 @@ def _recv_exactly(sock, n: int) -> bytes | None:
     return buf
 
 
-def _send(command: str, params: dict[str, Any] | None = None) -> Any:
+def _send(command: str, params: dict[str, Any] | None = None, _log: bool = True) -> Any:
     payload = json.dumps({"command": command, "params": params or {}}).encode("utf-8")
     with _ableton_socket() as sock:
         sock.sendall(len(payload).to_bytes(4, "big") + payload)
@@ -71,14 +71,15 @@ def _send(command: str, params: dict[str, Any] | None = None) -> Any:
     response = json.loads(data.decode("utf-8"))
     if response.get("status") == "error":
         raise RuntimeError(response["error"])
-    return response.get("result")
+    result = response.get("result")
+    if _log:
+        _append_operation(command, params or {}, result)
+    return result
 
 
 def _send_logged(command: str, params: dict[str, Any] | None = None) -> Any:
-    """Like _send but appends to the operation log."""
-    result = _send(command, params)
-    _append_operation(command, params or {}, result)
-    return result
+    """Like _send but appends to the operation log. Kept for compatibility; _send now logs by default."""
+    return _send(command, params)
 
 
 # ---------------------------------------------------------------------------
@@ -2284,8 +2285,10 @@ def _observer_loop():
 
     while _observer_running:
         try:
-            snapshot = _send("get_session_snapshot")
-            _evaluate_observer_rules(snapshot, _observer_last_snapshot)
+            snapshot = _send("get_session_snapshot", _log=False)
+            with _observer_lock:
+                prev = _observer_last_snapshot
+            _evaluate_observer_rules(snapshot, prev)
             with _observer_lock:
                 _observer_last_snapshot = snapshot
         except Exception:
