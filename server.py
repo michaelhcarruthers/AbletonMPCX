@@ -6,7 +6,9 @@ Bridges the MCP protocol to the Ableton Remote Script running inside Live.
 from __future__ import annotations
 
 import copy
+import datetime
 import json
+import os
 import socket
 import time
 from contextlib import contextmanager
@@ -60,6 +62,13 @@ def _send(command: str, params: dict[str, Any] | None = None) -> Any:
     if response.get("status") != "ok":
         raise RuntimeError(f"Ableton error: {response.get('error', 'unknown')}")
     return response.get("result")
+
+
+def _send_logged(command: str, params: dict[str, Any] | None = None) -> Any:
+    """Like _send but appends to the operation log."""
+    result = _send(command, params)
+    _append_operation(command, params or {}, result)
+    return result
 
 
 # ---------------------------------------------------------------------------
@@ -1146,6 +1155,71 @@ def get_session_snapshot() -> dict:
 _snapshots: dict[str, dict] = {}
 
 
+# ---------------------------------------------------------------------------
+# Persistent project memory
+# ---------------------------------------------------------------------------
+
+_MEMORY_DIR = os.path.expanduser("~/.ableton_mpcx/projects")
+_current_project_id: str | None = None
+_operation_log: list[dict] = []  # in-process log, flushed to disk on demand
+_MAX_LOG_ENTRIES = 1000  # rolling cap
+
+
+def _memory_path(project_id: str) -> str:
+    safe = project_id.replace("/", "_").replace("\\", "_").replace(" ", "_")
+    os.makedirs(_MEMORY_DIR, exist_ok=True)
+    return os.path.join(_MEMORY_DIR, "{}.json".format(safe))
+
+
+def _load_memory(project_id: str) -> dict:
+    path = _memory_path(project_id)
+    if os.path.exists(path):
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception:
+            pass
+    return {
+        "project_id": project_id,
+        "created_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+        "snapshots": {},
+        "operation_log": [],
+        "preferences": {},
+        "track_roles": {},
+        "notes": [],
+        "device_snapshots": {},
+    }
+
+
+def _save_memory(project_id: str, memory: dict):
+    path = _memory_path(project_id)
+    try:
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(memory, f, indent=2)
+    except Exception:
+        pass
+
+
+def _get_memory() -> dict:
+    if _current_project_id is None:
+        raise RuntimeError("No project loaded. Call set_project_id() first.")
+    return _load_memory(_current_project_id)
+
+
+def _append_operation(command: str, params: dict, result: Any):
+    """Append an operation to the in-process log."""
+    global _operation_log
+    entry = {
+        "ts": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+        "command": command,
+        "params": params,
+        "result_summary": str(result)[:200] if result is not None else None,
+    }
+    _operation_log.append(entry)
+    if len(_operation_log) > _MAX_LOG_ENTRIES:
+        _operation_log = _operation_log[-_MAX_LOG_ENTRIES:]
+
+
 @mcp.tool()
 def take_snapshot(label: str) -> dict:
     """
@@ -1633,6 +1707,545 @@ def create_arrangement_scaffold(
         "count": len(created),
         "tempo_failures": tempo_failures,
         "color_failures": color_failures,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Phase 5: Persistent project memory
+# ---------------------------------------------------------------------------
+
+@mcp.tool()
+def set_project_id(project_id: str) -> dict:
+    """
+    Set the current project identity for persistent memory.
+
+    All subsequent memory operations (notes, snapshots, operation log, preferences,
+    track roles) are scoped to this project_id.
+
+    Args:
+        project_id: A unique name for this project, e.g. 'my_album_track_3'.
+                    Use something meaningful — it becomes a filename on disk.
+
+    Returns:
+        project_id, memory_path, is_new (whether this is a fresh project)
+    """
+    global _current_project_id
+    _current_project_id = project_id
+    path = _memory_path(project_id)
+    is_new = not os.path.exists(path)
+    if is_new:
+        mem = _load_memory(project_id)
+        _save_memory(project_id, mem)
+    return {
+        "project_id": project_id,
+        "memory_path": path,
+        "is_new": is_new,
+    }
+
+
+@mcp.tool()
+def get_project_memory() -> dict:
+    """
+    Return the full persistent memory for the current project.
+
+    Includes: preferences, track roles, notes, snapshot labels, operation log summary.
+    Requires set_project_id() to have been called first.
+    """
+    mem = _get_memory()
+    return {
+        "project_id": mem["project_id"],
+        "created_at": mem.get("created_at"),
+        "note_count": len(mem.get("notes", [])),
+        "notes": mem.get("notes", []),
+        "preferences": mem.get("preferences", {}),
+        "track_roles": mem.get("track_roles", {}),
+        "snapshot_labels": list(mem.get("snapshots", {}).keys()),
+        "device_snapshot_labels": list(mem.get("device_snapshots", {}).keys()),
+        "operation_log_count": len(mem.get("operation_log", [])),
+    }
+
+
+@mcp.tool()
+def add_project_note(note: str, category: str = "general") -> dict:
+    """
+    Add a free-form note to the current project memory.
+
+    Use this to record intent, decisions, problems, or anything worth remembering.
+
+    Args:
+        note: The note text.
+        category: Optional category tag, e.g. 'mix', 'arrangement', 'intent', 'issue'.
+
+    Returns:
+        note_id, timestamp
+    """
+    mem = _get_memory()
+    entry = {
+        "id": len(mem.get("notes", [])),
+        "ts": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+        "category": category,
+        "note": note,
+    }
+    mem.setdefault("notes", []).append(entry)
+    _save_memory(_current_project_id, mem)
+    return {"note_id": entry["id"], "timestamp": entry["ts"]}
+
+
+@mcp.tool()
+def set_track_role(track_index: int, role: str) -> dict:
+    """
+    Assign a semantic role to a track in the current project memory.
+
+    Examples: 'kick bus', 'main reverb', 'lead synth', 'master chain', 'resample'
+
+    Args:
+        track_index: Track index (-1 for master).
+        role: Human-readable role string.
+
+    Returns:
+        track_index, role
+    """
+    mem = _get_memory()
+    mem.setdefault("track_roles", {})[str(track_index)] = role
+    _save_memory(_current_project_id, mem)
+    return {"track_index": track_index, "role": role}
+
+
+@mcp.tool()
+def get_track_roles() -> dict:
+    """
+    Return all track role assignments for the current project.
+
+    Returns:
+        track_roles: dict of {track_index_str: role}
+    """
+    mem = _get_memory()
+    return {"track_roles": mem.get("track_roles", {})}
+
+
+@mcp.tool()
+def set_preference(key: str, value: Any) -> dict:
+    """
+    Store a user preference in the current project memory.
+
+    Preferences are free-form key/value pairs. Use them to record
+    working style, mix targets, or workflow habits.
+
+    Examples:
+        set_preference('preferred_reverb', 'Valhalla Room')
+        set_preference('target_lufs', -14.0)
+        set_preference('grit_on_melodics', True)
+        set_preference('low_mid_character', 'dense but not muddy')
+
+    Args:
+        key: Preference key string.
+        value: Any JSON-serialisable value.
+
+    Returns:
+        key, value
+    """
+    mem = _get_memory()
+    mem.setdefault("preferences", {})[key] = value
+    _save_memory(_current_project_id, mem)
+    return {"key": key, "value": value}
+
+
+@mcp.tool()
+def get_preferences() -> dict:
+    """Return all stored preferences for the current project."""
+    mem = _get_memory()
+    return {"preferences": mem.get("preferences", {})}
+
+
+@mcp.tool()
+def save_snapshot_to_project(label: str) -> dict:
+    """
+    Capture the current session state and persist it to project memory on disk.
+
+    Unlike take_snapshot() which is in-memory only, this survives MCP server restarts.
+
+    Args:
+        label: Snapshot label.
+
+    Returns:
+        label, track_count, scene_count, timestamp
+    """
+    mem = _get_memory()
+    snapshot = _send("get_session_snapshot")
+    snapshot["_label"] = label
+    snapshot["_timestamp"] = datetime.datetime.now(datetime.timezone.utc).isoformat()
+    mem.setdefault("snapshots", {})[label] = snapshot
+    _save_memory(_current_project_id, mem)
+    # Also store in-process for diff tools
+    _snapshots[label] = snapshot
+    return {
+        "label": label,
+        "track_count": snapshot.get("track_count", 0),
+        "scene_count": snapshot.get("scene_count", 0),
+        "timestamp": snapshot["_timestamp"],
+    }
+
+
+@mcp.tool()
+def load_snapshots_from_project() -> dict:
+    """
+    Load all persisted snapshots from project memory into the in-process store.
+
+    After calling this, diff_snapshots() and diff_snapshot_vs_live() can use
+    snapshots that were saved in previous sessions.
+
+    Returns:
+        loaded: list of snapshot labels loaded
+    """
+    mem = _get_memory()
+    persisted = mem.get("snapshots", {})
+    for label, snap in persisted.items():
+        _snapshots[label] = snap
+    return {"loaded": list(persisted.keys()), "count": len(persisted)}
+
+
+# ---------------------------------------------------------------------------
+# Phase 6: Operation log
+# ---------------------------------------------------------------------------
+
+@mcp.tool()
+def get_operation_log(limit: int = 50) -> dict:
+    """
+    Return the most recent operations from the in-process operation log.
+
+    The log captures every command sent to Ableton during this server session.
+    It is not automatically persisted unless flush_operation_log() is called.
+
+    Args:
+        limit: Maximum number of entries to return (most recent first).
+
+    Returns:
+        entries: list of {ts, command, params, result_summary}
+        total_in_memory: total entries in the current session log
+    """
+    entries = list(reversed(_operation_log[-limit:]))
+    return {
+        "entries": entries,
+        "total_in_memory": len(_operation_log),
+    }
+
+
+@mcp.tool()
+def flush_operation_log() -> dict:
+    """
+    Persist the current in-process operation log to project memory on disk.
+
+    Appends new entries to the project's stored log (capped at 5000 entries total).
+    Requires set_project_id() to have been called.
+
+    Returns:
+        flushed_count, total_stored
+    """
+    mem = _get_memory()
+    stored = mem.get("operation_log", [])
+    stored.extend(_operation_log)
+    # Cap at 5000
+    if len(stored) > 5000:
+        stored = stored[-5000:]
+    mem["operation_log"] = stored
+    _save_memory(_current_project_id, mem)
+    return {
+        "flushed_count": len(_operation_log),
+        "total_stored": len(stored),
+    }
+
+
+@mcp.tool()
+def get_stored_operation_log(limit: int = 100) -> dict:
+    """
+    Return the persisted operation log from project memory (across sessions).
+
+    Args:
+        limit: Maximum number of entries to return (most recent first).
+
+    Returns:
+        entries: list of {ts, command, params, result_summary}
+        total_stored: total entries stored on disk
+    """
+    mem = _get_memory()
+    stored = mem.get("operation_log", [])
+    return {
+        "entries": list(reversed(stored[-limit:])),
+        "total_stored": len(stored),
+    }
+
+
+@mcp.tool()
+def summarise_session() -> dict:
+    """
+    Summarise what happened in the current session based on the operation log.
+
+    Returns counts of each command type, most frequent operations,
+    and a timeline of major state changes.
+
+    Returns:
+        session_start, command_counts, most_frequent, destructive_ops, total_ops
+    """
+    from collections import Counter
+
+    if not _operation_log:
+        return {"total_ops": 0, "command_counts": {}, "most_frequent": [], "destructive_ops": []}
+
+    counter = Counter(entry["command"] for entry in _operation_log)
+    destructive = [
+        e for e in _operation_log
+        if any(kw in e["command"] for kw in ("delete", "remove", "create", "duplicate", "add_notes"))
+    ]
+
+    return {
+        "session_start": _operation_log[0]["ts"] if _operation_log else None,
+        "total_ops": len(_operation_log),
+        "command_counts": dict(counter.most_common()),
+        "most_frequent": [{"command": cmd, "count": cnt} for cmd, cnt in counter.most_common(10)],
+        "destructive_ops": destructive[-20:],  # last 20 destructive ops
+    }
+
+
+# ---------------------------------------------------------------------------
+# Phase 7: Contextual suggestions
+# ---------------------------------------------------------------------------
+
+@mcp.tool()
+def suggest_next_actions() -> dict:
+    """
+    Analyse the current session context and suggest logical next actions.
+
+    Looks at:
+    - Current session snapshot (tracks, devices, mixer state)
+    - Recent operation log
+    - Project memory (notes, preferences, track roles)
+    - Stored snapshots
+
+    Returns a list of suggestions with reasoning. These are observations only —
+    nothing is executed automatically.
+
+    Returns:
+        suggestions: list of {action, reason, priority ('high'|'medium'|'low')}
+    """
+    suggestions = []
+
+    # 1. Snapshot suggestion — if no snapshot taken recently
+    recent_snapshots = [e for e in _operation_log[-50:] if "snapshot" in e["command"]]
+    if not recent_snapshots:
+        suggestions.append({
+            "action": "take_snapshot('before_changes')",
+            "reason": "No snapshot taken in recent operations. Recommended before making changes.",
+            "priority": "high",
+        })
+
+    # 2. Project memory suggestion
+    if _current_project_id is None:
+        suggestions.append({
+            "action": "set_project_id('your_project_name')",
+            "reason": "No project ID set. Set one to enable persistent memory, notes, and operation history.",
+            "priority": "high",
+        })
+
+    # 3. Analyse session state
+    try:
+        snapshot = _send("get_session_snapshot")
+        tracks = snapshot.get("tracks", [])
+
+        # Unarmed tracks with no devices
+        empty_tracks = [t for t in tracks if t.get("device_count", 0) == 0]
+        if empty_tracks:
+            suggestions.append({
+                "action": "review or delete empty tracks: {}".format([t["name"] for t in empty_tracks[:5]]),
+                "reason": "{} track(s) have no devices loaded.".format(len(empty_tracks)),
+                "priority": "low",
+            })
+
+        # Master track device check
+        master_devices = snapshot.get("master_track", {}).get("devices", [])
+        if not master_devices:
+            suggestions.append({
+                "action": "add_native_device(-1, 'Limiter') or add_native_device(-1, 'EQ Eight')",
+                "reason": "Master track has no devices. Consider adding a limiter or EQ.",
+                "priority": "medium",
+            })
+
+        # Muted tracks
+        muted = [t for t in tracks if t.get("mute")]
+        if muted:
+            suggestions.append({
+                "action": "review muted tracks: {}".format([t["name"] for t in muted[:5]]),
+                "reason": "{} track(s) are currently muted.".format(len(muted)),
+                "priority": "low",
+            })
+
+    except Exception:
+        pass
+
+    # 4. Operation log patterns
+    if _operation_log:
+        recent_cmds = [e["command"] for e in _operation_log[-20:]]
+
+        # If user added devices recently, suggest snapshot
+        if any("add_native_device" in c or "load_browser_item" in c for c in recent_cmds):
+            already_snapped = any("snapshot" in c for c in recent_cmds)
+            if not already_snapped:
+                suggestions.append({
+                    "action": "take_snapshot('after_device_changes')",
+                    "reason": "Devices were recently added. Snapshot recommended to capture state.",
+                    "priority": "high",
+                })
+
+        # If notes were removed recently, warn
+        if any("remove_notes" in c for c in recent_cmds):
+            suggestions.append({
+                "action": "verify clip note state with get_notes()",
+                "reason": "Notes were recently removed. Verify the clip state is as expected.",
+                "priority": "medium",
+            })
+
+        # Flush log suggestion
+        if len(_operation_log) > 100 and _current_project_id:
+            suggestions.append({
+                "action": "flush_operation_log()",
+                "reason": "Operation log has {} entries. Flush to persist to project memory.".format(len(_operation_log)),
+                "priority": "low",
+            })
+
+    # 5. Project memory patterns
+    if _current_project_id:
+        try:
+            mem = _get_memory()
+            prefs = mem.get("preferences", {})
+
+            # If preferences mention a reverb, suggest checking return tracks
+            if any("reverb" in str(v).lower() for v in prefs.values()):
+                try:
+                    returns = _send("get_return_tracks")
+                    reverb_returns = [r for r in returns if "reverb" in r["name"].lower() or "verb" in r["name"].lower()]
+                    if not reverb_returns:
+                        suggestions.append({
+                            "action": "check return tracks — no reverb return found",
+                            "reason": "Your preferences mention a reverb preference but no return track is named for reverb.",
+                            "priority": "medium",
+                        })
+                except Exception:
+                    pass
+        except Exception:
+            pass
+
+    return {
+        "suggestion_count": len(suggestions),
+        "suggestions": suggestions,
+    }
+
+
+@mcp.tool()
+def analyse_mix_state() -> dict:
+    """
+    Analyse the current mix state and surface observations.
+
+    Looks at track volumes, panning, mute/solo state, device presence,
+    and compares against stored preferences if available.
+
+    Returns observations, not instructions. Nothing is modified.
+
+    Returns:
+        observations: list of {observation, category, severity ('info'|'warn'|'flag')}
+    """
+    observations = []
+
+    try:
+        snapshot = _send("get_session_snapshot")
+        tracks = snapshot.get("tracks", [])
+        master = snapshot.get("master_track", {})
+
+        # Volume checks
+        hot_tracks = [t for t in tracks if t.get("volume", 0) > 0.95]
+        if hot_tracks:
+            observations.append({
+                "observation": "Tracks near maximum volume: {}".format([t["name"] for t in hot_tracks]),
+                "category": "levels",
+                "severity": "warn",
+            })
+
+        silent_tracks = [t for t in tracks if not t.get("mute") and t.get("volume", 1.0) < 0.01]
+        if silent_tracks:
+            observations.append({
+                "observation": "Tracks at near-zero volume (not muted): {}".format([t["name"] for t in silent_tracks]),
+                "category": "levels",
+                "severity": "warn",
+            })
+
+        # Panning checks
+        hard_panned = [t for t in tracks if abs(t.get("pan", 0)) > 0.95]
+        if hard_panned:
+            observations.append({
+                "observation": "Tracks hard-panned: {}".format([t["name"] for t in hard_panned]),
+                "category": "panning",
+                "severity": "info",
+            })
+
+        # Solo check
+        soloed = [t for t in tracks if t.get("solo")]
+        if soloed:
+            observations.append({
+                "observation": "Tracks currently soloed: {}".format([t["name"] for t in soloed]),
+                "category": "monitoring",
+                "severity": "flag",
+            })
+
+        # Master device check
+        master_devices = master.get("devices", [])
+        device_names = [d["name"] for d in master_devices]
+        has_limiter = any("limit" in n.lower() for n in device_names)
+        has_eq = any("eq" in n.lower() for n in device_names)
+
+        if not has_limiter:
+            observations.append({
+                "observation": "No limiter on master track.",
+                "category": "master_chain",
+                "severity": "info",
+            })
+        if not has_eq:
+            observations.append({
+                "observation": "No EQ on master track.",
+                "category": "master_chain",
+                "severity": "info",
+            })
+
+        # Armed tracks check
+        armed = [t for t in tracks if t.get("arm")]
+        if armed:
+            observations.append({
+                "observation": "Tracks currently armed for recording: {}".format([t["name"] for t in armed]),
+                "category": "recording",
+                "severity": "info",
+            })
+
+        # Compare against preferences if available
+        if _current_project_id:
+            try:
+                mem = _get_memory()
+                target_lufs = mem.get("preferences", {}).get("target_lufs")
+                if target_lufs:
+                    observations.append({
+                        "observation": "Target LUFS preference set to {}. Use an external meter to verify.".format(target_lufs),
+                        "category": "levels",
+                        "severity": "info",
+                    })
+            except Exception:
+                pass
+
+    except Exception as e:
+        observations.append({
+            "observation": "Could not read session state: {}".format(str(e)),
+            "category": "error",
+            "severity": "flag",
+        })
+
+    return {
+        "observation_count": len(observations),
+        "observations": observations,
     }
 
 
