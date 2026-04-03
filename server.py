@@ -5,11 +5,13 @@ Bridges the MCP protocol to the Ableton Remote Script running inside Live.
 """
 from __future__ import annotations
 
+import collections
 import copy
 import datetime
 import json
 import os
 import socket
+import threading
 import time
 from contextlib import contextmanager
 from typing import Any
@@ -1156,6 +1158,19 @@ _snapshots: dict[str, dict] = {}
 
 
 # ---------------------------------------------------------------------------
+# Observer thread (background session watcher)
+# ---------------------------------------------------------------------------
+
+_suggestion_queue: collections.deque = collections.deque(maxlen=50)
+_observer_thread: threading.Thread | None = None
+_observer_running: bool = False
+_observer_last_snapshot: dict | None = None
+_observer_lock: threading.Lock = threading.Lock()
+_OBSERVER_POLL_INTERVAL: float = 8.0  # seconds between polls
+_observer_last_checkpoint_log_len: int = 0  # tracks Rule 5 threshold crossings
+
+
+# ---------------------------------------------------------------------------
 # Persistent project memory
 # ---------------------------------------------------------------------------
 
@@ -2249,9 +2264,179 @@ def analyse_mix_state() -> dict:
     }
 
 
+
+# ---------------------------------------------------------------------------
+# Observer thread functions
+# ---------------------------------------------------------------------------
+
+def _observer_loop():
+    """Background thread: polls session state and evaluates rules."""
+    global _observer_running, _observer_last_snapshot
+
+    while _observer_running:
+        try:
+            snapshot = _send("get_session_snapshot")
+            _evaluate_observer_rules(snapshot, _observer_last_snapshot)
+            with _observer_lock:
+                _observer_last_snapshot = snapshot
+        except Exception:
+            pass  # Ableton not connected — silently skip
+        time.sleep(_OBSERVER_POLL_INTERVAL)
+
+
+def _evaluate_observer_rules(current: dict, previous: dict | None):
+    """Evaluate observation rules and push suggestions to the queue."""
+    global _observer_last_checkpoint_log_len
+    suggestions = []
+
+    # Rule 1: New track added with no devices
+    if previous is not None:
+        prev_tracks = {t["index"]: t for t in previous.get("tracks", [])}
+        curr_tracks = {t["index"]: t for t in current.get("tracks", [])}
+        new_indices = set(curr_tracks.keys()) - set(prev_tracks.keys())
+        for idx in new_indices:
+            t = curr_tracks[idx]
+            if t.get("device_count", 0) == 0:
+                suggestions.append({
+                    "source": "observer",
+                    "priority": "medium",
+                    "message": f"New track \"{t['name']}\" (index {idx}) has no devices.",
+                    "action": f"add_native_device({idx}, 'Simpler')  # or set_track_role({idx}, 'your role')",
+                })
+
+    # Rule 2: Master volume near ceiling
+    master_vol = current.get("master_track", {}).get("volume", 0.0)
+    if master_vol > 0.95:
+        suggestions.append({
+            "source": "observer",
+            "priority": "high",
+            "message": f"Master volume at {master_vol:.2f} — near ceiling.",
+            "action": "set_master_volume(0.85)  # or add a Limiter",
+        })
+
+    # Rule 3: Track count changed significantly (3+ tracks added at once)
+    if previous is not None:
+        prev_count = previous.get("track_count", 0)
+        curr_count = current.get("track_count", 0)
+        if curr_count - prev_count >= 3:
+            suggestions.append({
+                "source": "observer",
+                "priority": "low",
+                "message": f"Track count jumped from {prev_count} to {curr_count}.",
+                "action": "take_snapshot('after_track_changes')  # capture state",
+            })
+
+    # Rule 4: Any track soloed
+    soloed = [t["name"] for t in current.get("tracks", []) if t.get("solo")]
+    if soloed:
+        suggestions.append({
+            "source": "observer",
+            "priority": "low",
+            "message": f"Tracks still soloed: {soloed}",
+            "action": "set_track_solo(track_index, False)  # unmute others",
+        })
+
+    # Rule 5: No snapshot taken and op count growing (fire once per 20-op threshold crossing)
+    log_len = len(_operation_log)
+    if log_len > 0:
+        current_threshold = (log_len // 20) * 20
+        if current_threshold > _observer_last_checkpoint_log_len:
+            recent_snaps = [e for e in _operation_log[-30:] if "snapshot" in e["command"]]
+            if not recent_snaps:
+                suggestions.append({
+                    "source": "observer",
+                    "priority": "medium",
+                    "message": f"{log_len} operations since server start, no recent snapshot.",
+                    "action": "take_snapshot('checkpoint')",
+                })
+            # Advance threshold marker regardless, to avoid re-firing at same boundary
+            _observer_last_checkpoint_log_len = current_threshold
+
+    # Push all to queue (deduplicate by message)
+    with _observer_lock:
+        existing_messages = {s["message"] for s in _suggestion_queue}
+        for s in suggestions:
+            if s["message"] not in existing_messages:
+                _suggestion_queue.append(s)
+
+
+def _start_observer():
+    """Start the background observer thread."""
+    global _observer_thread, _observer_running
+    if _observer_thread is not None and _observer_thread.is_alive():
+        return  # already running
+    _observer_running = True
+    _observer_thread = threading.Thread(
+        target=_observer_loop,
+        name="AbletonMPCX-Observer",
+        daemon=True,
+    )
+    _observer_thread.start()
+
+
+def _stop_observer():
+    """Stop the background observer thread."""
+    global _observer_running
+    _observer_running = False
+
+
+@mcp.tool()
+def get_pending_suggestions(max_items: int = 10) -> dict:
+    """
+    Return and clear pending suggestions from the background observer.
+
+    The observer thread watches the session state and queues suggestions
+    when it detects state changes matching known rules (new tracks without
+    devices, volume ceiling, solo tracks left on, etc.).
+
+    Call this after every tool interaction to surface proactive observations.
+    Returns an empty list if nothing has been detected.
+
+    Args:
+        max_items: Maximum number of suggestions to return (default 10).
+
+    Returns:
+        suggestions: list of {source, priority, message, action}
+        queue_length_before: how many were queued before this call
+    """
+    with _observer_lock:
+        before = len(_suggestion_queue)
+        items = []
+        for _ in range(min(max_items, len(_suggestion_queue))):
+            if _suggestion_queue:
+                items.append(_suggestion_queue.popleft())
+    return {
+        "suggestions": items,
+        "queue_length_before": before,
+    }
+
+
+@mcp.tool()
+def observer_status() -> dict:
+    """
+    Return the current status of the background observer thread.
+
+    Returns:
+        running, poll_interval_seconds, queue_length, last_snapshot_track_count
+    """
+    with _observer_lock:
+        queue_len = len(_suggestion_queue)
+        last_snap = _observer_last_snapshot
+    return {
+        "running": _observer_running and (_observer_thread is not None and _observer_thread.is_alive()),
+        "poll_interval_seconds": _OBSERVER_POLL_INTERVAL,
+        "queue_length": queue_len,
+        "last_snapshot_track_count": last_snap.get("track_count", 0) if last_snap else None,
+        "last_snapshot_tempo": last_snap.get("tempo") if last_snap else None,
+    }
+
+
 # ---------------------------------------------------------------------------
 # Entry point
 # ---------------------------------------------------------------------------
+
+# Start observer on module load
+_start_observer()
 
 if __name__ == "__main__":
     mcp.run()
