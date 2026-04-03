@@ -349,6 +349,68 @@ def set_draw_mode(draw_mode: bool) -> dict:
     """Enable or disable Draw Mode."""
     return _send("set_draw_mode", {"draw_mode": draw_mode})
 
+@mcp.tool()
+def focus_view(view_name: str) -> dict:
+    """
+    Focus a named view in Ableton Live.
+    Common view names: 'Session', 'Arranger', 'Detail', 'Detail/Clip',
+    'Detail/DeviceChain', 'Browser', 'Mixer'.
+    """
+    return _send("focus_view", {"view_name": view_name})
+
+@mcp.tool()
+def show_view(view_name: str) -> dict:
+    """Show a named panel/view. See focus_view for common view names."""
+    return _send("show_view", {"view_name": view_name})
+
+@mcp.tool()
+def hide_view(view_name: str) -> dict:
+    """Hide a named panel/view. See focus_view for common view names."""
+    return _send("hide_view", {"view_name": view_name})
+
+@mcp.tool()
+def is_view_visible(view_name: str) -> dict:
+    """Return whether the named view/panel is currently visible."""
+    return _send("is_view_visible", {"view_name": view_name})
+
+@mcp.tool()
+def available_main_views() -> dict:
+    """Return the list of available main view names."""
+    return _send("available_main_views")
+
+@mcp.tool()
+def set_exclusive_arm(value: bool) -> dict:
+    """Enable or disable exclusive arm mode (arming one track disarms all others)."""
+    return _send("set_exclusive_arm", {"value": value})
+
+@mcp.tool()
+def set_exclusive_solo(value: bool) -> dict:
+    """Enable or disable exclusive solo mode (soloing one track un-solos all others)."""
+    return _send("set_exclusive_solo", {"value": value})
+
+@mcp.tool()
+def set_select_on_launch(value: bool) -> dict:
+    """Enable or disable Select on Launch (firing a scene/clip selects it)."""
+    return _send("set_select_on_launch", {"value": value})
+
+@mcp.tool()
+def nudge_up() -> dict:
+    """Send a tempo nudge up pulse (nudges the master tempo up momentarily)."""
+    return _send("nudge_up")
+
+@mcp.tool()
+def nudge_down() -> dict:
+    """Send a tempo nudge down pulse (nudges the master tempo down momentarily)."""
+    return _send("nudge_down")
+
+@mcp.tool()
+def get_appointed_device() -> dict:
+    """
+    Return the currently appointed (focused) device in Live.
+    Returns track_index, device_index, name and class_name, or {"device": None} if none.
+    """
+    return _send("get_appointed_device")
+
 # ---------------------------------------------------------------------------
 # Master Track
 # ---------------------------------------------------------------------------
@@ -386,6 +448,15 @@ def get_tracks() -> list:
 def get_track_info(track_index: int) -> dict:
     """Return full details for the track at track_index, including clip slots and devices. Use track_index=-1 to target the master track."""
     return _send("get_track_info", {"track_index": track_index})
+
+@mcp.tool()
+def get_track_playing_state(track_index: int) -> dict:
+    """
+    Return the currently playing and queued slot indices for a track.
+    playing_slot_index: index of the currently playing clip slot (-1 if none).
+    fired_slot_index: index of the next queued clip slot (-1 if none).
+    """
+    return _send("get_track_playing_state", {"track_index": track_index})
 
 @mcp.tool()
 def get_track_names(include_returns: bool = False, include_master: bool = False) -> list:
@@ -515,6 +586,14 @@ def get_clip_info(track_index: int, slot_index: int) -> dict:
     return _send("get_clip_info", {"track_index": track_index, "slot_index": slot_index})
 
 @mcp.tool()
+def get_clip_playing_position(track_index: int, slot_index: int) -> dict:
+    """
+    Return the current playhead position within the clip (in beats).
+    Only meaningful while the clip is playing.
+    """
+    return _send("get_clip_playing_position", {"track_index": track_index, "slot_index": slot_index})
+
+@mcp.tool()
 def set_clip_name(track_index: int, slot_index: int, name: str) -> dict:
     """Rename the clip at (track_index, slot_index)."""
     return _send("set_clip_name", {"track_index": track_index, "slot_index": slot_index, "name": name})
@@ -565,6 +644,19 @@ def set_clip_pitch(track_index: int, slot_index: int, pitch_coarse: int | None =
 def set_clip_gain(track_index: int, slot_index: int, gain: float) -> dict:
     """Set the gain of an audio clip (0.0-1.0)."""
     return _send("set_clip_gain", {"track_index": track_index, "slot_index": slot_index, "gain": gain})
+
+@mcp.tool()
+def set_clip_warping(track_index: int, slot_index: int, warping: bool) -> dict:
+    """Enable or disable warping on an audio clip."""
+    return _send("set_clip_warping", {"track_index": track_index, "slot_index": slot_index, "warping": warping})
+
+@mcp.tool()
+def set_clip_velocity_amount(track_index: int, slot_index: int, value: float) -> dict:
+    """
+    Set the velocity amount for a MIDI clip (-1.0 to 1.0).
+    Controls how much note velocity affects clip volume.
+    """
+    return _send("set_clip_velocity_amount", {"track_index": track_index, "slot_index": slot_index, "value": value})
 
 @mcp.tool()
 def set_clip_warp_mode(track_index: int, slot_index: int, warp_mode: int) -> dict:

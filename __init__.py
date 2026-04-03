@@ -252,6 +252,11 @@ class AbletonMPCX(ControlSurface):
             info["midi_recording_quantization"] = int(s.midi_recording_quantization)
         except AttributeError:
             pass
+        for attr in ("exclusive_arm", "exclusive_solo", "select_on_launch"):
+            try:
+                info[attr] = getattr(s, attr)
+            except AttributeError:
+                pass
         return info
 
     # -------------------------------------------------------------------------
@@ -535,6 +540,84 @@ class AbletonMPCX(ControlSurface):
         self._run_on_main_thread(fn)
         return {}
 
+    def _cmd_focus_view(self, params):
+        view_name = str(params["view_name"])
+        def fn():
+            self.application().view.focus_view(view_name)
+        self._run_on_main_thread(fn)
+        return {}
+
+    def _cmd_show_view(self, params):
+        view_name = str(params["view_name"])
+        def fn():
+            self.application().view.show_view(view_name)
+        self._run_on_main_thread(fn)
+        return {}
+
+    def _cmd_hide_view(self, params):
+        view_name = str(params["view_name"])
+        def fn():
+            self.application().view.hide_view(view_name)
+        self._run_on_main_thread(fn)
+        return {}
+
+    def _cmd_is_view_visible(self, params):
+        view_name = str(params["view_name"])
+        return {"visible": self.application().view.is_view_visible(view_name)}
+
+    def _cmd_available_main_views(self, params):
+        return {"views": list(self.application().view.available_main_views())}
+
+    def _cmd_set_exclusive_arm(self, params):
+        def fn():
+            self._song.exclusive_arm = bool(params["value"])
+        self._run_on_main_thread(fn)
+        return {}
+
+    def _cmd_set_exclusive_solo(self, params):
+        def fn():
+            self._song.exclusive_solo = bool(params["value"])
+        self._run_on_main_thread(fn)
+        return {}
+
+    def _cmd_set_select_on_launch(self, params):
+        def fn():
+            self._song.select_on_launch = bool(params["value"])
+        self._run_on_main_thread(fn)
+        return {}
+
+    def _cmd_nudge_up(self, params):
+        def fn():
+            self._song.nudge_up = True
+        self._run_on_main_thread(fn)
+        return {}
+
+    def _cmd_nudge_down(self, params):
+        def fn():
+            self._song.nudge_down = True
+        self._run_on_main_thread(fn)
+        return {}
+
+    def _cmd_get_appointed_device(self, params):
+        """Return the currently appointed (focused) device."""
+        try:
+            device = self._song.appointed_device
+            if device is None:
+                return {"device": None}
+            tracks = list(self._song.tracks)
+            for ti, track in enumerate(tracks + [self._song.master_track]):
+                for di, d in enumerate(track.devices):
+                    if d == device:
+                        return {
+                            "track_index": ti if ti < len(tracks) else -1,
+                            "device_index": di,
+                            "name": device.name,
+                            "class_name": device.class_name,
+                        }
+        except AttributeError:
+            pass
+        return {"device": None}
+
     # -------------------------------------------------------------------------
     # Master Track
     # -------------------------------------------------------------------------
@@ -653,6 +736,14 @@ class AbletonMPCX(ControlSurface):
         except AttributeError:
             pass
         return info
+
+    def _cmd_get_track_playing_state(self, params):
+        """Return which slot is currently playing/queued for a track."""
+        track = self._get_track(int(params["track_index"]))
+        return {
+            "playing_slot_index": self._safe(track, "playing_slot_index", -1),
+            "fired_slot_index": self._safe(track, "fired_slot_index", -1),
+        }
 
     def _cmd_get_return_tracks(self, params):
         result = []
@@ -982,6 +1073,11 @@ class AbletonMPCX(ControlSurface):
             pass
         return info
 
+    def _cmd_get_clip_playing_position(self, params):
+        """Return the current playhead position within the clip (in beats)."""
+        clip = self._get_clip(int(params["track_index"]), int(params["slot_index"]))
+        return {"playing_position": self._safe(clip, "playing_position", 0.0)}
+
     def _cmd_get_notes(self, params):
         clip = self._get_clip(int(params["track_index"]), int(params["slot_index"]))
         def fn():
@@ -1064,6 +1160,22 @@ class AbletonMPCX(ControlSurface):
         gain = float(params["gain"])
         def fn():
             clip.gain = gain
+        self._run_on_main_thread(fn)
+        return {}
+
+    def _cmd_set_clip_warping(self, params):
+        clip = self._get_clip(int(params["track_index"]), int(params["slot_index"]))
+        warping = bool(params["warping"])
+        def fn():
+            clip.warping = warping
+        self._run_on_main_thread(fn)
+        return {}
+
+    def _cmd_set_clip_velocity_amount(self, params):
+        clip = self._get_clip(int(params["track_index"]), int(params["slot_index"]))
+        value = float(params["value"])
+        def fn():
+            clip.velocity_amount = value
         self._run_on_main_thread(fn)
         return {}
 
