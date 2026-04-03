@@ -1318,6 +1318,325 @@ def diff_snapshot_vs_live(label: str) -> dict:
 
 
 # ---------------------------------------------------------------------------
+# Workflow primitives (Phase 4)
+# Deterministic, composable operations built on existing primitives.
+# Each compiles down to explicit _send() calls — no fuzzy behaviour.
+# ---------------------------------------------------------------------------
+
+@mcp.tool()
+def humanize_notes(
+    track_index: int,
+    slot_index: int,
+    timing_amount: float = 0.02,
+    velocity_amount: float = 10.0,
+    seed: int | None = None,
+) -> dict:
+    """
+    Apply subtle human-feel randomisation to all notes in a MIDI clip.
+
+    Randomly offsets note start times and velocities within the given ranges.
+    All changes are deterministic if a seed is provided.
+
+    Args:
+        track_index: Track containing the clip.
+        slot_index: Clip slot index.
+        timing_amount: Max timing shift in beats (default 0.02 = ~5ms at 120bpm).
+        velocity_amount: Max velocity shift in either direction (default 10).
+        seed: Optional random seed for reproducibility.
+
+    Returns:
+        note_count, timing_amount, velocity_amount, seed_used
+    """
+    import random
+
+    rng = random.Random(seed)
+    seed_used = seed if seed is not None else rng.randint(0, 2**31)
+    rng = random.Random(seed_used)
+
+    result = _send("get_notes", {"track_index": track_index, "slot_index": slot_index})
+    notes = result.get("notes", [])
+
+    modified = []
+    for note in notes:
+        t_shift = rng.uniform(-timing_amount, timing_amount)
+        v_shift = rng.uniform(-velocity_amount, velocity_amount)
+        new_start = max(0.0, note["start_time"] + t_shift)
+        new_velocity = int(max(1, min(127, note["velocity"] + v_shift)))
+        modified.append({
+            "pitch": note["pitch"],
+            "start_time": new_start,
+            "duration": note["duration"],
+            "velocity": new_velocity,
+            "mute": note["mute"],
+        })
+
+    # Replace all notes: remove then re-add
+    _send("remove_notes", {
+        "track_index": track_index,
+        "slot_index": slot_index,
+        "from_pitch": 0,
+        "pitch_span": 128,
+        "from_time": 0.0,
+    })
+    _send("add_notes", {
+        "track_index": track_index,
+        "slot_index": slot_index,
+        "notes": modified,
+    })
+
+    return {
+        "note_count": len(modified),
+        "timing_amount": timing_amount,
+        "velocity_amount": velocity_amount,
+        "seed_used": seed_used,
+    }
+
+
+@mcp.tool()
+def duplicate_clip_to_new_scene(track_index: int, slot_index: int) -> dict:
+    """
+    Duplicate the clip at (track_index, slot_index) into a new scene.
+
+    Creates a new scene at the end, then duplicates the clip slot into it.
+
+    Args:
+        track_index: Track containing the source clip.
+        slot_index: Source clip slot index.
+
+    Returns:
+        new_scene_index, new_slot_index
+    """
+    # Get current scene count
+    scenes = _send("get_scenes")
+    new_scene_index = len(scenes)
+
+    # Create new scene at end
+    _send("create_scene", {"index": -1})
+
+    # Duplicate the clip slot — this copies to the next empty slot on the same track.
+    # Then move context: duplicate_clip_slot duplicates to slot below.
+    _send("duplicate_clip_slot", {"track_index": track_index, "slot_index": slot_index})
+
+    return {
+        "source_track_index": track_index,
+        "source_slot_index": slot_index,
+        "new_scene_index": new_scene_index,
+    }
+
+
+@mcp.tool()
+def create_midi_track_with_drum_rack(index: int = -1, track_name: str | None = None) -> dict:
+    """
+    Create a new MIDI track and immediately load a Drum Rack onto it.
+
+    Args:
+        index: Position to insert the track (-1 = end).
+        track_name: Optional name to give the new track.
+
+    Returns:
+        track_index, track_name
+    """
+    # Create the MIDI track
+    _send("create_midi_track", {"index": index})
+
+    # Get updated track list to find the new track index
+    tracks = _send("get_tracks")
+    new_track_index = index if index >= 0 else len(tracks) - 1
+
+    # Optionally rename
+    if track_name:
+        _send("set_track_name", {"track_index": new_track_index, "name": track_name})
+    else:
+        track_name = tracks[new_track_index]["name"] if new_track_index < len(tracks) else "MIDI"
+
+    # Load Drum Rack
+    _send("add_native_device", {"track_index": new_track_index, "device_name": "Drum Rack"})
+
+    return {
+        "track_index": new_track_index,
+        "track_name": track_name,
+    }
+
+
+@mcp.tool()
+def capture_device_macro_snapshot(track_index: int, device_index: int, label: str | None = None) -> dict:
+    """
+    Capture the current parameter values of a device as a named snapshot.
+
+    Stores all parameter values under a label so they can be restored later
+    with apply_device_macro_snapshot().
+
+    Args:
+        track_index: Track containing the device (-1 for master).
+        device_index: Device index on the track.
+        label: Optional label. Defaults to '{track_index}_{device_index}'.
+
+    Returns:
+        label, device_name, parameter_count
+    """
+    result = _send("get_device_parameters", {
+        "track_index": track_index,
+        "device_index": device_index,
+    })
+    device_name = result.get("name", "unknown")
+    parameters = result.get("parameters", [])
+
+    snap_label = label or "device_{}_{}".format(track_index, device_index)
+
+    # Store in the same _snapshots store under a prefixed key
+    _snapshots["__device__{}".format(snap_label)] = {
+        "track_index": track_index,
+        "device_index": device_index,
+        "device_name": device_name,
+        "parameters": parameters,
+        "_timestamp_ms": int(time.time() * 1000),
+    }
+
+    return {
+        "label": snap_label,
+        "device_name": device_name,
+        "parameter_count": len(parameters),
+    }
+
+
+@mcp.tool()
+def apply_device_macro_snapshot(label: str, track_index: int | None = None, device_index: int | None = None) -> dict:
+    """
+    Restore device parameter values from a previously captured snapshot.
+
+    Args:
+        label: Label used when calling capture_device_macro_snapshot().
+        track_index: Override track index (uses snapshot's original if omitted).
+        device_index: Override device index (uses snapshot's original if omitted).
+
+    Returns:
+        label, device_name, parameters_set, skipped
+    """
+    key = "__device__{}".format(label)
+    if key not in _snapshots:
+        raise ValueError("No device snapshot with label '{}'. Use capture_device_macro_snapshot() first.".format(label))
+
+    snap = _snapshots[key]
+    ti = track_index if track_index is not None else snap["track_index"]
+    di = device_index if device_index is not None else snap["device_index"]
+    parameters = snap.get("parameters", [])
+
+    set_count = 0
+    skipped = 0
+    for param in parameters:
+        try:
+            _send("set_device_parameter", {
+                "track_index": ti,
+                "device_index": di,
+                "parameter_index": param["index"],
+                "value": param["value"],
+            })
+            set_count += 1
+        except Exception:
+            skipped += 1
+
+    return {
+        "label": label,
+        "device_name": snap.get("device_name", "unknown"),
+        "parameters_set": set_count,
+        "skipped": skipped,
+    }
+
+
+@mcp.tool()
+def prep_track_for_resampling(track_index: int, resample_track_name: str = "Resample") -> dict:
+    """
+    Prepare a track for resampling by creating a new audio track routed to record it.
+
+    Steps:
+    1. Creates a new audio track named resample_track_name.
+    2. Arms the new track for recording.
+    3. Returns both track indices so the caller can set up routing manually if needed.
+
+    Args:
+        track_index: The source track to resample from.
+        resample_track_name: Name for the new recording track.
+
+    Returns:
+        source_track_index, resample_track_index, resample_track_name
+    """
+    # Create the audio track
+    _send("create_audio_track", {"index": -1})
+    tracks = _send("get_tracks")
+    resample_track_index = len(tracks) - 1
+
+    # Name it
+    _send("set_track_name", {"track_index": resample_track_index, "name": resample_track_name})
+
+    # Arm it
+    arm_succeeded = True
+    try:
+        _send("set_track_arm", {"track_index": resample_track_index, "arm": True})
+    except Exception:
+        arm_succeeded = False  # Some track types may not support arming
+
+    return {
+        "source_track_index": track_index,
+        "resample_track_index": resample_track_index,
+        "resample_track_name": resample_track_name,
+        "arm_succeeded": arm_succeeded,
+    }
+
+
+@mcp.tool()
+def create_arrangement_scaffold(
+    sections: list[dict],
+) -> dict:
+    """
+    Create a basic arrangement scaffold by adding named scenes for each section.
+
+    Each section dict requires a 'name' key and optionally 'tempo' and 'color'.
+
+    Args:
+        sections: List of section dicts, e.g.:
+            [
+                {"name": "Intro", "tempo": 120.0, "color": 0x00FF6600},
+                {"name": "Verse", "tempo": 120.0},
+                {"name": "Chorus", "color": 0x00FF0000},
+                {"name": "Bridge"},
+                {"name": "Outro"},
+            ]
+
+    Returns:
+        scenes_created: list of {name, scene_index}
+    """
+    existing_scenes = _send("get_scenes")
+    start_index = len(existing_scenes)
+
+    created = []
+    tempo_failures = 0
+    color_failures = 0
+    for i, section in enumerate(sections):
+        scene_index = start_index + i
+        _send("create_scene", {"index": -1})
+        name = section.get("name", "Section {}".format(i + 1))
+        _send("set_scene_name", {"scene_index": scene_index, "name": name})
+        if "tempo" in section:
+            try:
+                _send("set_scene_tempo", {"scene_index": scene_index, "tempo": float(section["tempo"]), "tempo_enabled": True})
+            except Exception:
+                tempo_failures += 1
+        if "color" in section:
+            try:
+                _send("set_scene_color", {"scene_index": scene_index, "color": int(section["color"])})
+            except Exception:
+                color_failures += 1
+        created.append({"name": name, "scene_index": scene_index})
+
+    return {
+        "scenes_created": created,
+        "count": len(created),
+        "tempo_failures": tempo_failures,
+        "color_failures": color_failures,
+    }
+
+
+# ---------------------------------------------------------------------------
 # Entry point
 # ---------------------------------------------------------------------------
 
