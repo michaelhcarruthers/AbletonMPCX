@@ -1402,6 +1402,105 @@ class AbletonMPCX(ControlSurface):
         return {}
 
     # -------------------------------------------------------------------------
+    # Clip Automation Envelopes
+    # -------------------------------------------------------------------------
+
+    def _cmd_get_clip_envelopes(self, params):
+        """Return all automation envelopes on a clip, with device/parameter identity."""
+        clip = self._get_clip(int(params["track_index"]), int(params["slot_index"]))
+        if not hasattr(clip, "automation_envelopes"):
+            return []
+        result = []
+        for i, env in enumerate(clip.automation_envelopes):
+            try:
+                param = env.automation_parameter
+                result.append({
+                    "index": i,
+                    "parameter_name": param.name if param else None,
+                    "parameter_original_name": getattr(param, "original_name", None),
+                })
+            except Exception:
+                result.append({"index": i, "error": "could not read envelope"})
+        return result
+
+    def _cmd_get_clip_envelope(self, params):
+        """Return all automation points for one envelope. envelope_index: index into clip.automation_envelopes."""
+        clip = self._get_clip(int(params["track_index"]), int(params["slot_index"]))
+        envelope_index = int(params["envelope_index"])
+        try:
+            envelopes = clip.automation_envelopes
+        except AttributeError:
+            raise RuntimeError("clip.automation_envelopes not available in this Live version")
+        env = envelopes[envelope_index]
+        points = []
+        try:
+            for event in env.automation_events:
+                points.append({
+                    "time": float(event.start),
+                    "value": float(event.value),
+                    "in_tangent": float(getattr(event, "in_tangent_x", 0.0)),
+                    "out_tangent": float(getattr(event, "out_tangent_x", 0.0)),
+                })
+        except AttributeError:
+            pass
+        param = getattr(env, "automation_parameter", None)
+        return {
+            "envelope_index": envelope_index,
+            "parameter_name": param.name if param else None,
+            "points": points,
+        }
+
+    def _cmd_clear_clip_envelope(self, params):
+        """Clear all automation events from an envelope by index."""
+        clip = self._get_clip(int(params["track_index"]), int(params["slot_index"]))
+        envelope_index = int(params["envelope_index"])
+        def fn():
+            try:
+                env = clip.automation_envelopes[envelope_index]
+                env.clear_all_envelopes()
+            except AttributeError:
+                raise RuntimeError("clear_all_envelopes not available in this Live version")
+        self._run_on_main_thread(fn)
+        return {}
+
+    def _cmd_insert_clip_envelope_point(self, params):
+        """Insert a single automation point. time in beats, value is the parameter value."""
+        clip = self._get_clip(int(params["track_index"]), int(params["slot_index"]))
+        envelope_index = int(params["envelope_index"])
+        time = float(params["time"])
+        value = float(params["value"])
+        def fn():
+            try:
+                env = clip.automation_envelopes[envelope_index]
+                env.insert_step(time, 0.0, value)
+            except AttributeError:
+                raise RuntimeError("insert_step not available in this Live version")
+        self._run_on_main_thread(fn)
+        return {"time": time, "value": value}
+
+    def _cmd_set_clip_envelope_points(self, params):
+        """Replace all automation points in a clip envelope atomically (clear then insert all)."""
+        clip = self._get_clip(int(params["track_index"]), int(params["slot_index"]))
+        envelope_index = int(params["envelope_index"])
+        points = params.get("points", [])
+        def fn():
+            try:
+                env = clip.automation_envelopes[envelope_index]
+            except (AttributeError, IndexError) as e:
+                raise RuntimeError("Cannot access envelope {}: {}".format(envelope_index, e))
+            try:
+                env.clear_all_envelopes()
+            except AttributeError:
+                pass
+            for pt in points:
+                try:
+                    env.insert_step(float(pt["time"]), 0.0, float(pt["value"]))
+                except AttributeError:
+                    raise RuntimeError("insert_step not available in this Live version")
+        self._run_on_main_thread(fn)
+        return {"point_count": len(points)}
+
+    # -------------------------------------------------------------------------
     # Device (read)
     # -------------------------------------------------------------------------
 
@@ -1515,6 +1614,32 @@ class AbletonMPCX(ControlSurface):
             track.delete_device(device_index)
         self._run_on_main_thread(fn)
         return {}
+
+    def _cmd_move_device(self, params):
+        """
+        Reorder a device within the same track using duplicate + delete.
+        Cross-track moves are not supported by the Live Python API.
+        """
+        track_index = int(params["track_index"])
+        device_index = int(params["device_index"])
+        target_track_index = int(params.get("target_track_index", track_index))
+
+        if target_track_index != track_index:
+            raise RuntimeError(
+                "Cross-track device move is not supported by the Live Python API. "
+                "Use delete_device() + load_browser_item() to recreate the device on the target track."
+            )
+
+        def fn():
+            track = self._get_track(track_index)
+            if device_index >= len(list(track.devices)):
+                raise IndexError("device_index {} out of range".format(device_index))
+            track.duplicate_device(device_index)
+            # Duplicate lands at device_index+1; delete original at device_index
+            track.delete_device(device_index)
+
+        self._run_on_main_thread(fn)
+        return {"track_index": track_index, "device_index": device_index}
 
     # -------------------------------------------------------------------------
     # Scenes
@@ -1803,6 +1928,34 @@ class AbletonMPCX(ControlSurface):
                 "velocity": self._safe(groove, "velocity", None),
             })
         return result
+
+    def _cmd_extract_groove_from_clip(self, params):
+        """
+        Extract timing/velocity feel from a MIDI clip into the groove pool.
+        Requires Live 10+ (Song.create_midi_clip_groove).
+        """
+        clip = self._get_clip(int(params["track_index"]), int(params["slot_index"]))
+        groove_name = str(params.get("groove_name", "Extracted Groove"))
+
+        def fn():
+            if not hasattr(self._song, "create_midi_clip_groove"):
+                raise RuntimeError(
+                    "extract_groove_from_clip requires Live 10+ with create_midi_clip_groove. "
+                    "Use analyze_clip_feel() to read groove characteristics instead."
+                )
+            try:
+                groove = self._song.create_midi_clip_groove(clip)
+                if hasattr(groove, "name"):
+                    groove.name = groove_name
+                return {
+                    "method": "native",
+                    "groove_name": groove_name,
+                    "groove_count": len(list(self._song.groove_pool.grooves)),
+                }
+            except Exception as e:
+                raise RuntimeError("create_midi_clip_groove failed: {}".format(e))
+
+        return self._run_on_main_thread(fn)
 
     # -------------------------------------------------------------------------
     # Browser
