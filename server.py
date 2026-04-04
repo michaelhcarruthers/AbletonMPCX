@@ -559,6 +559,82 @@ def get_return_tracks() -> list:
     """Return all return tracks with name and volume."""
     return _send("get_return_tracks")
 
+@mcp.tool()
+def get_track_routing(track_index: int) -> dict:
+    """
+    Return the full routing state for a track: input/output type and channel,
+    plus the list of available options for each routing type property.
+
+    Use the 'available_input_routing_types' and 'available_output_routing_types'
+    lists to discover valid index values for the setter tools.
+
+    Args:
+        track_index: Track index (-1 not supported for routing).
+
+    Returns:
+        input_routing_type, input_routing_channel,
+        output_routing_type, output_routing_channel,
+        available_input_routing_types (list of str),
+        available_output_routing_types (list of str)
+    """
+    return _send("get_track_routing", {"track_index": track_index})
+
+
+@mcp.tool()
+def set_track_input_routing_type(track_index: int, value: int) -> dict:
+    """
+    Set the input routing type for a track by index into the available options.
+
+    Call get_track_routing() first to see available options and their indices.
+
+    Args:
+        track_index: Track to modify.
+        value: Index into track.available_input_routing_types (0-based).
+    """
+    return _send("set_track_input_routing_type", {"track_index": track_index, "value": value})
+
+
+@mcp.tool()
+def set_track_input_routing_channel(track_index: int, value: int) -> dict:
+    """
+    Set the input routing channel for a track by index into the available options.
+
+    Call get_track_routing() first to see available channel options.
+
+    Args:
+        track_index: Track to modify.
+        value: Index into track.available_input_routing_channels (0-based).
+    """
+    return _send("set_track_input_routing_channel", {"track_index": track_index, "value": value})
+
+
+@mcp.tool()
+def set_track_output_routing_type(track_index: int, value: int) -> dict:
+    """
+    Set the output routing type for a track by index into the available options.
+
+    Call get_track_routing() first to see available options and their indices.
+
+    Args:
+        track_index: Track to modify.
+        value: Index into track.available_output_routing_types (0-based).
+    """
+    return _send("set_track_output_routing_type", {"track_index": track_index, "value": value})
+
+
+@mcp.tool()
+def set_track_output_routing_channel(track_index: int, value: int) -> dict:
+    """
+    Set the output routing channel for a track by index into the available options.
+
+    Call get_track_routing() first to see available channel options.
+
+    Args:
+        track_index: Track to modify.
+        value: Index into track.available_output_routing_channels (0-based).
+    """
+    return _send("set_track_output_routing_channel", {"track_index": track_index, "value": value})
+
 # ---------------------------------------------------------------------------
 # ClipSlot
 # ---------------------------------------------------------------------------
@@ -700,6 +776,86 @@ def set_clip_launch_quantization(track_index: int, slot_index: int, launch_quant
     return _send("set_clip_launch_quantization", {"track_index": track_index, "slot_index": slot_index, "launch_quantization": launch_quantization})
 
 @mcp.tool()
+def get_clip_follow_actions(track_index: int, slot_index: int) -> dict:
+    """
+    Return all follow action properties for the clip at (track_index, slot_index).
+
+    Follow action enum values (follow_action_a / follow_action_b):
+      0 = None (stop)
+      1 = Stop
+      2 = Play again
+      3 = Play previous
+      4 = Play next
+      5 = Play first
+      6 = Play last
+      7 = Play any (random)
+      8 = Play other
+
+    Returns:
+        follow_action_time (float beats),
+        follow_action_linked (bool),
+        follow_action_enabled (bool, Live 12+ only),
+        follow_action_a (int),
+        follow_action_b (int),
+        follow_action_chance_a (int 0-100),
+        follow_action_chance_b (int 0-100)
+    """
+    return _send("get_clip_follow_actions", {"track_index": track_index, "slot_index": slot_index})
+
+
+@mcp.tool()
+def set_clip_follow_actions(
+    track_index: int,
+    slot_index: int,
+    follow_action_time: float | None = None,
+    follow_action_linked: bool | None = None,
+    follow_action_enabled: bool | None = None,
+    follow_action_a: int | None = None,
+    follow_action_b: int | None = None,
+    follow_action_chance_a: int | None = None,
+    follow_action_chance_b: int | None = None,
+) -> dict:
+    """
+    Set follow action properties on the clip at (track_index, slot_index).
+
+    All parameters are optional — only provided values are written.
+    follow_action_enabled requires Live 12+; it is silently skipped on Live 11.
+
+    Follow action enum values (follow_action_a / follow_action_b):
+      0 = None, 1 = Stop, 2 = Play again, 3 = Play previous,
+      4 = Play next, 5 = Play first, 6 = Play last,
+      7 = Play any (random), 8 = Play other
+
+    Returns:
+        updated: list of property names that were set
+        errors: dict of {property: reason} for any that failed (e.g. Live 11 limitation)
+    """
+    params: dict[str, Any] = {"track_index": track_index, "slot_index": slot_index}
+    if follow_action_time is not None:
+        params["follow_action_time"] = follow_action_time
+    if follow_action_linked is not None:
+        params["follow_action_linked"] = follow_action_linked
+    if follow_action_enabled is not None:
+        params["follow_action_enabled"] = follow_action_enabled
+    if follow_action_a is not None:
+        if not 0 <= follow_action_a <= 8:
+            raise ValueError("follow_action_a must be 0-8")
+        params["follow_action_a"] = follow_action_a
+    if follow_action_b is not None:
+        if not 0 <= follow_action_b <= 8:
+            raise ValueError("follow_action_b must be 0-8")
+        params["follow_action_b"] = follow_action_b
+    if follow_action_chance_a is not None:
+        if not 0 <= follow_action_chance_a <= 100:
+            raise ValueError("follow_action_chance_a must be 0-100")
+        params["follow_action_chance_a"] = follow_action_chance_a
+    if follow_action_chance_b is not None:
+        if not 0 <= follow_action_chance_b <= 100:
+            raise ValueError("follow_action_chance_b must be 0-100")
+        params["follow_action_chance_b"] = follow_action_chance_b
+    return _send("set_clip_follow_actions", params)
+
+@mcp.tool()
 def fire_clip(track_index: int, slot_index: int) -> dict:
     """Fire the clip at (track_index, slot_index)."""
     return _send("fire_clip", {"track_index": track_index, "slot_index": slot_index})
@@ -737,6 +893,31 @@ def add_notes(track_index: int, slot_index: int, notes: list[dict]) -> dict:
     Optional: velocity (0-127), mute (bool), probability (0-1), velocity_deviation (-127 to 127), release_velocity (0-127)
     """
     return _send("add_notes", {"track_index": track_index, "slot_index": slot_index, "notes": notes})
+
+@mcp.tool()
+def replace_all_notes(track_index: int, slot_index: int, notes: list[dict]) -> dict:
+    """
+    Atomically replace ALL notes in a MIDI clip with the given list.
+
+    Unlike add_notes (which appends), this clears the clip and writes the
+    complete new note set in a single main-thread call — no race condition
+    between read and write.
+
+    Each note dict requires:
+      pitch (int 0-127), start_time (float beats), duration (float beats)
+    Optional: velocity (0-127, default 100), mute (bool, default False)
+
+    Use this as the canonical write path for humanize, groove, and any
+    operation that computes a new full note set from an existing one.
+
+    Returns:
+        note_count: number of notes written
+    """
+    return _send("replace_all_notes", {
+        "track_index": track_index,
+        "slot_index": slot_index,
+        "notes": notes,
+    })
 
 @mcp.tool()
 def remove_notes(track_index: int, slot_index: int, from_pitch: int = 0, pitch_span: int = 128, from_time: float = 0.0, time_span: float | None = None) -> dict:
@@ -1416,11 +1597,23 @@ def diff_snapshot_vs_live(label: str) -> dict:
     }
 
 
+
 # ---------------------------------------------------------------------------
 # Workflow primitives (Phase 4)
 # Deterministic, composable operations built on existing primitives.
 # Each compiles down to explicit _send() calls — no fuzzy behaviour.
 # ---------------------------------------------------------------------------
+
+
+def _std_dev(values: list) -> float:
+    """Return population standard deviation of a list of numbers. Returns 0.0 for empty or single-element lists."""
+    if len(values) < 2:
+        return 0.0
+    mean = sum(values) / len(values)
+    variance = sum((v - mean) ** 2 for v in values) / len(values)
+    import math
+    return math.sqrt(variance)
+
 
 @mcp.tool()
 def humanize_notes(
@@ -1469,15 +1662,8 @@ def humanize_notes(
             "mute": note["mute"],
         })
 
-    # Replace all notes: remove then re-add
-    _send("remove_notes", {
-        "track_index": track_index,
-        "slot_index": slot_index,
-        "from_pitch": 0,
-        "pitch_span": 128,
-        "from_time": 0.0,
-    })
-    _send("add_notes", {
+    # Replace all notes atomically
+    _send("replace_all_notes", {
         "track_index": track_index,
         "slot_index": slot_index,
         "notes": modified,
@@ -1488,6 +1674,220 @@ def humanize_notes(
         "timing_amount": timing_amount,
         "velocity_amount": velocity_amount,
         "seed_used": seed_used,
+    }
+
+
+@mcp.tool()
+def humanize_dilla(
+    track_index: int,
+    slot_index: int,
+    late_bias: float = 0.018,
+    max_early: float = 0.005,
+    max_late: float = 0.032,
+    velocity_amount: float = 8.0,
+    loose_subdivisions: bool = True,
+    seed: int | None = None,
+) -> dict:
+    """
+    Apply a J Dilla-inspired humanization to a MIDI clip.
+
+    Key characteristics vs generic humanize_notes:
+    - Timing is biased LATE, not symmetrically randomised.
+      Distribution is triangular(max_early, max_late, late_bias).
+    - Weaker subdivisions (16th-note offbeats) get more timing looseness.
+    - Velocities are nudged randomly but with less extreme spread than timing.
+
+    All changes are deterministic if a seed is provided.
+    Uses replace_all_notes for atomic write.
+
+    Args:
+        track_index: Track containing the clip.
+        slot_index: Clip slot index.
+        late_bias: Mode of the triangular timing distribution in beats (default 0.018 ≈ +4ms at 120bpm).
+        max_early: Maximum early shift in beats (default 0.005 ≈ 1ms).
+        max_late: Maximum late shift in beats (default 0.032 ≈ 8ms).
+        velocity_amount: Max velocity shift in either direction (default 8).
+        loose_subdivisions: If True, 16th-note offbeats get 1.5× the timing range.
+        seed: Optional random seed for reproducibility.
+
+    Returns:
+        note_count, late_bias, max_early, max_late, velocity_amount, seed_used
+    """
+    import random
+
+    rng = random.Random(seed)
+    seed_used = seed if seed is not None else rng.randint(0, 2**31)
+    rng = random.Random(seed_used)
+
+    result = _send("get_notes", {"track_index": track_index, "slot_index": slot_index})
+    notes = result.get("notes", [])
+
+    def is_weak_subdivision(start_time: float, grid: float = 0.25) -> bool:
+        """True if the note falls on an offbeat 16th (not on a quarter or 8th)."""
+        pos_in_beat = (start_time % 1.0)
+        QUARTER_THRESHOLD = 0.05
+        EIGHTH_THRESHOLD = 0.05
+        if pos_in_beat < QUARTER_THRESHOLD or abs(pos_in_beat - 1.0) < QUARTER_THRESHOLD:
+            return False  # on the quarter
+        if abs(pos_in_beat - 0.5) < EIGHTH_THRESHOLD:
+            return False  # on the 8th
+        return True  # offbeat 16th or smaller
+
+    modified = []
+    for note in notes:
+        # Timing: triangular distribution biased late
+        if loose_subdivisions and is_weak_subdivision(note["start_time"]):
+            actual_max_late = max_late * 1.5
+            actual_late_bias = late_bias * 1.4
+        else:
+            actual_max_late = max_late
+            actual_late_bias = late_bias
+
+        t_shift = rng.triangular(-max_early, actual_max_late, actual_late_bias)
+        new_start = max(0.0, note["start_time"] + t_shift)
+
+        # Velocity: symmetric small nudge
+        v_shift = rng.uniform(-velocity_amount, velocity_amount)
+        new_velocity = int(max(1, min(127, note["velocity"] + v_shift)))
+
+        modified.append({
+            "pitch": note["pitch"],
+            "start_time": new_start,
+            "duration": note["duration"],
+            "velocity": new_velocity,
+            "mute": note["mute"],
+        })
+
+    _send("replace_all_notes", {
+        "track_index": track_index,
+        "slot_index": slot_index,
+        "notes": modified,
+    })
+
+    return {
+        "note_count": len(modified),
+        "late_bias": late_bias,
+        "max_early": max_early,
+        "max_late": max_late,
+        "velocity_amount": velocity_amount,
+        "seed_used": seed_used,
+    }
+
+
+@mcp.tool()
+def analyze_clip_feel(track_index: int, slot_index: int, grid: float = 0.25) -> dict:
+    """
+    Analyse the timing and velocity feel of a MIDI clip.
+
+    Checks for signs of robotic, over-quantized feel:
+    - All note start times fall exactly on a rhythmic grid
+    - Near-uniform velocities across all notes
+    - Per-pitch velocity variance (e.g. every hi-hat hit the same velocity)
+    - Uniform note durations per pitch
+
+    Nothing is modified. Returns observations and a summary flag.
+
+    Args:
+        track_index: Track containing the clip.
+        slot_index: Clip slot index.
+        grid: Grid resolution in beats to check snapping against (default 0.25 = 16th note).
+
+    Returns:
+        note_count,
+        perfectly_quantized (bool): all start times are exact grid multiples,
+        timing_variance (float): std dev of distance-to-nearest-grid in beats,
+        velocity_std_dev (float): overall velocity standard deviation,
+        low_velocity_variance (bool): velocity std dev < 5 (flag),
+        per_pitch_analysis: list of {pitch, note_count, velocity_std_dev, duration_std_dev, uniform_velocity, uniform_duration},
+        robotic_flags: list of human-readable flag strings,
+        feel_score: int 0-100 (100 = fully robotic, 0 = very human)
+    """
+    import math
+
+    result = _send("get_notes", {"track_index": track_index, "slot_index": slot_index})
+    notes = result.get("notes", [])
+
+    if not notes:
+        return {
+            "note_count": 0,
+            "perfectly_quantized": False,
+            "timing_variance": 0.0,
+            "velocity_std_dev": 0.0,
+            "low_velocity_variance": False,
+            "per_pitch_analysis": [],
+            "robotic_flags": ["clip is empty"],
+            "feel_score": 0,
+        }
+
+    # --- Timing analysis ---
+    def dist_to_grid(t, g):
+        return abs(t - round(t / g) * g)
+
+    grid_distances = [dist_to_grid(n["start_time"], grid) for n in notes]
+    SNAP_THRESHOLD = 0.001  # beats — within 1ms at 120bpm
+    perfectly_quantized = all(d < SNAP_THRESHOLD for d in grid_distances)
+    timing_variance = _std_dev(grid_distances)
+
+    # --- Velocity analysis ---
+    velocities = [n["velocity"] for n in notes]
+    velocity_std_dev = _std_dev(velocities)
+    low_velocity_variance = velocity_std_dev < 5.0
+
+    # --- Per-pitch analysis ---
+    from collections import defaultdict
+    pitch_groups: dict = defaultdict(list)
+    for n in notes:
+        pitch_groups[n["pitch"]].append(n)
+
+    per_pitch = []
+    for pitch, pitch_notes in sorted(pitch_groups.items()):
+        pvels = [n["velocity"] for n in pitch_notes]
+        pdurs = [n["duration"] for n in pitch_notes]
+        pvel_std = _std_dev(pvels)
+        pdur_std = _std_dev(pdurs)
+        per_pitch.append({
+            "pitch": pitch,
+            "note_count": len(pitch_notes),
+            "velocity_std_dev": round(pvel_std, 3),
+            "duration_std_dev": round(pdur_std, 4),
+            "uniform_velocity": pvel_std < 3.0 and len(pitch_notes) > 1,
+            "uniform_duration": pdur_std < 0.01 and len(pitch_notes) > 1,
+        })
+
+    # --- Build flags ---
+    robotic_flags = []
+    if perfectly_quantized:
+        robotic_flags.append("all note start times are exactly on the {}-beat grid".format(grid))
+    if low_velocity_variance:
+        robotic_flags.append("overall velocity std dev is {:.1f} — near-uniform".format(velocity_std_dev))
+    uniform_vel_pitches = [p for p in per_pitch if p["uniform_velocity"]]
+    if uniform_vel_pitches:
+        robotic_flags.append("pitches with identical velocities: {}".format([p["pitch"] for p in uniform_vel_pitches]))
+    uniform_dur_pitches = [p for p in per_pitch if p["uniform_duration"]]
+    if uniform_dur_pitches:
+        robotic_flags.append("pitches with uniform note lengths: {}".format([p["pitch"] for p in uniform_dur_pitches]))
+
+    # --- Feel score (0=human, 100=robotic) ---
+    score = 0
+    if perfectly_quantized:
+        score += 40
+    if low_velocity_variance:
+        score += 30
+    uniform_vel_ratio = len(uniform_vel_pitches) / max(len(per_pitch), 1)
+    score += int(uniform_vel_ratio * 20)
+    uniform_dur_ratio = len(uniform_dur_pitches) / max(len(per_pitch), 1)
+    score += int(uniform_dur_ratio * 10)
+    score = min(100, score)
+
+    return {
+        "note_count": len(notes),
+        "perfectly_quantized": perfectly_quantized,
+        "timing_variance": round(timing_variance, 5),
+        "velocity_std_dev": round(velocity_std_dev, 3),
+        "low_velocity_variance": low_velocity_variance,
+        "per_pitch_analysis": per_pitch,
+        "robotic_flags": robotic_flags,
+        "feel_score": score,
     }
 
 

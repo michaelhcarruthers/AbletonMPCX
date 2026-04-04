@@ -85,16 +85,17 @@ Tools are grouped by area of the Live Object Model:
 | **Song / Transport** | `get_song_info`, `start_playing`, `stop_playing`, `continue_playing`, `tap_tempo`, `undo`, `redo`, `set_tempo`, `set_time_signature`, `set_metronome`, `set_loop`, `set_record_mode`, `set_session_record`, `set_overdub`, `set_swing_amount`, `set_groove_amount`, `set_back_to_arranger`, `set_clip_trigger_quantization`, `set_midi_recording_quantization`, `set_scale_mode`, `set_scale_name`, `set_root_note`, `capture_midi`, `capture_and_insert_scene`, `jump_by`, `jump_to_next_cue`, `jump_to_prev_cue`, `stop_all_clips`, `get_cue_points`, `jump_to_cue_point`, `set_or_delete_cue`, `re_enable_automation`, `play_selection` |
 | **Song.View** | `get_selected_track`, `set_selected_track`, `get_selected_scene`, `set_selected_scene`, `get_follow_song`, `set_follow_song`, `get_draw_mode`, `set_draw_mode` |
 | **Master Track** | `get_master_track`, `set_master_volume`, `set_master_pan`, `set_crossfader` |
-| **Tracks** | `get_tracks`, `get_track_info`, `create_audio_track`, `create_midi_track`, `create_return_track`, `delete_track`, `delete_return_track`, `duplicate_track`, `set_track_name`, `set_track_color`, `set_track_mute`, `set_track_solo`, `set_track_arm`, `set_track_volume`, `set_track_pan`, `set_track_send`, `set_crossfade_assign`, `stop_track_clips`, `set_track_fold_state`, `get_return_tracks` |
+| **Tracks** | `get_tracks`, `get_track_info`, `create_audio_track`, `create_midi_track`, `create_return_track`, `delete_track`, `delete_return_track`, `duplicate_track`, `set_track_name`, `set_track_color`, `set_track_mute`, `set_track_solo`, `set_track_arm`, `set_track_volume`, `set_track_pan`, `set_track_send`, `set_crossfade_assign`, `stop_track_clips`, `set_track_fold_state`, `get_return_tracks`, `get_track_routing`, `set_track_input_routing_type`, `set_track_input_routing_channel`, `set_track_output_routing_type`, `set_track_output_routing_channel` |
 | **Clip Slots** | `get_clip_slots`, `fire_clip_slot`, `stop_clip_slot`, `create_clip`, `delete_clip`, `duplicate_clip_slot` |
-| **Clips** | `get_clip_info`, `set_clip_name`, `set_clip_color`, `set_clip_loop`, `set_clip_markers`, `set_clip_mute`, `set_clip_pitch`, `set_clip_gain`, `set_clip_warp_mode`, `set_clip_launch_mode`, `set_clip_launch_quantization`, `fire_clip`, `stop_clip`, `crop_clip`, `duplicate_clip_loop`, `quantize_clip` |
-| **MIDI Notes** | `get_notes`, `add_notes`, `remove_notes`, `apply_note_modifications`, `select_all_notes`, `deselect_all_notes` |
+| **Clips** | `get_clip_info`, `set_clip_name`, `set_clip_color`, `set_clip_loop`, `set_clip_markers`, `set_clip_mute`, `set_clip_pitch`, `set_clip_gain`, `set_clip_warp_mode`, `set_clip_launch_mode`, `set_clip_launch_quantization`, `get_clip_follow_actions`, `set_clip_follow_actions`, `fire_clip`, `stop_clip`, `crop_clip`, `duplicate_clip_loop`, `quantize_clip` |
+| **MIDI Notes** | `get_notes`, `add_notes`, `replace_all_notes`, `remove_notes`, `apply_note_modifications`, `select_all_notes`, `deselect_all_notes` |
 | **Scenes** | `get_scenes`, `get_scene_info`, `create_scene`, `delete_scene`, `duplicate_scene`, `set_scene_name`, `set_scene_tempo`, `set_scene_color`, `fire_scene` |
 | **Devices** | `get_devices`, `get_device_info`, `get_device_parameters`, `set_device_parameter`, `set_device_enabled`, `delete_device`, `duplicate_device` |
 | **Mixer Device** | `get_mixer_device`, `set_crossfade_assign` |
 | **Rack / Drum Rack** | `get_rack_chains`, `get_rack_drum_pads`, `randomize_rack_macros`, `store_rack_variation` |
 | **Groove Pool** | `get_grooves` |
 | **Browser** | `get_browser_tree`, `get_browser_items_at_path`, `load_browser_item` |
+| **Feel / Humanization** | `analyze_clip_feel`, `humanize_notes`, `humanize_dilla` |
 
 ---
 
