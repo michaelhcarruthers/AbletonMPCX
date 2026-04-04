@@ -3479,8 +3479,8 @@ def compare_audio(
             direction = higher_is if delta > 0 else ("darker" if higher_is == "brighter" else
                                                       "quieter" if higher_is == "louder" else
                                                       "lower" if higher_is == "higher" else "less")
-            flags.append("{} is {} {} than reference (delta: {:{}}{})"
-                         .format(label_str, "", "", direction, delta, fmt, unit))
+            flags.append("{} is {} than reference (delta: {:{}}{})"
+                         .format(label_str, direction, delta, fmt, unit))
 
     compare_scalar("loudness_dbfs",          "loudness",          1.5,  unit=" dB",   higher_is="louder",   fmt="+.1f")
     compare_scalar("peak_dbfs",              "peak level",        2.0,  unit=" dB",   higher_is="louder",   fmt="+.1f")
@@ -3496,7 +3496,7 @@ def compare_audio(
     tonal_deltas = {}
     ref_bands = ref.get("tonal_balance", {})
     tgt_bands = target.get("tonal_balance", {})
-    TONAL_THRESHOLD = 0.03
+    tonal_threshold = 0.03
 
     band_descriptions = {
         "low":      "sub/low end (<100Hz)",
@@ -3511,10 +3511,10 @@ def compare_audio(
         r_b = ref_bands.get(band, 0.0)
         d = t_b - r_b
         tonal_deltas[band] = round(d, 5)
-        if abs(d) > TONAL_THRESHOLD:
+        if abs(d) > tonal_threshold:
             direction = "more" if d > 0 else "less"
-            flags.append("{} has {} {} energy than reference ({:+.1f}%)".format(
-                band_descriptions.get(band, band), direction, band, d * 100))
+            flags.append("{} has {} energy than reference ({:+.1f}%)".format(
+                band_descriptions.get(band, band), direction, d * 100))
 
     if not flags:
         flags.append("no significant differences detected vs reference")
