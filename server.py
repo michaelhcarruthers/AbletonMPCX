@@ -636,6 +636,74 @@ def set_track_output_routing_channel(track_index: int, value: int) -> dict:
     """
     return _send("set_track_output_routing_channel", {"track_index": track_index, "value": value})
 
+
+@mcp.tool()
+def get_available_routings(track_index: int) -> dict:
+    """
+    Return all available input and output routing types and channels for a track.
+
+    Useful for discovering valid display name values before calling
+    set_track_input_routing or set_track_output_routing.
+
+    Args:
+        track_index: Track index.
+
+    Returns:
+        input_routing_types (list of str), input_routing_channels (list of str),
+        output_routing_types (list of str), output_routing_channels (list of str)
+    """
+    return _send("get_available_routings", {"track_index": track_index})
+
+
+@mcp.tool()
+def set_track_input_routing(
+    track_index: int,
+    routing_type_name: str | None = None,
+    routing_channel_name: str | None = None,
+) -> dict:
+    """
+    Set the input routing for a track by display name.
+
+    routing_type_name: display name of the routing type (e.g. "Resampling", "No Input", "1-Ext. In").
+    routing_channel_name: display name of the routing channel (e.g. "1/2", "3/4").
+    Call get_available_routings first to discover valid values.
+
+    Args:
+        track_index: Track to modify.
+        routing_type_name: Display name of the desired input routing type (optional).
+        routing_channel_name: Display name of the desired input routing channel (optional).
+    """
+    return _send("set_track_input_routing", {
+        "track_index": track_index,
+        "routing_type_name": routing_type_name,
+        "routing_channel_name": routing_channel_name,
+    })
+
+
+@mcp.tool()
+def set_track_output_routing(
+    track_index: int,
+    routing_type_name: str | None = None,
+    routing_channel_name: str | None = None,
+) -> dict:
+    """
+    Set the output routing for a track by display name.
+
+    routing_type_name: display name of the routing type (e.g. "Master", "Sends Only", "1-Ext. Out").
+    routing_channel_name: display name of the routing channel (e.g. "1/2", "3/4").
+    Call get_available_routings first to discover valid values.
+
+    Args:
+        track_index: Track to modify.
+        routing_type_name: Display name of the desired output routing type (optional).
+        routing_channel_name: Display name of the desired output routing channel (optional).
+    """
+    return _send("set_track_output_routing", {
+        "track_index": track_index,
+        "routing_type_name": routing_type_name,
+        "routing_channel_name": routing_channel_name,
+    })
+
 # ---------------------------------------------------------------------------
 # ClipSlot
 # ---------------------------------------------------------------------------
