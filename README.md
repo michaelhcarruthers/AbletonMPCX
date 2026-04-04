@@ -97,6 +97,7 @@ Tools are grouped by area of the Live Object Model:
 | **Browser** | `get_browser_tree`, `get_browser_items_at_path`, `load_browser_item` |
 | **Feel / Humanization** | `analyze_clip_feel`, `humanize_notes`, `humanize_dilla` |
 | **Reference Profiles** | `designate_reference_clip`, `compare_clip_feel`, `designate_reference_mix_state`, `compare_mix_state`, `list_reference_profiles`, `delete_reference_profile` |
+| **Tier 2 Audio Analysis** | `designate_reference_audio`, `analyse_audio`, `compare_audio`, `compare_audio_sections` |
 
 ---
 
@@ -124,6 +125,27 @@ Reference profiles let you capture the feel or mix state of a clip/session and c
 |------|-------------|
 | `list_reference_profiles()` | List all stored reference profiles with their type, timestamp, and key stats. |
 | `delete_reference_profile(label)` | Delete a reference profile by label (in-process and from project memory). |
+
+---
+
+## Tier 2 Audio Analysis
+
+Tier 2 audio analysis requires librosa:
+
+```
+pip install librosa soundfile
+```
+
+Point the server at an audio file on disk (an exported bounce or a reference track). The server analyses it and stores a named audio analysis profile. The observer and `suggest_next_actions` can then compare the current session against it.
+
+| Tool | Description |
+|------|-------------|
+| `designate_reference_audio(file_path, label='default_audio')` | Analyse an audio file (WAV, AIFF, FLAC, MP3) and store it as a named reference audio profile. Captures tonal balance, integrated loudness, peak level, crest factor, spectral centroid, spectral rolloff, transient density, dynamic range, and stereo width. |
+| `analyse_audio(file_path)` | Analyse an audio file and return the same metrics without storing a reference profile. |
+| `compare_audio(file_path, reference_label='default_audio')` | Analyse an audio file and compare it against a stored reference profile. Returns per-metric deltas and human-readable flags. |
+| `compare_audio_sections(file_path, reference_label='default_audio', num_sections=4)` | Split a target audio file into N equal sections and compare each against the reference. Useful for detecting arrangement energy progression. |
+
+> **Note:** All audio analysis tools use lazy imports. If `librosa` is not installed, the tools raise a clear `ImportError` with an install hint instead of crashing the server on startup.
 
 ---
 
