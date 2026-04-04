@@ -781,6 +781,80 @@ class AbletonMPCX(ControlSurface):
             })
         return result
 
+    def _cmd_get_track_routing(self, params):
+        track = self._get_track(int(params["track_index"]))
+        result = {}
+        for attr in ("input_routing_type", "input_routing_channel",
+                     "output_routing_type", "output_routing_channel"):
+            try:
+                val = getattr(track, attr)
+                result[attr] = str(val)
+                if attr in ("input_routing_type", "output_routing_type"):
+                    try:
+                        available_attr = "available_" + attr + "s"
+                        result["available_" + attr + "s"] = [str(r) for r in getattr(track, available_attr)]
+                    except AttributeError:
+                        pass
+            except AttributeError:
+                pass
+        return result
+
+    def _cmd_set_track_input_routing_type(self, params):
+        track = self._get_track(int(params["track_index"]))
+        value = int(params["value"])
+        def fn():
+            try:
+                available = list(track.available_input_routing_types)
+                if value < 0 or value >= len(available):
+                    raise IndexError("input_routing_type index {} out of range (0-{})".format(value, len(available) - 1))
+                track.input_routing_type = available[value]
+            except AttributeError as e:
+                raise RuntimeError("input_routing_type not settable: {}".format(e))
+        self._run_on_main_thread(fn)
+        return {}
+
+    def _cmd_set_track_input_routing_channel(self, params):
+        track = self._get_track(int(params["track_index"]))
+        value = int(params["value"])
+        def fn():
+            try:
+                available = list(track.available_input_routing_channels)
+                if value < 0 or value >= len(available):
+                    raise IndexError("input_routing_channel index {} out of range (0-{})".format(value, len(available) - 1))
+                track.input_routing_channel = available[value]
+            except AttributeError as e:
+                raise RuntimeError("input_routing_channel not settable: {}".format(e))
+        self._run_on_main_thread(fn)
+        return {}
+
+    def _cmd_set_track_output_routing_type(self, params):
+        track = self._get_track(int(params["track_index"]))
+        value = int(params["value"])
+        def fn():
+            try:
+                available = list(track.available_output_routing_types)
+                if value < 0 or value >= len(available):
+                    raise IndexError("output_routing_type index {} out of range (0-{})".format(value, len(available) - 1))
+                track.output_routing_type = available[value]
+            except AttributeError as e:
+                raise RuntimeError("output_routing_type not settable: {}".format(e))
+        self._run_on_main_thread(fn)
+        return {}
+
+    def _cmd_set_track_output_routing_channel(self, params):
+        track = self._get_track(int(params["track_index"]))
+        value = int(params["value"])
+        def fn():
+            try:
+                available = list(track.available_output_routing_channels)
+                if value < 0 or value >= len(available):
+                    raise IndexError("output_routing_channel index {} out of range (0-{})".format(value, len(available) - 1))
+                track.output_routing_channel = available[value]
+            except AttributeError as e:
+                raise RuntimeError("output_routing_channel not settable: {}".format(e))
+        self._run_on_main_thread(fn)
+        return {}
+
     # -------------------------------------------------------------------------
     # Track (write)
     # -------------------------------------------------------------------------
@@ -1226,6 +1300,53 @@ class AbletonMPCX(ControlSurface):
         self._run_on_main_thread(fn)
         return {}
 
+    def _cmd_get_clip_follow_actions(self, params):
+        clip = self._get_clip(int(params["track_index"]), int(params["slot_index"]))
+        result = {}
+        for attr in ("follow_action_time", "follow_action_linked",
+                     "follow_action_enabled",
+                     "follow_action_a", "follow_action_b",
+                     "follow_action_chance_a", "follow_action_chance_b"):
+            try:
+                val = getattr(clip, attr)
+                # FollowAction enum values are int-like but not plain Python ints;
+                # cast to int so they serialise correctly over JSON.
+                if not isinstance(val, (bool, float, str)) and hasattr(val, "__index__"):
+                    result[attr] = int(val)
+                else:
+                    result[attr] = val
+            except AttributeError:
+                pass  # Property not available in this Live version
+        return result
+
+    def _cmd_set_clip_follow_actions(self, params):
+        clip = self._get_clip(int(params["track_index"]), int(params["slot_index"]))
+        settable = {
+            "follow_action_time": float,
+            "follow_action_linked": bool,
+            "follow_action_enabled": bool,
+            "follow_action_a": int,
+            "follow_action_b": int,
+            "follow_action_chance_a": int,
+            "follow_action_chance_b": int,
+        }
+        updates = {k: v for k, v in params.items() if k in settable}
+        errors = {}
+        def fn():
+            for key, val in updates.items():
+                try:
+                    cast = settable[key]
+                    setattr(clip, key, cast(val))
+                except AttributeError:
+                    errors[key] = "not available in this Live version"
+                except Exception as e:
+                    errors[key] = str(e)
+        self._run_on_main_thread(fn)
+        result = {"updated": list(updates.keys())}
+        if errors:
+            result["errors"] = errors
+        return result
+
     def _cmd_fire_clip(self, params):
         clip = self._get_clip(int(params["track_index"]), int(params["slot_index"]))
         def fn():
@@ -1251,6 +1372,21 @@ class AbletonMPCX(ControlSurface):
         def fn():
             existing = clip.get_notes(0, 0, clip.length, 128)
             clip.set_notes(existing + note_tuples)
+        self._run_on_main_thread(fn)
+        return {"note_count": len(note_tuples)}
+
+    def _cmd_replace_all_notes(self, params):
+        clip = self._get_clip(int(params["track_index"]), int(params["slot_index"]))
+        notes = params.get("notes", [])
+        note_tuples = tuple(
+            (int(n["pitch"]), float(n["start_time"]), float(n["duration"]),
+             int(n.get("velocity", 100)), bool(n.get("mute", False)))
+            for n in notes
+        )
+        def fn():
+            if not clip.is_midi_clip:
+                raise RuntimeError("Clip is not a MIDI clip")
+            clip.set_notes(note_tuples)
         self._run_on_main_thread(fn)
         return {"note_count": len(note_tuples)}
 
