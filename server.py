@@ -1626,6 +1626,11 @@ _observer_last_snapshot: dict | None = None
 _observer_lock: threading.Lock = threading.Lock()
 _OBSERVER_POLL_INTERVAL: float = 8.0  # seconds between polls
 _observer_last_checkpoint_log_len: int = 0  # tracks Rule 5 threshold crossings
+_observer_poll_count: int = 0
+_observer_clip_cursor: int = 0
+_observer_flagged_clips: set = set()
+_OBSERVER_FEEL_EVERY_N_POLLS: int = 3
+_OBSERVER_FEEL_MAX_CLIPS_PER_POLL: int = 4
 
 
 # ---------------------------------------------------------------------------
@@ -3923,7 +3928,7 @@ def _observer_loop():
 
 def _evaluate_observer_rules(current: dict, previous: dict | None):
     """Evaluate observation rules and push suggestions to the queue."""
-    global _observer_last_checkpoint_log_len
+    global _observer_last_checkpoint_log_len, _observer_poll_count, _observer_clip_cursor, _observer_flagged_clips
     suggestions = []
 
     # Rule 1: New track added with no devices
@@ -4000,6 +4005,120 @@ def _evaluate_observer_rules(current: dict, previous: dict | None):
                 # requires a get_notes call which is too expensive for the observer loop.
                 # Instead, queue a softer suggestion to run compare_clip_feel manually.
                 pass  # Full per-clip analysis is left to explicit compare_clip_feel() calls
+
+    # Rule 7: Perfectly quantized / robotic feel detection (lazy rotating sampler)
+    try:
+        _observer_poll_count += 1
+
+        # Detect structural change (track/clip layout changed) — clear flagged set
+        if previous is not None:
+            prev_layout = tuple(
+                (t.get("index"), t.get("clip_count", 0))
+                for t in previous.get("tracks", [])
+            )
+            curr_layout = tuple(
+                (t.get("index"), t.get("clip_count", 0))
+                for t in current.get("tracks", [])
+            )
+            if prev_layout != curr_layout:
+                _observer_flagged_clips = set()
+
+        if _observer_poll_count % _OBSERVER_FEEL_EVERY_N_POLLS == 0:
+            # Build a flat list of (track_index, slot_index, track_name) for all MIDI clips
+            midi_clips = []
+            for track in current.get("tracks", []):
+                ti = track.get("index")
+                track_name = track.get("name", f"Track {ti}")
+                clips = track.get("clips", [])
+                for clip in clips:
+                    if clip.get("is_midi_clip") and not clip.get("is_empty", True):
+                        si = clip.get("slot_index", clip.get("index"))
+                        midi_clips.append((ti, si, track_name))
+
+            if midi_clips:
+                # Rotate cursor so all clips are eventually sampled
+                _observer_clip_cursor = _observer_clip_cursor % len(midi_clips)
+                batch_start = _observer_clip_cursor
+                sampled = []
+                for i in range(len(midi_clips)):
+                    idx = (batch_start + i) % len(midi_clips)
+                    sampled.append(midi_clips[idx])
+                    if len(sampled) >= _OBSERVER_FEEL_MAX_CLIPS_PER_POLL:
+                        break
+                _observer_clip_cursor = (batch_start + len(sampled)) % len(midi_clips)
+
+                for track_index, slot_index, track_name in sampled:
+                    if (track_index, slot_index) in _observer_flagged_clips:
+                        continue
+                    try:
+                        result = _send("get_notes", {"track_index": track_index, "slot_index": slot_index}, _log=False)
+                        notes = result.get("notes", [])
+                    except Exception:
+                        continue
+
+                    if len(notes) < 4:
+                        continue
+
+                    # --- Perfectly quantized check ---
+                    grid = 0.25
+                    SNAP_THRESHOLD = 0.001
+
+                    def _dist_to_grid(t: float, g: float) -> float:
+                        return abs(t - round(t / g) * g)
+
+                    perfectly_quantized = all(
+                        _dist_to_grid(n["start_time"], grid) < SNAP_THRESHOLD
+                        for n in notes
+                    )
+
+                    # --- Uniform velocities check ---
+                    velocities = [n["velocity"] for n in notes]
+                    vel_mean = sum(velocities) / len(velocities)
+                    vel_std = (sum((v - vel_mean) ** 2 for v in velocities) / len(velocities)) ** 0.5
+                    uniform_velocities = vel_std < 3.0
+
+                    # --- Uniform durations per pitch check ---
+                    pitch_durations: dict = collections.defaultdict(list)
+                    for n in notes:
+                        pitch_durations[n["pitch"]].append(n["duration"])
+                    uniform_dur_pitches = 0
+                    for durs in pitch_durations.values():
+                        if len(durs) > 1:
+                            dur_mean = sum(durs) / len(durs)
+                            dur_std = (sum((d - dur_mean) ** 2 for d in durs) / len(durs)) ** 0.5
+                            if dur_std < 0.01:
+                                uniform_dur_pitches += 1
+                    uniform_durations = uniform_dur_pitches >= 2
+
+                    flags = []
+                    if perfectly_quantized:
+                        flags.append("perfectly_quantized")
+                    if uniform_velocities:
+                        flags.append("uniform_velocities")
+                    if uniform_durations:
+                        flags.append("uniform_durations")
+
+                    if flags:
+                        _observer_flagged_clips.add((track_index, slot_index))
+                        suggestions.append({
+                            "source": "observer",
+                            "type": "feel_observer",
+                            "action": "humanize_notes or humanize_dilla",
+                            "reason": (
+                                f"Clip on track {track_name} slot {slot_index} appears perfectly "
+                                f"quantized (robotic feel detected: {', '.join(flags)})"
+                            ),
+                            "message": (
+                                f"Clip on track {track_name} slot {slot_index} appears perfectly "
+                                f"quantized (robotic feel detected: {', '.join(flags)})"
+                            ),
+                            "priority": "high" if perfectly_quantized else "medium",
+                            "track_index": track_index,
+                            "slot_index": slot_index,
+                            "flags": flags,
+                        })
+    except Exception:
+        pass  # Rule 7 errors never break the observer loop
 
     # Push all to queue (deduplicate by message)
     with _observer_lock:
