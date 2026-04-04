@@ -881,6 +881,126 @@ def quantize_clip(track_index: int, slot_index: int, quantization_grid: int, amo
     """Quantize MIDI notes in the clip. grid values match Song.midi_recording_quantization."""
     return _send("quantize_clip", {"track_index": track_index, "slot_index": slot_index, "quantization_grid": quantization_grid, "amount": amount})
 
+# ---------------------------------------------------------------------------
+# Clip Automation Envelopes
+# ---------------------------------------------------------------------------
+
+@mcp.tool()
+def get_clip_envelopes(track_index: int, slot_index: int) -> list:
+    """
+    Return all automation envelopes present on a clip.
+
+    Each entry includes the envelope index (used by other envelope tools)
+    and the parameter name it controls.
+
+    Args:
+        track_index: Track containing the clip.
+        slot_index: Clip slot index.
+
+    Returns:
+        List of {index, parameter_name, parameter_original_name}
+    """
+    return _send("get_clip_envelopes", {"track_index": track_index, "slot_index": slot_index})
+
+
+@mcp.tool()
+def get_clip_envelope(track_index: int, slot_index: int, envelope_index: int) -> dict:
+    """
+    Return all automation points for one envelope on a clip.
+
+    Call get_clip_envelopes() first to discover available indices.
+
+    Args:
+        track_index: Track containing the clip.
+        slot_index: Clip slot index.
+        envelope_index: Index into the clip's automation_envelopes list.
+
+    Returns:
+        envelope_index, parameter_name,
+        points: list of {time (beats), value, in_tangent, out_tangent}
+    """
+    return _send("get_clip_envelope", {
+        "track_index": track_index,
+        "slot_index": slot_index,
+        "envelope_index": envelope_index,
+    })
+
+
+@mcp.tool()
+def clear_clip_envelope(track_index: int, slot_index: int, envelope_index: int) -> dict:
+    """
+    Clear all automation points from a clip envelope.
+
+    Args:
+        track_index: Track containing the clip.
+        slot_index: Clip slot index.
+        envelope_index: Index into the clip's automation_envelopes list.
+    """
+    return _send("clear_clip_envelope", {
+        "track_index": track_index,
+        "slot_index": slot_index,
+        "envelope_index": envelope_index,
+    })
+
+
+@mcp.tool()
+def insert_clip_envelope_point(
+    track_index: int,
+    slot_index: int,
+    envelope_index: int,
+    time: float,
+    value: float,
+) -> dict:
+    """
+    Insert a single automation point into a clip envelope.
+
+    Args:
+        track_index: Track containing the clip.
+        slot_index: Clip slot index.
+        envelope_index: Index into the clip's automation_envelopes list.
+        time: Position in beats.
+        value: Parameter value to set at this point.
+
+    Returns:
+        time, value as written
+    """
+    return _send("insert_clip_envelope_point", {
+        "track_index": track_index,
+        "slot_index": slot_index,
+        "envelope_index": envelope_index,
+        "time": time,
+        "value": value,
+    })
+
+
+@mcp.tool()
+def set_clip_envelope_points(
+    track_index: int,
+    slot_index: int,
+    envelope_index: int,
+    points: list,
+) -> dict:
+    """
+    Replace all automation points in a clip envelope atomically.
+
+    Clears the existing envelope first, then inserts all provided points.
+
+    Args:
+        track_index: Track containing the clip.
+        slot_index: Clip slot index.
+        envelope_index: Index into the clip's automation_envelopes list.
+        points: List of {time: float, value: float} dicts.
+
+    Returns:
+        point_count: number of points written
+    """
+    return _send("set_clip_envelope_points", {
+        "track_index": track_index,
+        "slot_index": slot_index,
+        "envelope_index": envelope_index,
+        "points": points,
+    })
+
 @mcp.tool()
 def get_notes(track_index: int, slot_index: int) -> dict:
     """Return all MIDI notes in the clip at (track_index, slot_index)."""
@@ -1067,6 +1187,45 @@ def duplicate_device(track_index: int, device_index: int) -> dict:
     """Duplicate the device at (track_index, device_index). Use track_index=-1 to target the master track."""
     return _send("duplicate_device", {"track_index": track_index, "device_index": device_index})
 
+@mcp.tool()
+def move_device(
+    track_index: int,
+    device_index: int,
+    target_device_index: int,
+    target_track_index: int | None = None,
+) -> dict:
+    """
+    Move a device to a new position within the same track.
+
+    Live's Python API does not expose a native reorder method. This tool uses
+    duplicate + delete to simulate a move. Best-effort: works well for simple
+    reordering but does not guarantee arbitrary positioning.
+
+    Cross-track moves raise a ValueError — use delete_device() +
+    load_browser_item() to recreate the device on the target track.
+
+    Args:
+        track_index: Track containing the device.
+        device_index: Current index of the device.
+        target_device_index: Desired position after the move (best-effort).
+        target_track_index: Must equal track_index or be None.
+
+    Returns:
+        track_index, device_index
+    """
+    if target_track_index is not None and target_track_index != track_index:
+        raise ValueError(
+            "Cross-track device move is not supported. "
+            "target_track_index must equal track_index or be None. "
+            "Use delete_device() + load_browser_item() to recreate the device on the target track."
+        )
+    return _send("move_device", {
+        "track_index": track_index,
+        "device_index": device_index,
+        "target_track_index": track_index,
+        "target_device_index": target_device_index,
+    })
+
 # ---------------------------------------------------------------------------
 # MixerDevice
 # ---------------------------------------------------------------------------
@@ -1113,6 +1272,32 @@ def store_rack_variation(track_index: int, device_index: int) -> dict:
 def get_grooves() -> list:
     """Return all grooves in the groove pool."""
     return _send("get_grooves")
+
+@mcp.tool()
+def extract_groove_from_clip(
+    track_index: int,
+    slot_index: int,
+    groove_name: str = "Extracted Groove",
+) -> dict:
+    """
+    Extract the timing and velocity feel from a MIDI clip and add it to the groove pool.
+
+    Requires Live 10+ (uses Song.create_midi_clip_groove).
+    On older versions raises a clear error — use analyze_clip_feel() instead.
+
+    Args:
+        track_index: Track containing the source clip.
+        slot_index: Clip slot of the source clip.
+        groove_name: Name to assign to the new groove in the pool.
+
+    Returns:
+        method, groove_name, groove_count (total grooves in pool after extraction)
+    """
+    return _send("extract_groove_from_clip", {
+        "track_index": track_index,
+        "slot_index": slot_index,
+        "groove_name": groove_name,
+    })
 
 # ---------------------------------------------------------------------------
 # Browser
@@ -3892,6 +4077,269 @@ def create_song_from_brief(
         "tracks_created": len(track_names),
         "track_names": track_names,
         "warnings": warnings,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Workflow loop — detect → correct
+# ---------------------------------------------------------------------------
+
+@mcp.tool()
+def auto_humanize_if_robotic(
+    track_index: int,
+    slot_index: int,
+    feel_score_threshold: int = 60,
+    style: str = "dilla",
+    late_bias: float = 0.018,
+    max_early: float = 0.005,
+    max_late: float = 0.032,
+    velocity_amount: float = 8.0,
+    seed: int | None = None,
+) -> dict:
+    """
+    Check a clip's feel score and apply humanization automatically if it is too robotic.
+
+    Calls analyze_clip_feel() internally. If feel_score >= feel_score_threshold,
+    applies humanize_dilla() (style='dilla') or humanize_notes() (style='generic').
+    If the clip already feels human, nothing is modified.
+
+    Args:
+        track_index: Track containing the clip.
+        slot_index: Clip slot index.
+        feel_score_threshold: Apply if feel_score >= this (0=human, 100=robotic). Default 60.
+        style: 'dilla' for biased-late humanization, 'generic' for symmetric.
+        late_bias: Passed to humanize_dilla (ignored for style='generic').
+        max_early: Passed to humanize_dilla (ignored for style='generic').
+        max_late: Passed to humanize_dilla. Also used as timing_amount for 'generic'.
+        velocity_amount: Max velocity shift for either style.
+        seed: Optional random seed.
+
+    Returns:
+        applied (bool), feel_score_before, feel_score_after,
+        robotic_flags_before, humanization_style, note_count, reason
+    """
+    feel = analyze_clip_feel(track_index, slot_index)
+    score_before = feel.get("feel_score", 0)
+    flags_before = feel.get("robotic_flags", [])
+    note_count = feel.get("note_count", 0)
+
+    if score_before < feel_score_threshold:
+        return {
+            "applied": False,
+            "feel_score_before": score_before,
+            "feel_score_after": score_before,
+            "robotic_flags_before": flags_before,
+            "humanization_style": "none",
+            "note_count": note_count,
+            "reason": "feel_score {} is below threshold {}".format(score_before, feel_score_threshold),
+        }
+
+    if style == "dilla":
+        humanize_dilla(
+            track_index=track_index,
+            slot_index=slot_index,
+            late_bias=late_bias,
+            max_early=max_early,
+            max_late=max_late,
+            velocity_amount=velocity_amount,
+            seed=seed,
+        )
+    else:
+        humanize_notes(
+            track_index=track_index,
+            slot_index=slot_index,
+            timing_amount=max_late,
+            velocity_amount=velocity_amount,
+            seed=seed,
+        )
+
+    feel_after = analyze_clip_feel(track_index, slot_index)
+    score_after = feel_after.get("feel_score", 0)
+
+    return {
+        "applied": True,
+        "feel_score_before": score_before,
+        "feel_score_after": score_after,
+        "robotic_flags_before": flags_before,
+        "humanization_style": style,
+        "note_count": note_count,
+        "reason": "feel_score {} >= threshold {}".format(score_before, feel_score_threshold),
+    }
+
+
+@mcp.tool()
+def fix_groove_from_reference(
+    track_index: int,
+    slot_index: int,
+    reference_label: str = "default",
+    timing_blend: float = 0.5,
+    velocity_blend: float = 0.3,
+    seed: int | None = None,
+) -> dict:
+    """
+    Compare a clip's feel against a stored reference and apply corrections to close the gap.
+
+    Calls compare_clip_feel() internally. If the clip is measurably tighter or more
+    uniform than the reference, applies targeted humanize_dilla() to bring it closer.
+    The correction is conservative by default (timing_blend=0.5).
+
+    Requires a feel profile created with designate_reference_clip().
+
+    Args:
+        track_index: Track containing the clip.
+        slot_index: Clip slot index.
+        reference_label: Label of the stored feel reference profile.
+        timing_blend: 0.0=no timing change, 1.0=fully match reference timing spread.
+        velocity_blend: 0.0=no velocity change, 1.0=fully match reference velocity spread.
+        seed: Optional random seed.
+
+    Returns:
+        applied (bool), flags_before, corrections_applied,
+        timing_variance_before, timing_variance_after,
+        velocity_std_before, velocity_std_after, reference_label
+    """
+    if reference_label not in _reference_profiles:
+        _load_reference_profiles_from_project()
+    if reference_label not in _reference_profiles:
+        raise ValueError(
+            "No reference feel profile '{}'. Call designate_reference_clip() first.".format(reference_label)
+        )
+
+    ref = _reference_profiles[reference_label]
+    if ref.get("type") != "feel_profile":
+        raise ValueError(
+            "Reference '{}' is not a feel profile (type={}). "
+            "Use designate_reference_clip() to create one.".format(reference_label, ref.get("type"))
+        )
+
+    comparison = compare_clip_feel(track_index, slot_index, reference_label=reference_label)
+    flags = comparison.get("flags", [])
+    timing_var_before = comparison.get("timing_variance", 0.0)
+    vel_std_before = comparison.get("velocity_std_dev", 0.0)
+
+    ref_timing_variance = ref.get("timing_variance", 0.0)
+    ref_velocity_std = ref.get("velocity_std_dev", 0.0)
+
+    corrections = []
+    # 70% threshold: only apply timing correction when clip is significantly tighter than reference
+    apply_timing = timing_var_before < ref_timing_variance * 0.7
+    # 60% threshold: only apply velocity correction when clip has meaningfully less variation
+    apply_velocity = vel_std_before < ref_velocity_std * 0.6
+
+    if apply_timing:
+        corrections.append("timing: clip is tighter than reference — applying late-biased loosening")
+    if apply_velocity:
+        corrections.append("velocity: clip has less variation than reference — widening spread")
+
+    if not apply_timing and not apply_velocity:
+        return {
+            "applied": False,
+            "flags_before": flags,
+            "corrections_applied": [],
+            "timing_variance_before": timing_var_before,
+            "timing_variance_after": timing_var_before,
+            "velocity_std_before": vel_std_before,
+            "velocity_std_after": vel_std_before,
+            "reference_label": reference_label,
+            "reason": "clip feel is already within acceptable range of reference",
+        }
+
+    timing_gap = max(0.0, ref_timing_variance - timing_var_before)
+    timing_amount = max(0.001, timing_gap * timing_blend)
+
+    velocity_gap = max(0.0, ref_velocity_std - vel_std_before)
+    # Scale by 10 to convert from timing standard-deviation units to MIDI velocity range (0-127)
+    velocity_amount_computed = max(1.0, velocity_gap * velocity_blend * 10)
+
+    humanize_dilla(
+        track_index=track_index,
+        slot_index=slot_index,
+        late_bias=timing_amount * 0.6,
+        max_early=timing_amount * 0.2,
+        max_late=timing_amount * 1.2,
+        velocity_amount=velocity_amount_computed if apply_velocity else 0.0,
+        loose_subdivisions=True,
+        seed=seed,
+    )
+
+    feel_after = analyze_clip_feel(track_index, slot_index)
+    timing_var_after = feel_after.get("timing_variance", 0.0)
+    vel_std_after = feel_after.get("velocity_std_dev", 0.0)
+
+    return {
+        "applied": True,
+        "flags_before": flags,
+        "corrections_applied": corrections,
+        "timing_variance_before": timing_var_before,
+        "timing_variance_after": timing_var_after,
+        "velocity_std_before": vel_std_before,
+        "velocity_std_after": vel_std_after,
+        "reference_label": reference_label,
+    }
+
+
+@mcp.tool()
+def batch_auto_humanize(
+    track_indices: list,
+    slot_index: int,
+    feel_score_threshold: int = 60,
+    style: str = "dilla",
+    seed: int | None = None,
+) -> dict:
+    """
+    Run auto_humanize_if_robotic() across multiple tracks at the same slot index.
+
+    Useful for checking all clips in a scene row and humanizing any that are too robotic.
+
+    Args:
+        track_indices: List of track indices to check.
+        slot_index: Clip slot index to check on each track.
+        feel_score_threshold: Apply humanization if feel_score >= this value. Default 60.
+        style: 'dilla' or 'generic'.
+        seed: Optional random seed (same seed applied to each clip for reproducibility).
+
+    Returns:
+        results: list of per-track {track_index, applied, feel_score_before, feel_score_after, note_count}
+        applied_count, skipped_count, total_checked
+    """
+    results = []
+    applied_count = 0
+    skipped_count = 0
+
+    for ti in track_indices:
+        try:
+            result = auto_humanize_if_robotic(
+                track_index=ti,
+                slot_index=slot_index,
+                feel_score_threshold=feel_score_threshold,
+                style=style,
+                seed=seed,
+            )
+            results.append({
+                "track_index": ti,
+                "applied": result["applied"],
+                "feel_score_before": result["feel_score_before"],
+                "feel_score_after": result["feel_score_after"],
+                "note_count": result["note_count"],
+                "reason": result.get("reason", ""),
+            })
+            if result["applied"]:
+                applied_count += 1
+            else:
+                skipped_count += 1
+        except Exception as e:
+            results.append({
+                "track_index": ti,
+                "applied": False,
+                "error": str(e),
+            })
+            skipped_count += 1
+
+    return {
+        "results": results,
+        "applied_count": applied_count,
+        "skipped_count": skipped_count,
+        "total_checked": len(track_indices),
     }
 
 

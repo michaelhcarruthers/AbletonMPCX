@@ -88,14 +88,15 @@ Tools are grouped by area of the Live Object Model:
 | **Tracks** | `get_tracks`, `get_track_info`, `create_audio_track`, `create_midi_track`, `create_return_track`, `delete_track`, `delete_return_track`, `duplicate_track`, `set_track_name`, `set_track_color`, `set_track_mute`, `set_track_solo`, `set_track_arm`, `set_track_volume`, `set_track_pan`, `set_track_send`, `set_crossfade_assign`, `stop_track_clips`, `set_track_fold_state`, `get_return_tracks`, `get_track_routing`, `set_track_input_routing_type`, `set_track_input_routing_channel`, `set_track_output_routing_type`, `set_track_output_routing_channel` |
 | **Clip Slots** | `get_clip_slots`, `fire_clip_slot`, `stop_clip_slot`, `create_clip`, `delete_clip`, `duplicate_clip_slot` |
 | **Clips** | `get_clip_info`, `set_clip_name`, `set_clip_color`, `set_clip_loop`, `set_clip_markers`, `set_clip_mute`, `set_clip_pitch`, `set_clip_gain`, `set_clip_warp_mode`, `set_clip_launch_mode`, `set_clip_launch_quantization`, `get_clip_follow_actions`, `set_clip_follow_actions`, `fire_clip`, `stop_clip`, `crop_clip`, `duplicate_clip_loop`, `quantize_clip` |
+| **Clip Automation Envelopes** | `get_clip_envelopes`, `get_clip_envelope`, `clear_clip_envelope`, `insert_clip_envelope_point`, `set_clip_envelope_points` |
 | **MIDI Notes** | `get_notes`, `add_notes`, `replace_all_notes`, `remove_notes`, `apply_note_modifications`, `select_all_notes`, `deselect_all_notes` |
 | **Scenes** | `get_scenes`, `get_scene_info`, `create_scene`, `delete_scene`, `duplicate_scene`, `set_scene_name`, `set_scene_tempo`, `set_scene_color`, `fire_scene` |
-| **Devices** | `get_devices`, `get_device_info`, `get_device_parameters`, `set_device_parameter`, `set_device_enabled`, `delete_device`, `duplicate_device` |
+| **Devices** | `get_devices`, `get_device_info`, `get_device_parameters`, `set_device_parameter`, `set_device_enabled`, `delete_device`, `duplicate_device`, `move_device` |
 | **Mixer Device** | `get_mixer_device`, `set_crossfade_assign` |
 | **Rack / Drum Rack** | `get_rack_chains`, `get_rack_drum_pads`, `randomize_rack_macros`, `store_rack_variation` |
-| **Groove Pool** | `get_grooves` |
+| **Groove Pool** | `get_grooves`, `extract_groove_from_clip` |
 | **Browser** | `get_browser_tree`, `get_browser_items_at_path`, `load_browser_item` |
-| **Feel / Humanization** | `analyze_clip_feel`, `humanize_notes`, `humanize_dilla` |
+| **Feel / Humanization** | `analyze_clip_feel`, `humanize_notes`, `humanize_dilla`, `auto_humanize_if_robotic`, `fix_groove_from_reference`, `batch_auto_humanize` |
 | **Reference Profiles** | `designate_reference_clip`, `compare_clip_feel`, `designate_reference_mix_state`, `compare_mix_state`, `list_reference_profiles`, `delete_reference_profile` |
 | **Tier 2 Audio Analysis** | `designate_reference_audio`, `analyse_audio`, `compare_audio`, `compare_audio_sections` |
 
@@ -146,6 +147,18 @@ Point the server at an audio file on disk (an exported bounce or a reference tra
 | `compare_audio_sections(file_path, reference_label='default_audio', num_sections=4)` | Split a target audio file into N equal sections and compare each against the reference. Useful for detecting arrangement energy progression. |
 
 > **Note:** All audio analysis tools use lazy imports. If `librosa` is not installed, the tools raise a clear `ImportError` with an install hint instead of crashing the server on startup.
+
+---
+
+## Workflow Loop Tools
+
+High-level tools that combine feel analysis and humanization into single calls. These are pure server-side wrappers — no `__init__.py` changes are required.
+
+| Tool | Description |
+|------|-------------|
+| `auto_humanize_if_robotic(track_index, slot_index, ...)` | Analyse the clip's feel score and apply humanization automatically if it meets the robotic threshold. Returns `applied`, `feel_score_before`, `feel_score_after`, and the humanization style used. |
+| `fix_groove_from_reference(track_index, slot_index, reference_label, ...)` | Compare a clip's feel against a stored reference profile and apply targeted humanize_dilla() corrections to close timing/velocity gaps. Requires a profile created with `designate_reference_clip()`. |
+| `batch_auto_humanize(track_indices, slot_index, ...)` | Run `auto_humanize_if_robotic()` across multiple tracks at the same slot index (scene row). Returns per-track results plus `applied_count` and `skipped_count`. |
 
 ---
 
