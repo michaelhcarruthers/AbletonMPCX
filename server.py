@@ -1350,6 +1350,13 @@ _snapshots: dict[str, dict] = {}
 
 
 # ---------------------------------------------------------------------------
+# Reference profile store (in-process, also persisted to project memory)
+# ---------------------------------------------------------------------------
+
+_reference_profiles: dict[str, dict] = {}
+
+
+# ---------------------------------------------------------------------------
 # Observer thread (background session watcher)
 # ---------------------------------------------------------------------------
 
@@ -1395,6 +1402,7 @@ def _load_memory(project_id: str) -> dict:
         "track_roles": {},
         "notes": [],
         "device_snapshots": {},
+        "reference_profiles": {},
     }
 
 
@@ -1411,6 +1419,30 @@ def _get_memory() -> dict:
     if _current_project_id is None:
         raise RuntimeError("No project loaded. Call set_project_id() first.")
     return _load_memory(_current_project_id)
+
+
+def _save_reference_profile(label: str, profile: dict):
+    """Store a reference profile in-process and persist to project memory if a project is loaded."""
+    _reference_profiles[label] = profile
+    if _current_project_id is not None:
+        try:
+            mem = _get_memory()
+            mem.setdefault("reference_profiles", {})[label] = profile
+            _save_memory(_current_project_id, mem)
+        except Exception:
+            pass
+
+
+def _load_reference_profiles_from_project():
+    """Load all persisted reference profiles into the in-process store."""
+    if _current_project_id is None:
+        return
+    try:
+        mem = _get_memory()
+        for label, profile in mem.get("reference_profiles", {}).items():
+            _reference_profiles[label] = profile
+    except Exception:
+        pass
 
 
 def _append_operation(command: str, params: dict, result: Any):
@@ -2556,6 +2588,22 @@ def suggest_next_actions() -> dict:
         except Exception:
             pass
 
+    # Reference profile suggestion
+    if "default" in _reference_profiles:
+        ref = _reference_profiles.get("default", {})
+        if ref.get("type") == "clip_feel":
+            suggestions.append({
+                "action": "compare_clip_feel(track_index, slot_index, reference_label='default')",
+                "reason": "A clip feel reference profile exists. Use compare_clip_feel() to check how your current clips compare.",
+                "priority": "low",
+            })
+        elif ref.get("type") == "mix_state":
+            suggestions.append({
+                "action": "compare_mix_state(reference_label='default')",
+                "reason": "A mix state reference profile exists. Use compare_mix_state() to check what has changed.",
+                "priority": "low",
+            })
+
     return {
         "suggestion_count": len(suggestions),
         "suggestions": suggestions,
@@ -2672,10 +2720,520 @@ def analyse_mix_state() -> dict:
     }
 
 
+# ---------------------------------------------------------------------------
+# Phase 8: Reference profiles
+# ---------------------------------------------------------------------------
 
-# ---------------------------------------------------------------------------
-# Observer thread functions
-# ---------------------------------------------------------------------------
+@mcp.tool()
+def designate_reference_clip(
+    track_index: int,
+    slot_index: int,
+    label: str = "default",
+) -> dict:
+    """
+    Analyse the feel of a MIDI clip and store it as a named reference profile.
+
+    The profile captures timing and velocity characteristics that can later be
+    compared against other clips using compare_clip_feel().
+
+    Stored profile includes:
+      - timing_variance: std dev of distance-to-nearest-16th-grid (beats)
+      - lateness_bias: mean signed offset from nearest grid point (positive = late)
+      - velocity_std_dev: overall velocity spread
+      - velocity_mean: mean velocity
+      - per_pitch: per-pitch timing and velocity stats
+      - note_count
+      - grid: grid resolution used (always 0.25 = 16th note)
+
+    Args:
+        track_index: Track containing the reference clip.
+        slot_index: Clip slot index.
+        label: Name for this reference profile (default: 'default').
+
+    Returns:
+        label, note_count, timing_variance, lateness_bias, velocity_std_dev
+    """
+    result = _send("get_notes", {"track_index": track_index, "slot_index": slot_index})
+    notes = result.get("notes", [])
+
+    if not notes:
+        raise ValueError("Reference clip at track={}, slot={} is empty.".format(track_index, slot_index))
+
+    grid = 0.25  # 16th note
+
+    def nearest_grid(t, g):
+        return round(t / g) * g
+
+    signed_offsets = [n["start_time"] - nearest_grid(n["start_time"], grid) for n in notes]
+    abs_offsets = [abs(o) for o in signed_offsets]
+    timing_variance = _std_dev(abs_offsets)
+    lateness_bias = sum(signed_offsets) / len(signed_offsets)
+
+    velocities = [n["velocity"] for n in notes]
+    velocity_std_dev = _std_dev(velocities)
+    velocity_mean = sum(velocities) / len(velocities)
+
+    from collections import defaultdict
+    pitch_groups: dict = defaultdict(list)
+    for n in notes:
+        pitch_groups[n["pitch"]].append(n)
+
+    per_pitch = {}
+    for pitch, pitch_notes in pitch_groups.items():
+        pvels = [n["velocity"] for n in pitch_notes]
+        poffsets = [n["start_time"] - nearest_grid(n["start_time"], grid) for n in pitch_notes]
+        per_pitch[pitch] = {
+            "note_count": len(pitch_notes),
+            "velocity_mean": sum(pvels) / len(pvels),
+            "velocity_std_dev": _std_dev(pvels),
+            "lateness_bias": sum(poffsets) / len(poffsets),
+            "timing_variance": _std_dev([abs(o) for o in poffsets]),
+        }
+
+    profile = {
+        "type": "clip_feel",
+        "label": label,
+        "track_index": track_index,
+        "slot_index": slot_index,
+        "note_count": len(notes),
+        "grid": grid,
+        "timing_variance": timing_variance,
+        "lateness_bias": lateness_bias,
+        "velocity_std_dev": velocity_std_dev,
+        "velocity_mean": velocity_mean,
+        "per_pitch": per_pitch,
+        "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+    }
+
+    _save_reference_profile(label, profile)
+
+    return {
+        "label": label,
+        "note_count": len(notes),
+        "timing_variance": round(timing_variance, 5),
+        "lateness_bias": round(lateness_bias, 5),
+        "velocity_std_dev": round(velocity_std_dev, 3),
+        "velocity_mean": round(velocity_mean, 1),
+    }
+
+
+@mcp.tool()
+def compare_clip_feel(
+    track_index: int,
+    slot_index: int,
+    reference_label: str = "default",
+) -> dict:
+    """
+    Compare the feel of a MIDI clip against a stored reference profile.
+
+    Call designate_reference_clip() first to create the reference.
+
+    Returns deltas and human-readable flags. Nothing is modified.
+
+    Args:
+        track_index: Track containing the clip to analyse.
+        slot_index: Clip slot index.
+        reference_label: Label of the reference profile to compare against.
+
+    Returns:
+        note_count,
+        timing_variance_delta (float): target minus reference (positive = more loose)
+        lateness_bias_delta (float): target minus reference (positive = target is later)
+        velocity_std_dev_delta (float): target minus reference (positive = more varied)
+        flags: list of human-readable observation strings
+        summary: one-line summary of the main departure
+        reference_label, reference_note_count
+    """
+    if reference_label not in _reference_profiles:
+        # Try loading from project memory
+        _load_reference_profiles_from_project()
+    if reference_label not in _reference_profiles:
+        raise ValueError(
+            "No reference profile '{}'. Call designate_reference_clip() first.".format(reference_label)
+        )
+
+    ref = _reference_profiles[reference_label]
+    if ref.get("type") != "clip_feel":
+        raise ValueError("Reference '{}' is not a clip feel profile (type={}).".format(
+            reference_label, ref.get("type")))
+
+    result = _send("get_notes", {"track_index": track_index, "slot_index": slot_index})
+    notes = result.get("notes", [])
+
+    if not notes:
+        return {
+            "note_count": 0,
+            "flags": ["target clip is empty"],
+            "summary": "target clip is empty",
+            "reference_label": reference_label,
+            "reference_note_count": ref["note_count"],
+        }
+
+    grid = ref.get("grid", 0.25)
+
+    def nearest_grid(t, g):
+        return round(t / g) * g
+
+    signed_offsets = [n["start_time"] - nearest_grid(n["start_time"], grid) for n in notes]
+    abs_offsets = [abs(o) for o in signed_offsets]
+    timing_variance = _std_dev(abs_offsets)
+    lateness_bias = sum(signed_offsets) / len(signed_offsets)
+
+    velocities = [n["velocity"] for n in notes]
+    velocity_std_dev = _std_dev(velocities)
+    velocity_mean = sum(velocities) / len(velocities)
+
+    tv_delta = timing_variance - ref["timing_variance"]
+    lb_delta = lateness_bias - ref["lateness_bias"]
+    vsd_delta = velocity_std_dev - ref["velocity_std_dev"]
+    vm_delta = velocity_mean - ref["velocity_mean"]
+
+    flags = []
+
+    # Timing variance
+    if ref["timing_variance"] > 0.001:
+        ratio = timing_variance / ref["timing_variance"]
+        if ratio < 0.4:
+            flags.append("timing is much tighter than reference ({:.1f}x less loose)".format(1 / ratio))
+        elif ratio < 0.75:
+            flags.append("timing is tighter than reference ({:.1f}x less loose)".format(1 / ratio))
+        elif ratio > 2.5:
+            flags.append("timing is much looser than reference ({:.1f}x more loose)".format(ratio))
+        elif ratio > 1.5:
+            flags.append("timing is looser than reference ({:.1f}x more loose)".format(ratio))
+    else:
+        # Reference is near-perfectly quantized
+        if timing_variance > 0.005:
+            flags.append("target has timing looseness; reference is grid-locked")
+
+    # Lateness bias
+    if abs(lb_delta) > 0.004:
+        direction = "later" if lb_delta > 0 else "earlier"
+        flags.append("notes are {:.1f}ms {} than reference (at 120bpm)".format(
+            abs(lb_delta) * 500, direction))  # 1 beat at 120bpm = 500ms
+
+    # Velocity spread
+    if ref["velocity_std_dev"] > 1.0:
+        ratio = velocity_std_dev / ref["velocity_std_dev"] if ref["velocity_std_dev"] > 0 else 1.0
+        if ratio < 0.5:
+            flags.append("velocities are much more uniform than reference ({:.1f}x less varied)".format(1 / ratio))
+        elif ratio < 0.75:
+            flags.append("velocities are more uniform than reference")
+        elif ratio > 2.0:
+            flags.append("velocities are much more varied than reference ({:.1f}x)".format(ratio))
+    else:
+        if velocity_std_dev > 8.0:
+            flags.append("velocities more varied than reference (reference had near-uniform velocities)")
+
+    # Velocity mean
+    if abs(vm_delta) > 8:
+        direction = "louder" if vm_delta > 0 else "quieter"
+        flags.append("overall velocity is {:.0f} units {} than reference".format(abs(vm_delta), direction))
+
+    # Perfectly quantized check
+    SNAP_THRESHOLD = 0.001
+    target_quantized = all(abs(o) < SNAP_THRESHOLD for o in abs_offsets)
+    ref_quantized = ref["timing_variance"] < SNAP_THRESHOLD
+    if target_quantized and not ref_quantized:
+        flags.append("target is perfectly grid-locked; reference has human feel")
+    elif not target_quantized and ref_quantized:
+        flags.append("target has loose timing; reference is grid-locked")
+
+    if not flags:
+        flags.append("feel is similar to reference — no major departures detected")
+
+    # Summary: the most significant flag
+    summary = flags[0] if flags else "no significant difference"
+
+    return {
+        "note_count": len(notes),
+        "timing_variance": round(timing_variance, 5),
+        "lateness_bias": round(lateness_bias, 5),
+        "velocity_std_dev": round(velocity_std_dev, 3),
+        "velocity_mean": round(velocity_mean, 1),
+        "timing_variance_delta": round(tv_delta, 5),
+        "lateness_bias_delta": round(lb_delta, 5),
+        "velocity_std_dev_delta": round(vsd_delta, 3),
+        "velocity_mean_delta": round(vm_delta, 1),
+        "flags": flags,
+        "summary": summary,
+        "reference_label": reference_label,
+        "reference_note_count": ref["note_count"],
+        "reference_timing_variance": round(ref["timing_variance"], 5),
+        "reference_lateness_bias": round(ref["lateness_bias"], 5),
+        "reference_velocity_std_dev": round(ref["velocity_std_dev"], 3),
+    }
+
+
+@mcp.tool()
+def designate_reference_mix_state(
+    label: str = "default",
+    scene_index: int | None = None,
+) -> dict:
+    """
+    Capture the current mix state as a named reference profile.
+
+    Stores per-track volumes, panning, sends, mute/solo state,
+    device counts, and clip counts. Can optionally be scoped to the
+    clips active in a particular scene.
+
+    Use compare_mix_state() to compare a later mix state against this reference.
+
+    Args:
+        label: Name for this reference profile (default: 'default').
+        scene_index: Optional scene index to annotate (no filtering applied —
+                     all tracks are captured regardless).
+
+    Returns:
+        label, track_count, timestamp
+    """
+    snapshot = _send("get_session_snapshot")
+    tracks = snapshot.get("tracks", [])
+
+    track_profiles = []
+    for t in tracks:
+        track_profiles.append({
+            "index": t["index"],
+            "name": t["name"],
+            "volume": t.get("volume", 0.0),
+            "pan": t.get("pan", 0.0),
+            "mute": t.get("mute", False),
+            "solo": t.get("solo", False),
+            "arm": t.get("arm", False),
+            "sends": t.get("sends", []),
+            "device_count": t.get("device_count", 0),
+            "clip_count": t.get("clip_count", 0),
+            "is_midi_track": t.get("is_midi_track", False),
+        })
+
+    master = snapshot.get("master_track", {})
+    return_tracks = snapshot.get("return_tracks", [])
+
+    profile = {
+        "type": "mix_state",
+        "label": label,
+        "scene_index": scene_index,
+        "track_count": len(tracks),
+        "tracks": track_profiles,
+        "master": {
+            "volume": master.get("volume", 0.0),
+            "pan": master.get("pan", 0.0),
+        },
+        "return_tracks": [
+            {
+                "index": r["index"],
+                "name": r["name"],
+                "volume": r.get("volume", 0.0),
+                "pan": r.get("pan", 0.0),
+                "mute": r.get("mute", False),
+            }
+            for r in return_tracks
+        ],
+        "tempo": snapshot.get("tempo"),
+        "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+    }
+
+    _save_reference_profile(label, profile)
+
+    return {
+        "label": label,
+        "track_count": len(tracks),
+        "timestamp": profile["timestamp"],
+    }
+
+
+@mcp.tool()
+def compare_mix_state(
+    reference_label: str = "default",
+    scene_index: int | None = None,
+) -> dict:
+    """
+    Compare the current mix state against a stored reference mix profile.
+
+    Call designate_reference_mix_state() first to create the reference.
+
+    Flags material differences in volume, panning, and send levels per track.
+    Also reports section energy delta (total clip count, active track count).
+
+    Nothing is modified.
+
+    Args:
+        reference_label: Label of the reference mix profile to compare against.
+        scene_index: Optional — annotated in the result but does not filter tracks.
+
+    Returns:
+        track_count, flags, summary, per_track_deltas,
+        master_volume_delta, total_clip_count_delta,
+        reference_label, reference_timestamp
+    """
+    if reference_label not in _reference_profiles:
+        _load_reference_profiles_from_project()
+    if reference_label not in _reference_profiles:
+        raise ValueError(
+            "No reference profile '{}'. Call designate_reference_mix_state() first.".format(reference_label)
+        )
+
+    ref = _reference_profiles[reference_label]
+    if ref.get("type") != "mix_state":
+        raise ValueError("Reference '{}' is not a mix state profile (type={}).".format(
+            reference_label, ref.get("type")))
+
+    snapshot = _send("get_session_snapshot")
+    curr_tracks = {t["index"]: t for t in snapshot.get("tracks", [])}
+    ref_tracks = {t["index"]: t for t in ref.get("tracks", [])}
+
+    flags = []
+    per_track_deltas = []
+
+    VOLUME_THRESHOLD = 0.05     # ~0.5 dB at unity
+    PAN_THRESHOLD = 0.1
+    SEND_THRESHOLD = 0.05
+
+    for idx in sorted(set(curr_tracks.keys()) | set(ref_tracks.keys())):
+        curr = curr_tracks.get(idx)
+        reft = ref_tracks.get(idx)
+
+        if curr is None:
+            flags.append("track {} ('{}') existed in reference but is now gone".format(idx, reft.get("name", "?")))
+            continue
+        if reft is None:
+            flags.append("track {} ('{}') is new since reference was taken".format(idx, curr.get("name", "?")))
+            continue
+
+        name = curr.get("name", str(idx))
+        deltas = {"index": idx, "name": name, "changes": []}
+
+        vol_delta = curr.get("volume", 0.0) - reft.get("volume", 0.0)
+        if abs(vol_delta) > VOLUME_THRESHOLD:
+            direction = "louder" if vol_delta > 0 else "quieter"
+            deltas["changes"].append({
+                "property": "volume",
+                "delta": round(vol_delta, 3),
+                "description": "'{}' is {:.2f} units {} than reference".format(name, abs(vol_delta), direction),
+            })
+            flags.append("'{}' volume is {} by {:.2f}".format(name, direction, abs(vol_delta)))
+
+        pan_delta = curr.get("pan", 0.0) - reft.get("pan", 0.0)
+        if abs(pan_delta) > PAN_THRESHOLD:
+            direction = "right" if pan_delta > 0 else "left"
+            deltas["changes"].append({
+                "property": "pan",
+                "delta": round(pan_delta, 3),
+                "description": "'{}' panned {:.2f} units more {} than reference".format(name, abs(pan_delta), direction),
+            })
+
+        curr_sends = curr.get("sends", [])
+        ref_sends = reft.get("sends", [])
+        for si, (cs, rs) in enumerate(zip(curr_sends, ref_sends)):
+            sd = cs - rs
+            if abs(sd) > SEND_THRESHOLD:
+                direction = "higher" if sd > 0 else "lower"
+                deltas["changes"].append({
+                    "property": "send_{}".format(si),
+                    "delta": round(sd, 3),
+                    "description": "'{}' send {} is {} by {:.2f}".format(name, si, direction, abs(sd)),
+                })
+
+        # Mute state change
+        if curr.get("mute") != reft.get("mute"):
+            state = "muted" if curr.get("mute") else "unmuted"
+            deltas["changes"].append({
+                "property": "mute",
+                "delta": None,
+                "description": "'{}' is now {}".format(name, state),
+            })
+            flags.append("'{}' is now {}".format(name, state))
+
+        # Device count change
+        cd = curr.get("device_count", 0) - reft.get("device_count", 0)
+        if cd != 0:
+            deltas["changes"].append({
+                "property": "device_count",
+                "delta": cd,
+                "description": "'{}' has {} {} device(s) than reference".format(
+                    name, abs(cd), "more" if cd > 0 else "fewer"),
+            })
+
+        if deltas["changes"]:
+            per_track_deltas.append(deltas)
+
+    # Master volume
+    curr_master_vol = snapshot.get("master_track", {}).get("volume", 0.0)
+    ref_master_vol = ref.get("master", {}).get("volume", 0.0)
+    master_vol_delta = curr_master_vol - ref_master_vol
+    if abs(master_vol_delta) > VOLUME_THRESHOLD:
+        direction = "louder" if master_vol_delta > 0 else "quieter"
+        flags.append("master volume is {} by {:.2f}".format(direction, abs(master_vol_delta)))
+
+    # Section energy: total clip count as a rough density proxy
+    curr_clip_total = sum(t.get("clip_count", 0) for t in snapshot.get("tracks", []))
+    ref_clip_total = sum(t.get("clip_count", 0) for t in ref.get("tracks", []))
+    clip_count_delta = curr_clip_total - ref_clip_total
+
+    if not flags:
+        flags.append("mix state is similar to reference — no material changes detected")
+
+    summary = flags[0] if flags else "no significant difference"
+
+    return {
+        "track_count": len(curr_tracks),
+        "flags": flags,
+        "summary": summary,
+        "per_track_deltas": per_track_deltas,
+        "master_volume_delta": round(master_vol_delta, 3),
+        "total_clip_count_delta": clip_count_delta,
+        "reference_label": reference_label,
+        "reference_timestamp": ref.get("timestamp"),
+    }
+
+
+@mcp.tool()
+def list_reference_profiles() -> dict:
+    """
+    List all stored reference profiles (both in-process and persisted).
+
+    Returns:
+        profiles: list of {label, type, timestamp, note_count (if clip_feel), track_count (if mix_state)}
+    """
+    _load_reference_profiles_from_project()
+    profiles = []
+    for label, p in sorted(_reference_profiles.items()):
+        entry = {
+            "label": label,
+            "type": p.get("type", "unknown"),
+            "timestamp": p.get("timestamp"),
+        }
+        if p.get("type") == "clip_feel":
+            entry["note_count"] = p.get("note_count")
+            entry["timing_variance"] = round(p.get("timing_variance", 0.0), 5)
+            entry["lateness_bias"] = round(p.get("lateness_bias", 0.0), 5)
+        elif p.get("type") == "mix_state":
+            entry["track_count"] = p.get("track_count")
+        profiles.append(entry)
+    return {"profiles": profiles, "count": len(profiles)}
+
+
+@mcp.tool()
+def delete_reference_profile(label: str) -> dict:
+    """Delete a reference profile by label (in-process and from project memory)."""
+    removed_memory = False
+    if label in _reference_profiles:
+        del _reference_profiles[label]
+    else:
+        raise ValueError("No reference profile with label '{}'.".format(label))
+    if _current_project_id is not None:
+        try:
+            mem = _get_memory()
+            if label in mem.get("reference_profiles", {}):
+                del mem["reference_profiles"][label]
+                _save_memory(_current_project_id, mem)
+                removed_memory = True
+        except Exception:
+            pass
+    return {"deleted": label, "removed_from_disk": removed_memory}
+
+
+
 
 def _observer_loop():
     """Background thread: polls session state and evaluates rules."""
@@ -2761,6 +3319,18 @@ def _evaluate_observer_rules(current: dict, previous: dict | None):
                 })
             # Advance threshold marker regardless, to avoid re-firing at same boundary
             _observer_last_checkpoint_log_len = current_threshold
+
+    # Rule 6: Clip feel divergence from default reference
+    if "default" in _reference_profiles:
+        ref = _reference_profiles["default"]
+        if ref.get("type") == "clip_feel" and ref.get("timing_variance", 0) > 0.002:
+            # Only flag if reference has meaningful human feel
+            for track in current.get("tracks", []):
+                # We only have clip_count here, not note data — so we can only flag
+                # at the track level if it has clips. The actual per-clip comparison
+                # requires a get_notes call which is too expensive for the observer loop.
+                # Instead, queue a softer suggestion to run compare_clip_feel manually.
+                pass  # Full per-clip analysis is left to explicit compare_clip_feel() calls
 
     # Push all to queue (deduplicate by message)
     with _observer_lock:

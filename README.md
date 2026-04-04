@@ -96,6 +96,34 @@ Tools are grouped by area of the Live Object Model:
 | **Groove Pool** | `get_grooves` |
 | **Browser** | `get_browser_tree`, `get_browser_items_at_path`, `load_browser_item` |
 | **Feel / Humanization** | `analyze_clip_feel`, `humanize_notes`, `humanize_dilla` |
+| **Reference Profiles** | `designate_reference_clip`, `compare_clip_feel`, `designate_reference_mix_state`, `compare_mix_state`, `list_reference_profiles`, `delete_reference_profile` |
+
+---
+
+## Reference Profiles
+
+Reference profiles let you capture the feel or mix state of a clip/session and compare it against future states. All profiles are stored in-process and persisted to project memory (requires `set_project_id()` to be called first).
+
+### Clip feel profiles
+
+| Tool | Description |
+|------|-------------|
+| `designate_reference_clip(track_index, slot_index, label='default')` | Analyse a MIDI clip's timing and velocity feel and save it as a named reference. Captures timing variance, lateness bias, velocity spread, and per-pitch stats. |
+| `compare_clip_feel(track_index, slot_index, reference_label='default')` | Compare a MIDI clip against a stored clip feel reference. Returns deltas and human-readable flags (tighter/looser timing, earlier/later bias, uniform/varied velocities). |
+
+### Mix state profiles
+
+| Tool | Description |
+|------|-------------|
+| `designate_reference_mix_state(label='default', scene_index=None)` | Capture the current mix state (volumes, panning, sends, mute/solo, device counts) as a named reference. |
+| `compare_mix_state(reference_label='default', scene_index=None)` | Compare the current mix state against a stored reference. Reports per-track volume, pan, send, and mute changes plus master volume delta. |
+
+### Profile management
+
+| Tool | Description |
+|------|-------------|
+| `list_reference_profiles()` | List all stored reference profiles with their type, timestamp, and key stats. |
+| `delete_reference_profile(label)` | Delete a reference profile by label (in-process and from project memory). |
 
 ---
 
