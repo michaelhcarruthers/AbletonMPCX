@@ -855,6 +855,73 @@ class AbletonMPCX(ControlSurface):
         self._run_on_main_thread(fn)
         return {}
 
+    def _apply_routing(self, track, type_attr, channel_attr,
+                       routing_type_name, routing_channel_name):
+        """Apply routing type and/or channel by display name; return an errors dict."""
+        out = {}
+        if routing_type_name is not None:
+            try:
+                available = list(getattr(track, "available_" + type_attr + "s"))
+                match = next((r for r in available if r.display_name == routing_type_name), None)
+                if match is None:
+                    out["routing_type_error"] = "No {} with display_name '{}'".format(
+                        type_attr, routing_type_name)
+                else:
+                    setattr(track, type_attr, match)
+            except AttributeError as e:
+                out["routing_type_error"] = "{} not settable: {}".format(type_attr, e)
+        if routing_channel_name is not None:
+            try:
+                available = list(getattr(track, "available_" + channel_attr + "s"))
+                match = next((r for r in available if r.display_name == routing_channel_name), None)
+                if match is None:
+                    out["routing_channel_error"] = "No {} with display_name '{}'".format(
+                        channel_attr, routing_channel_name)
+                else:
+                    setattr(track, channel_attr, match)
+            except AttributeError as e:
+                out["routing_channel_error"] = "{} not settable: {}".format(channel_attr, e)
+        return out
+
+    def _cmd_get_available_routings(self, params):
+        track = self._get_track(int(params["track_index"]))
+        result = {}
+        for attr, key in (
+            ("available_input_routing_types", "input_routing_types"),
+            ("available_input_routing_channels", "input_routing_channels"),
+            ("available_output_routing_types", "output_routing_types"),
+            ("available_output_routing_channels", "output_routing_channels"),
+        ):
+            try:
+                result[key] = [r.display_name for r in getattr(track, attr)]
+            except AttributeError:
+                result[key] = []
+        return result
+
+    def _cmd_set_track_input_routing(self, params):
+        track = self._get_track(int(params["track_index"]))
+        routing_type_name = params.get("routing_type_name")
+        routing_channel_name = params.get("routing_channel_name")
+        out = {}
+        def fn():
+            out.update(self._apply_routing(
+                track, "input_routing_type", "input_routing_channel",
+                routing_type_name, routing_channel_name))
+        self._run_on_main_thread(fn)
+        return out
+
+    def _cmd_set_track_output_routing(self, params):
+        track = self._get_track(int(params["track_index"]))
+        routing_type_name = params.get("routing_type_name")
+        routing_channel_name = params.get("routing_channel_name")
+        out = {}
+        def fn():
+            out.update(self._apply_routing(
+                track, "output_routing_type", "output_routing_channel",
+                routing_type_name, routing_channel_name))
+        self._run_on_main_thread(fn)
+        return out
+
     # -------------------------------------------------------------------------
     # Track (write)
     # -------------------------------------------------------------------------
