@@ -9,6 +9,7 @@ import collections
 import copy
 import datetime
 import json
+import math
 import os
 import socket
 import threading
@@ -1611,7 +1612,6 @@ def _std_dev(values: list) -> float:
         return 0.0
     mean = sum(values) / len(values)
     variance = sum((v - mean) ** 2 for v in values) / len(values)
-    import math
     return math.sqrt(variance)
 
 
@@ -1802,8 +1802,6 @@ def analyze_clip_feel(track_index: int, slot_index: int, grid: float = 0.25) -> 
         robotic_flags: list of human-readable flag strings,
         feel_score: int 0-100 (100 = fully robotic, 0 = very human)
     """
-    import math
-
     result = _send("get_notes", {"track_index": track_index, "slot_index": slot_index})
     notes = result.get("notes", [])
 

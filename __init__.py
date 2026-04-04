@@ -1309,7 +1309,12 @@ class AbletonMPCX(ControlSurface):
                      "follow_action_chance_a", "follow_action_chance_b"):
             try:
                 val = getattr(clip, attr)
-                result[attr] = int(val) if hasattr(val, "real") and not isinstance(val, (bool, float)) else val
+                # FollowAction enum values are int-like but not plain Python ints;
+                # cast to int so they serialise correctly over JSON.
+                if not isinstance(val, (bool, float, str)) and hasattr(val, "__index__"):
+                    result[attr] = int(val)
+                else:
+                    result[attr] = val
             except AttributeError:
                 pass  # Property not available in this Live version
         return result
