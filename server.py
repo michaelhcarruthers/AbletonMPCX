@@ -1357,6 +1357,12 @@ _reference_profiles: dict[str, dict] = {}
 
 
 # ---------------------------------------------------------------------------
+# Audio analysis cache (in-process)
+# ---------------------------------------------------------------------------
+_audio_analysis_cache: dict[str, dict] = {}
+
+
+# ---------------------------------------------------------------------------
 # Observer thread (background session watcher)
 # ---------------------------------------------------------------------------
 
@@ -2604,6 +2610,14 @@ def suggest_next_actions() -> dict:
                 "priority": "low",
             })
 
+    # Audio reference suggestion
+    if "default_audio" in _reference_profiles:
+        suggestions.append({
+            "action": "compare_audio('/path/to/your/bounce.wav', reference_label='default_audio')",
+            "reason": "An audio reference profile exists. Export a bounce and compare it against your reference.",
+            "priority": "low",
+        })
+
     return {
         "suggestion_count": len(suggestions),
         "suggestions": suggestions,
@@ -3233,6 +3247,408 @@ def delete_reference_profile(label: str) -> dict:
     return {"deleted": label, "removed_from_disk": removed_memory}
 
 
+# ---------------------------------------------------------------------------
+# Phase 9: Tier 2 audio analysis (requires librosa)
+# ---------------------------------------------------------------------------
+
+
+def _analyse_audio_file(file_path: str, duration_limit: float = 300.0) -> dict:
+    """Run audio analysis and return the result dict. Used by both analyse_audio and designate_reference_audio."""
+    try:
+        import librosa
+        import numpy as np
+    except ImportError:
+        raise ImportError(
+            "librosa and numpy are required for audio analysis. "
+            "Install with: pip install librosa soundfile"
+        )
+
+    path = os.path.expanduser(file_path)
+    if not os.path.exists(path):
+        raise FileNotFoundError("Audio file not found: {}".format(path))
+
+    y, sr = librosa.load(path, sr=None, mono=True, duration=duration_limit)
+    duration = len(y) / sr
+
+    stereo_width = None
+    try:
+        import soundfile as sf
+        y_stereo, _ = sf.read(path, always_2d=True)
+        if y_stereo.shape[1] >= 2:
+            max_samples = int(duration_limit * sr)
+            y_stereo = y_stereo[:max_samples]
+            L = y_stereo[:, 0].astype(np.float32)
+            R = y_stereo[:, 1].astype(np.float32)
+            mid = (L + R) / 2.0
+            side = (L - R) / 2.0
+            mid_rms = float(np.sqrt(np.mean(mid ** 2)) + 1e-9)
+            side_rms = float(np.sqrt(np.mean(side ** 2)) + 1e-9)
+            stereo_width = round(side_rms / mid_rms, 4)
+    except Exception:
+        pass
+
+    S = np.abs(librosa.stft(y))
+    freqs = librosa.fft_frequencies(sr=sr)
+
+    def band_energy(f_low, f_high):
+        mask = (freqs >= f_low) & (freqs < f_high)
+        return float(np.mean(S[mask, :] ** 2)) if mask.any() else 0.0
+
+    total_energy = float(np.mean(S ** 2)) + 1e-9
+    bands = {
+        "low":       band_energy(20, 100) / total_energy,
+        "low_mid":   band_energy(100, 500) / total_energy,
+        "mid":       band_energy(500, 2000) / total_energy,
+        "high_mid":  band_energy(2000, 8000) / total_energy,
+        "high":      band_energy(8000, sr / 2) / total_energy,
+    }
+    bands = {k: round(v, 5) for k, v in bands.items()}
+
+    rms = float(np.sqrt(np.mean(y ** 2)))
+    loudness_dbfs = round(20 * np.log10(rms + 1e-9), 2)
+    peak = float(np.max(np.abs(y)))
+    peak_dbfs = round(20 * np.log10(peak + 1e-9), 2)
+    crest_factor_db = round(peak_dbfs - loudness_dbfs, 2)
+
+    centroid = librosa.feature.spectral_centroid(y=y, sr=sr)[0]
+    sc_mean = round(float(np.mean(centroid)), 1)
+    sc_std = round(float(np.std(centroid)), 1)
+
+    rolloff = librosa.feature.spectral_rolloff(y=y, sr=sr, roll_percent=0.85)[0]
+    sr_mean = round(float(np.mean(rolloff)), 1)
+
+    onset_frames = librosa.onset.onset_detect(y=y, sr=sr, units='time')
+    transient_density = round(len(onset_frames) / duration, 3) if duration > 0 else 0.0
+
+    hop = int(sr * 0.5)
+    rms_frames = librosa.feature.rms(y=y, frame_length=hop * 2, hop_length=hop)[0]
+    rms_db_frames = 20 * np.log10(rms_frames + 1e-9)
+    dynamic_range = round(float(np.std(rms_db_frames)), 3)
+
+    return {
+        "file_path": path,
+        "duration_seconds": round(duration, 2),
+        "sample_rate": int(sr),
+        "tonal_balance": bands,
+        "loudness_dbfs": loudness_dbfs,
+        "peak_dbfs": peak_dbfs,
+        "crest_factor_db": crest_factor_db,
+        "spectral_centroid_mean": sc_mean,
+        "spectral_centroid_std": sc_std,
+        "spectral_rolloff_mean": sr_mean,
+        "transient_density_per_sec": transient_density,
+        "dynamic_range": dynamic_range,
+        "stereo_width": stereo_width,
+    }
+
+
+@mcp.tool()
+def designate_reference_audio(
+    file_path: str,
+    label: str = "default_audio",
+    duration_limit: float = 300.0,
+) -> dict:
+    """
+    Analyse an audio file and store it as a named reference audio profile.
+
+    Computes:
+      - Tonal balance: low / low-mid / mid / high-mid / high band energy ratios
+      - Integrated loudness estimate (RMS-based, in dBFS)
+      - Peak level (dBFS)
+      - Crest factor (peak-to-average ratio, dB)
+      - Spectral centroid mean and std (brightness proxy)
+      - Spectral rolloff mean (frequency below which 85% of energy sits)
+      - Transient density: mean onset rate (onsets per second)
+      - Dynamic range: std dev of short-term RMS across 0.5s windows
+      - Stereo width estimate (if stereo file: mean absolute L-R difference / mean L+R)
+
+    Requires: librosa, numpy, soundfile
+    Install: pip install librosa soundfile
+
+    Args:
+        file_path: Absolute or home-relative path to audio file (WAV, AIFF, FLAC, MP3).
+        label: Name for this reference profile (default: 'default_audio').
+        duration_limit: Maximum seconds to analyse (default 300s = 5 min). Longer files are truncated.
+
+    Returns:
+        label, duration_seconds, sample_rate, channels,
+        tonal_balance (dict of band: ratio),
+        loudness_dbfs, peak_dbfs, crest_factor_db,
+        spectral_centroid_mean, spectral_centroid_std,
+        spectral_rolloff_mean,
+        transient_density_per_sec,
+        dynamic_range,
+        stereo_width (float or None)
+    """
+    result = _analyse_audio_file(file_path, duration_limit=duration_limit)
+
+    profile = dict(result)
+    profile["type"] = "audio_analysis"
+    profile["label"] = label
+    profile["timestamp"] = datetime.datetime.now(datetime.timezone.utc).isoformat()
+
+    _save_reference_profile(label, profile)
+    _audio_analysis_cache[label] = profile
+
+    return {k: v for k, v in profile.items() if k != "type"}
+
+
+@mcp.tool()
+def analyse_audio(
+    file_path: str,
+    duration_limit: float = 300.0,
+) -> dict:
+    """
+    Analyse an audio file and return tonal, loudness, transient, and spectral metrics.
+
+    Does NOT store the result as a reference profile. Use designate_reference_audio()
+    if you want to store it for later comparison.
+
+    Requires: librosa, numpy, soundfile
+    Install: pip install librosa soundfile
+
+    Args:
+        file_path: Absolute or home-relative path to audio file.
+        duration_limit: Maximum seconds to analyse (default 300s).
+
+    Returns:
+        Same fields as designate_reference_audio() minus the label/timestamp.
+    """
+    return _analyse_audio_file(file_path, duration_limit=duration_limit)
+
+
+@mcp.tool()
+def compare_audio(
+    file_path: str,
+    reference_label: str = "default_audio",
+    duration_limit: float = 300.0,
+) -> dict:
+    """
+    Analyse an audio file and compare it against a stored reference audio profile.
+
+    Call designate_reference_audio() first to create the reference.
+
+    Returns per-metric deltas and human-readable flags. Nothing is modified.
+
+    Requires: librosa, numpy, soundfile
+    Install: pip install librosa soundfile
+
+    Args:
+        file_path: Path to the audio file to analyse and compare.
+        reference_label: Label of the reference audio profile.
+        duration_limit: Max seconds to analyse.
+
+    Returns:
+        flags: list of human-readable observation strings
+        summary: most significant departure
+        deltas: dict of {metric: {target, reference, delta, delta_pct}}
+        tonal_balance_deltas: dict of {band: delta}
+        reference_label, reference_file_path
+    """
+    if reference_label not in _reference_profiles:
+        _load_reference_profiles_from_project()
+    if reference_label not in _reference_profiles:
+        raise ValueError(
+            "No reference audio profile '{}'. Call designate_reference_audio() first.".format(reference_label)
+        )
+
+    ref = _reference_profiles[reference_label]
+    if ref.get("type") != "audio_analysis":
+        raise ValueError("Reference '{}' is not an audio analysis profile (type={}).".format(
+            reference_label, ref.get("type")))
+
+    target = _analyse_audio_file(file_path, duration_limit=duration_limit)
+
+    flags = []
+    deltas = {}
+
+    def compare_scalar(key, label_str, threshold, unit="", higher_is="louder", fmt=".1f"):
+        t_val = target.get(key)
+        r_val = ref.get(key)
+        if t_val is None or r_val is None:
+            return
+        delta = t_val - r_val
+        pct = (delta / abs(r_val) * 100) if r_val != 0 else 0.0
+        deltas[key] = {
+            "target": t_val,
+            "reference": r_val,
+            "delta": round(delta, 3),
+            "delta_pct": round(pct, 1),
+        }
+        if abs(delta) > threshold:
+            direction = higher_is if delta > 0 else ("darker" if higher_is == "brighter" else
+                                                      "quieter" if higher_is == "louder" else
+                                                      "lower" if higher_is == "higher" else "less")
+            flags.append("{} is {} than reference (delta: {:{}}{})"
+                         .format(label_str, direction, delta, fmt, unit))
+
+    compare_scalar("loudness_dbfs",          "loudness",          1.5,  unit=" dB",   higher_is="louder",   fmt="+.1f")
+    compare_scalar("peak_dbfs",              "peak level",        2.0,  unit=" dB",   higher_is="louder",   fmt="+.1f")
+    compare_scalar("crest_factor_db",        "crest factor",      3.0,  unit=" dB",   higher_is="higher",   fmt="+.1f")
+    compare_scalar("spectral_centroid_mean", "spectral centroid", 500,  unit=" Hz",   higher_is="brighter", fmt="+.0f")
+    compare_scalar("spectral_rolloff_mean",  "spectral rolloff",  800,  unit=" Hz",   higher_is="brighter", fmt="+.0f")
+    compare_scalar("transient_density_per_sec", "transient density", 0.5, unit=" onsets/s", higher_is="higher", fmt="+.2f")
+    compare_scalar("dynamic_range",          "dynamic range",     2.0,  unit=" dB",   higher_is="higher",   fmt="+.1f")
+
+    if target.get("stereo_width") is not None and ref.get("stereo_width") is not None:
+        compare_scalar("stereo_width", "stereo width", 0.05, unit="", higher_is="wider", fmt="+.3f")
+
+    tonal_deltas = {}
+    ref_bands = ref.get("tonal_balance", {})
+    tgt_bands = target.get("tonal_balance", {})
+    tonal_threshold = 0.03
+
+    band_descriptions = {
+        "low":      "sub/low end (<100Hz)",
+        "low_mid":  "low mids (100-500Hz)",
+        "mid":      "mids (500Hz-2kHz)",
+        "high_mid": "high mids (2-8kHz)",
+        "high":     "highs (>8kHz)",
+    }
+
+    for band in ("low", "low_mid", "mid", "high_mid", "high"):
+        t_b = tgt_bands.get(band, 0.0)
+        r_b = ref_bands.get(band, 0.0)
+        d = t_b - r_b
+        tonal_deltas[band] = round(d, 5)
+        if abs(d) > tonal_threshold:
+            direction = "more" if d > 0 else "less"
+            flags.append("{} has {} energy than reference ({:+.1f}%)".format(
+                band_descriptions.get(band, band), direction, d * 100))
+
+    if not flags:
+        flags.append("no significant differences detected vs reference")
+
+    summary = flags[0] if flags else "similar to reference"
+
+    return {
+        "flags": flags,
+        "summary": summary,
+        "flag_count": len(flags),
+        "deltas": deltas,
+        "tonal_balance_deltas": tonal_deltas,
+        "target_file": target["file_path"],
+        "target_duration_seconds": target["duration_seconds"],
+        "reference_label": reference_label,
+        "reference_file_path": ref.get("file_path", "unknown"),
+    }
+
+
+@mcp.tool()
+def compare_audio_sections(
+    file_path: str,
+    reference_label: str = "default_audio",
+    num_sections: int = 4,
+    duration_limit: float = 300.0,
+) -> dict:
+    """
+    Split a target audio file into N equal sections and compare each against the reference.
+
+    Useful for detecting whether energy, brightness, and density build correctly
+    across sections (intro → verse → chorus → outro) relative to the reference.
+
+    Requires: librosa, numpy, soundfile
+    Install: pip install librosa soundfile
+
+    Args:
+        file_path: Path to the audio file to analyse.
+        reference_label: Label of the reference audio profile (full-song reference).
+        num_sections: Number of equal sections to split the file into (default 4).
+        duration_limit: Max seconds to analyse.
+
+    Returns:
+        sections: list of {section_index, start_sec, end_sec, loudness_dbfs,
+                           spectral_centroid_mean, transient_density_per_sec,
+                           vs_reference_loudness_delta, vs_reference_centroid_delta}
+        flags: list of human-readable observations about section energy progression
+        reference_label
+    """
+    try:
+        import librosa
+        import numpy as np
+    except ImportError:
+        raise ImportError(
+            "librosa and numpy are required for audio analysis. "
+            "Install with: pip install librosa soundfile"
+        )
+
+    if reference_label not in _reference_profiles:
+        _load_reference_profiles_from_project()
+    if reference_label not in _reference_profiles:
+        raise ValueError(
+            "No reference audio profile '{}'. Call designate_reference_audio() first.".format(reference_label)
+        )
+
+    ref = _reference_profiles[reference_label]
+    path = os.path.expanduser(file_path)
+    if not os.path.exists(path):
+        raise FileNotFoundError("Audio file not found: {}".format(path))
+
+    y, sr = librosa.load(path, sr=None, mono=True, duration=duration_limit)
+    total_samples = len(y)
+    section_size = total_samples // num_sections
+
+    ref_loudness = ref.get("loudness_dbfs", -18.0)
+    ref_centroid = ref.get("spectral_centroid_mean", 2000.0)
+
+    sections = []
+    for i in range(num_sections):
+        start = i * section_size
+        end = start + section_size if i < num_sections - 1 else total_samples
+        segment = y[start:end]
+
+        seg_rms = float(np.sqrt(np.mean(segment ** 2)))
+        seg_loudness = round(20 * np.log10(seg_rms + 1e-9), 2)
+
+        seg_centroid = librosa.feature.spectral_centroid(y=segment, sr=sr)[0]
+        seg_centroid_mean = round(float(np.mean(seg_centroid)), 1)
+
+        seg_onsets = librosa.onset.onset_detect(y=segment, sr=sr, units='time')
+        seg_duration = len(segment) / sr
+        seg_density = round(len(seg_onsets) / seg_duration, 3) if seg_duration > 0 else 0.0
+
+        sections.append({
+            "section_index": i,
+            "start_sec": round(start / sr, 2),
+            "end_sec": round(end / sr, 2),
+            "loudness_dbfs": seg_loudness,
+            "spectral_centroid_mean": seg_centroid_mean,
+            "transient_density_per_sec": seg_density,
+            "vs_reference_loudness_delta": round(seg_loudness - ref_loudness, 2),
+            "vs_reference_centroid_delta": round(seg_centroid_mean - ref_centroid, 1),
+        })
+
+    flags = []
+    loudness_values = [s["loudness_dbfs"] for s in sections]
+    centroid_values = [s["spectral_centroid_mean"] for s in sections]
+
+    if loudness_values[-1] < loudness_values[0] - 1.0:
+        flags.append("energy drops from first to last section — arrangement may not build")
+    elif loudness_values[-1] > loudness_values[0] + 1.0:
+        flags.append("energy builds from first to last section — good arrangement progression")
+
+    very_quiet = [s for s in sections if s["vs_reference_loudness_delta"] < -6.0]
+    if very_quiet:
+        flags.append("sections {} are more than 6dB quieter than reference".format(
+            [s["section_index"] for s in very_quiet]))
+
+    if centroid_values[-1] < centroid_values[0] - 300:
+        flags.append("brightness decreases across sections — track gets darker toward the end")
+
+    loudness_range = max(loudness_values) - min(loudness_values)
+    if loudness_range < 1.5:
+        flags.append("section loudness variance is only {:.1f}dB — arrangement may lack dynamic contrast".format(loudness_range))
+
+    if not flags:
+        flags.append("section energy progression looks normal")
+
+    return {
+        "sections": sections,
+        "flags": flags,
+        "flag_count": len(flags),
+        "reference_label": reference_label,
+        "total_duration_seconds": round(total_samples / sr, 2),
+    }
 
 
 def _observer_loop():
