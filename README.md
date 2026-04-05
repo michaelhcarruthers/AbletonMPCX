@@ -287,6 +287,46 @@ setup_fx_chain(track_index=3, chain_type="build_chain")
 
 ---
 
+## DJ Transitions
+
+Five DJ-style blend macros for transitioning between two tracks over a musical time range.
+
+| Macro | Effect | Devices targeted |
+|---|---|---|
+| `dj_crossfade` | Volume fade out / fade in | Mixer (Volume) |
+| `dj_eq_swap` | Low-frequency swap via EQ + volume crossfade | EQ Eight, Mixer |
+| `dj_filter_blend` | HP sweep out + LP opening in + volume crossfade | Auto Filter, Mixer |
+| `dj_echo_out` | Delay/reverb throw on exit + clean entry | Simple Delay, Reverb, Auto Filter, Mixer |
+| `dj_loop_roll` | Oscillating filter chop exit + clean entry | Auto Filter, Simple Delay, Mixer |
+
+### Usage
+
+```python
+# Simple volume crossfade over 8 bars
+dj_crossfade(source_track_index=0, dest_track_index=1, start_bar=33, length_beats=32)
+
+# EQ swap at bar 33
+dj_eq_swap(source_track_index=0, dest_track_index=1, start_bar=33, length_beats=16)
+
+# Echo out the last 2 bars and bring B in filtered
+dj_echo_out(source_track_index=0, dest_track_index=1, start_bar=50, start_beat=3, length_beats=8)
+
+# Loop roll transition, 1 bar
+dj_loop_roll(source_track_index=2, dest_track_index=3, start_bar=64, length_beats=4, roll_subdivisions=4)
+
+# Blend track A into track B over 8 bars at 75% intensity
+dj_filter_blend(source_track_index=0, dest_track_index=1, start_bar=40, length_beats=32, intensity=0.75)
+```
+
+### Notes
+
+- All DJ macros write **arrangement automation** — they require an arrangement clip spanning the time range on each targeted track.
+- Mixer volume is always targeted directly without requiring a device match.
+- EQ and filter steps are skipped gracefully if the device is not present on the track.
+- `intensity` scales all parameter values proportionally (0.0 = no movement, 1.0 = full range).
+
+---
+
 ## Notes
 
 - The Remote Script runs on Ableton's internal Python interpreter (CPython 3.6+ in Live 11/12).

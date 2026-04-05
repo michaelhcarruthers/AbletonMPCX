@@ -5042,6 +5042,70 @@ _MACRO_DEFINITIONS: dict[str, list[dict]] = {
         {"device": "Auto Filter", "param": "Resonance",  "curve": [(0.0, 0.2), (0.7, 0.65), (1.0, 0.3)], "required": False},
         {"device": "Saturator",   "param": "Drive",      "curve": [(0.0, 0.1), (0.6, 0.75), (1.0, 0.2)], "required": False},
     ],
+
+    # -----------------------------------------------------------------------
+    # DJ blend / transition macros
+    # These operate on two tracks: use the 'source' and 'dest' track scoping
+    # via the multi-track path in perform_macro (see dj_* tool wrappers below)
+    # -----------------------------------------------------------------------
+
+    "dj_crossfade": [
+        # Source track: volume fades out
+        {"track": "source", "device": "Mixer",      "param": "Volume",    "curve": [(0.0, 1.0), (1.0, 0.0)], "required": True},
+        # Dest track: volume fades in
+        {"track": "dest",   "device": "Mixer",      "param": "Volume",    "curve": [(0.0, 0.0), (1.0, 1.0)], "required": True},
+    ],
+
+    "dj_eq_swap": [
+        # Source track: lows roll off
+        {"track": "source", "device": "EQ Eight",   "param": "1 Gain",    "curve": [(0.0, 0.0), (1.0, -1.0)], "required": False},
+        {"track": "source", "device": "EQ Eight",   "param": "2 Gain",    "curve": [(0.0, 0.0), (0.7, -0.5)], "required": False},
+        # Dest track: lows roll in
+        {"track": "dest",   "device": "EQ Eight",   "param": "1 Gain",    "curve": [(0.0, -1.0), (1.0, 0.0)], "required": False},
+        {"track": "dest",   "device": "EQ Eight",   "param": "2 Gain",    "curve": [(0.0, -0.5), (1.0, 0.0)], "required": False},
+        # Crossfade volumes
+        {"track": "source", "device": "Mixer",      "param": "Volume",    "curve": [(0.0, 1.0), (1.0, 0.0)], "required": True},
+        {"track": "dest",   "device": "Mixer",      "param": "Volume",    "curve": [(0.0, 0.0), (1.0, 1.0)], "required": True},
+    ],
+
+    "dj_filter_blend": [
+        # Source track: high-pass filter sweeps up (cuts lows)
+        {"track": "source", "device": "Auto Filter", "param": "Frequency", "curve": [(0.0, 0.02), (1.0, 0.85)], "required": False},
+        {"track": "source", "device": "Auto Filter", "param": "Resonance", "curve": [(0.0, 0.2),  (0.6, 0.55), (1.0, 0.2)], "required": False},
+        # Dest track: low-pass filter opens from filtered to full
+        {"track": "dest",   "device": "Auto Filter", "param": "Frequency", "curve": [(0.0, 0.15), (1.0, 0.9)], "required": False},
+        {"track": "dest",   "device": "Auto Filter", "param": "Resonance", "curve": [(0.0, 0.3),  (0.5, 0.6), (1.0, 0.2)], "required": False},
+        # Volume crossfade
+        {"track": "source", "device": "Mixer",      "param": "Volume",    "curve": [(0.0, 1.0), (1.0, 0.0)], "required": True},
+        {"track": "dest",   "device": "Mixer",      "param": "Volume",    "curve": [(0.0, 0.0), (1.0, 1.0)], "required": True},
+    ],
+
+    "dj_echo_out": [
+        # Source track: delay throw + volume fades
+        {"track": "source", "device": "Simple Delay", "param": "Dry/Wet",  "curve": [(0.0, 0.0),  (0.3, 0.9), (1.0, 0.0)], "required": False},
+        {"track": "source", "device": "Simple Delay", "param": "Feedback", "curve": [(0.0, 0.3),  (0.5, 0.85), (1.0, 0.0)], "required": False},
+        {"track": "source", "device": "Reverb",       "param": "Dry/Wet",  "curve": [(0.0, 0.0),  (0.4, 0.6), (1.0, 0.0)], "required": False},
+        {"track": "source", "device": "Mixer",        "param": "Volume",   "curve": [(0.0, 1.0),  (0.6, 1.0), (1.0, 0.0)], "required": True},
+        # Dest track: comes in clean (or filtered)
+        {"track": "dest",   "device": "Auto Filter",  "param": "Frequency", "curve": [(0.0, 0.2),  (1.0, 0.85)], "required": False},
+        {"track": "dest",   "device": "Mixer",        "param": "Volume",   "curve": [(0.0, 0.0),  (0.5, 0.0), (1.0, 1.0)], "required": True},
+    ],
+
+    "dj_loop_roll": [
+        # Source track: filter + volume chop (simulates loop roll stutter)
+        {"track": "source", "device": "Auto Filter", "param": "Frequency", "curve": [
+            (0.0, 0.8), (0.25, 0.2), (0.5, 0.8), (0.75, 0.2), (1.0, 0.05)
+        ], "required": False},
+        {"track": "source", "device": "Auto Filter", "param": "Resonance", "curve": [
+            (0.0, 0.2), (0.5, 0.5), (1.0, 0.7)
+        ], "required": False},
+        {"track": "source", "device": "Simple Delay", "param": "Dry/Wet",  "curve": [
+            (0.0, 0.0), (0.5, 0.6), (1.0, 0.0)
+        ], "required": False},
+        {"track": "source", "device": "Mixer",       "param": "Volume",    "curve": [(0.0, 1.0), (1.0, 0.0)], "required": True},
+        # Dest track: clean entry
+        {"track": "dest",   "device": "Mixer",       "param": "Volume",    "curve": [(0.0, 0.0), (0.75, 0.0), (1.0, 1.0)], "required": True},
+    ],
 }
 
 _SETUP_CHAINS: dict[str, list[tuple[str, dict]]] = {
@@ -5574,6 +5638,436 @@ def set_macro_intensity(
         "intensity": intensity,
         "applied": applied,
         "skipped": skipped,
+    }
+
+
+def _find_device_parameter_by_name(
+    track_index: int,
+    device_name_pattern: str,
+    param_name_pattern: str,
+) -> tuple[dict | None, dict | None, str | None]:
+    """
+    Locate a device and parameter on a track by substring match.
+
+    Returns (device_dict, param_dict, error_string).
+    On success, error_string is None.  On failure, device_dict and/or param_dict
+    are None and error_string describes the problem.
+    """
+    try:
+        devices_result = _send("get_devices", {"track_index": track_index})
+    except Exception as e:
+        return None, None, "Could not get devices for track {}: {}".format(track_index, e)
+
+    device_pat = device_name_pattern.lower()
+    matched_device = None
+    for d in devices_result:
+        if device_pat in d["name"].lower():
+            matched_device = d
+            break
+
+    if matched_device is None:
+        return None, None, "No device matching '{}' found on track {}".format(
+            device_name_pattern, track_index
+        )
+
+    try:
+        params_result = _send("get_device_parameters", {
+            "track_index": track_index,
+            "device_index": matched_device["index"],
+        })
+    except Exception as e:
+        return matched_device, None, "Could not read parameters: {}".format(str(e))
+
+    param_pat = param_name_pattern.lower()
+    matched_param = None
+    for p in params_result.get("parameters", []):
+        if param_pat in p["name"].lower():
+            matched_param = p
+            break
+
+    if matched_param is None:
+        return matched_device, None, "Parameter '{}' not found on '{}'".format(
+            param_name_pattern, matched_device["name"]
+        )
+
+    return matched_device, matched_param, None
+
+
+def _apply_dj_macro(
+    macro_name: str,
+    source_track_index: int,
+    dest_track_index: int,
+    start_time: float,
+    end_time: float,
+    intensity: float = 1.0,
+) -> dict:
+    """
+    Internal: execute a dj_* macro by splitting its steps by track role
+    ('source' vs 'dest') and writing arrangement automation for each.
+
+    Steps with no 'track' key are applied to the source track by default.
+    Steps where device == 'Mixer' target the track's mixer Volume parameter
+    (device_index is omitted so the remote script resolves it as mixer volume).
+
+    Returns dict with steps_applied, steps_skipped, details list.
+    """
+    steps = _MACRO_DEFINITIONS[macro_name]
+    length_beats = end_time - start_time
+
+    steps_applied = 0
+    steps_skipped = []
+    details = []
+
+    for step in steps:
+        track_role = step.get("track", "source")
+        track_index = source_track_index if track_role == "source" else dest_track_index
+
+        device_name = step["device"]
+        param_name = step["param"]
+        curve = step["curve"]
+        required = step.get("required", False)
+
+        # Build time-mapped automation points with intensity scaling
+        points = []
+        for pos_ratio, raw_value in curve:
+            scaled_value = 0.5 + (raw_value - 0.5) * intensity
+            scaled_value = max(0.0, min(1.0, scaled_value))
+            abs_time = start_time + pos_ratio * length_beats
+            points.append({"time": abs_time, "value": scaled_value})
+
+        # Mixer volume is a special case: no device_index needed
+        if device_name.lower() == "mixer":
+            try:
+                write_result = _send("write_arrangement_automation", {
+                    "track_index": track_index,
+                    "points": points,
+                    "clear_range": True,
+                })
+                steps_applied += 1
+                details.append({
+                    "track": track_role,
+                    "track_index": track_index,
+                    "device": device_name,
+                    "param": param_name,
+                    "points_written": write_result.get("points_written", len(points)),
+                })
+            except Exception as e:
+                msg = "Mixer Volume automation write failed: {}".format(str(e))
+                if required:
+                    raise RuntimeError(msg)
+                steps_skipped.append({"track": track_role, "device": device_name, "param": param_name, "reason": msg})
+            continue
+
+        # Regular device: find by name
+        matched_device, matched_param, error = _find_device_parameter_by_name(
+            track_index, device_name, param_name
+        )
+
+        if error is not None:
+            if required:
+                raise RuntimeError(
+                    "Required step failed on track {} ({}): {}".format(
+                        track_index, track_role, error
+                    )
+                )
+            steps_skipped.append({"track": track_role, "device": device_name, "param": param_name, "reason": error})
+            continue
+
+        try:
+            write_result = _send("write_arrangement_automation", {
+                "track_index": track_index,
+                "device_index": matched_device["index"],
+                "parameter_index": matched_param["index"],
+                "points": points,
+                "clear_range": True,
+            })
+            steps_applied += 1
+            details.append({
+                "track": track_role,
+                "track_index": track_index,
+                "device": matched_device["name"],
+                "param": matched_param["name"],
+                "points_written": write_result.get("points_written", len(points)),
+            })
+        except Exception as e:
+            msg = "Automation write failed: {}".format(str(e))
+            if required:
+                raise RuntimeError(
+                    "Required step failed on track {} ({}): {}".format(
+                        track_index, track_role, msg
+                    )
+                )
+            steps_skipped.append({"track": track_role, "device": device_name, "param": param_name, "reason": msg})
+
+    return {
+        "steps_applied": steps_applied,
+        "steps_skipped": steps_skipped,
+        "details": details,
+    }
+
+
+@mcp.tool()
+def dj_crossfade(
+    source_track_index: int,
+    dest_track_index: int,
+    start_bar: int,
+    start_beat: float = 1.0,
+    length_beats: float = 16.0,
+    intensity: float = 1.0,
+    time_signature_numerator: int = 4,
+) -> dict:
+    """
+    Blend one track out while fading another track in over a musical time range.
+
+    Automates volume on source track from full to silent and dest track from
+    silent to full, creating a clean crossfade.
+
+    Args:
+        source_track_index: Track that fades out.
+        dest_track_index: Track that fades in.
+        start_bar: 1-based bar where the crossfade begins.
+        start_beat: 1-based beat within start_bar (default 1).
+        length_beats: Length of the crossfade in beats (default 16 = 4 bars in 4/4).
+        intensity: Scale factor 0.0–1.0 (default 1.0 = full crossfade).
+        time_signature_numerator: Beats per bar (default 4).
+
+    Returns:
+        {macro, source_track_index, dest_track_index, start_time, end_time,
+         steps_applied, steps_skipped}
+    """
+    intensity = max(0.0, min(1.0, intensity))
+    start_time = _bars_beats_to_song_time(start_bar, start_beat, time_signature_numerator)
+    end_time = start_time + length_beats
+
+    _send("begin_undo_step", {"name": "dj_crossfade"})
+    try:
+        result = _apply_dj_macro(
+            "dj_crossfade", source_track_index, dest_track_index,
+            start_time, end_time, intensity,
+        )
+    finally:
+        _send("end_undo_step", {})
+
+    return {
+        "macro": "dj_crossfade",
+        "source_track_index": source_track_index,
+        "dest_track_index": dest_track_index,
+        "start_time": start_time,
+        "end_time": end_time,
+        **result,
+    }
+
+
+@mcp.tool()
+def dj_eq_swap(
+    source_track_index: int,
+    dest_track_index: int,
+    start_bar: int,
+    start_beat: float = 1.0,
+    length_beats: float = 16.0,
+    intensity: float = 1.0,
+    time_signature_numerator: int = 4,
+) -> dict:
+    """
+    Transition between two tracks using EQ low-frequency swapping.
+
+    Rolls off the lows on the outgoing track while bringing in the lows
+    on the incoming track, with a simultaneous volume crossfade.
+    Targets EQ Eight on both tracks (skips EQ steps gracefully if not present).
+
+    Args:
+        source_track_index: Outgoing track.
+        dest_track_index: Incoming track.
+        start_bar: 1-based start bar.
+        start_beat: Start beat within bar (default 1).
+        length_beats: Transition length in beats.
+        intensity: Scale factor 0.0–1.0.
+        time_signature_numerator: Beats per bar (default 4).
+
+    Returns:
+        {macro, source_track_index, dest_track_index, start_time, end_time,
+         steps_applied, steps_skipped}
+    """
+    intensity = max(0.0, min(1.0, intensity))
+    start_time = _bars_beats_to_song_time(start_bar, start_beat, time_signature_numerator)
+    end_time = start_time + length_beats
+
+    _send("begin_undo_step", {"name": "dj_eq_swap"})
+    try:
+        result = _apply_dj_macro(
+            "dj_eq_swap", source_track_index, dest_track_index,
+            start_time, end_time, intensity,
+        )
+    finally:
+        _send("end_undo_step", {})
+
+    return {
+        "macro": "dj_eq_swap",
+        "source_track_index": source_track_index,
+        "dest_track_index": dest_track_index,
+        "start_time": start_time,
+        "end_time": end_time,
+        **result,
+    }
+
+
+@mcp.tool()
+def dj_filter_blend(
+    source_track_index: int,
+    dest_track_index: int,
+    start_bar: int,
+    start_beat: float = 1.0,
+    length_beats: float = 16.0,
+    intensity: float = 1.0,
+    time_signature_numerator: int = 4,
+) -> dict:
+    """
+    Transition between tracks using high-pass / low-pass filter sweeps.
+
+    Source track gets a rising high-pass sweep (cutting lows progressively).
+    Dest track gets a low-pass opening sweep (starting filtered, opening to full).
+    Both tracks fade via volume automation simultaneously.
+
+    Args:
+        source_track_index: Outgoing track.
+        dest_track_index: Incoming track.
+        start_bar: 1-based start bar.
+        start_beat: Start beat within bar (default 1).
+        length_beats: Transition length in beats.
+        intensity: Scale factor 0.0–1.0.
+        time_signature_numerator: Beats per bar (default 4).
+
+    Returns:
+        {macro, source_track_index, dest_track_index, start_time, end_time,
+         steps_applied, steps_skipped}
+    """
+    intensity = max(0.0, min(1.0, intensity))
+    start_time = _bars_beats_to_song_time(start_bar, start_beat, time_signature_numerator)
+    end_time = start_time + length_beats
+
+    _send("begin_undo_step", {"name": "dj_filter_blend"})
+    try:
+        result = _apply_dj_macro(
+            "dj_filter_blend", source_track_index, dest_track_index,
+            start_time, end_time, intensity,
+        )
+    finally:
+        _send("end_undo_step", {})
+
+    return {
+        "macro": "dj_filter_blend",
+        "source_track_index": source_track_index,
+        "dest_track_index": dest_track_index,
+        "start_time": start_time,
+        "end_time": end_time,
+        **result,
+    }
+
+
+@mcp.tool()
+def dj_echo_out(
+    source_track_index: int,
+    dest_track_index: int,
+    start_bar: int,
+    start_beat: float = 1.0,
+    length_beats: float = 8.0,
+    intensity: float = 1.0,
+    time_signature_numerator: int = 4,
+) -> dict:
+    """
+    Throw the outgoing track into delay/reverb while bringing in the next track.
+
+    Source track gets a delay feedback swell + reverb wash before fading.
+    Dest track enters cleanly (or filtered) in the second half of the range.
+
+    Args:
+        source_track_index: Outgoing track.
+        dest_track_index: Incoming track.
+        start_bar: 1-based start bar.
+        start_beat: Start beat within bar (default 1).
+        length_beats: Transition length in beats (default 8 = 2 bars in 4/4).
+        intensity: Scale factor 0.0–1.0.
+        time_signature_numerator: Beats per bar (default 4).
+
+    Returns:
+        {macro, source_track_index, dest_track_index, start_time, end_time,
+         steps_applied, steps_skipped}
+    """
+    intensity = max(0.0, min(1.0, intensity))
+    start_time = _bars_beats_to_song_time(start_bar, start_beat, time_signature_numerator)
+    end_time = start_time + length_beats
+
+    _send("begin_undo_step", {"name": "dj_echo_out"})
+    try:
+        result = _apply_dj_macro(
+            "dj_echo_out", source_track_index, dest_track_index,
+            start_time, end_time, intensity,
+        )
+    finally:
+        _send("end_undo_step", {})
+
+    return {
+        "macro": "dj_echo_out",
+        "source_track_index": source_track_index,
+        "dest_track_index": dest_track_index,
+        "start_time": start_time,
+        "end_time": end_time,
+        **result,
+    }
+
+
+@mcp.tool()
+def dj_loop_roll(
+    source_track_index: int,
+    dest_track_index: int,
+    start_bar: int,
+    start_beat: float = 1.0,
+    length_beats: float = 4.0,
+    roll_subdivisions: int = 4,
+    intensity: float = 1.0,
+    time_signature_numerator: int = 4,
+) -> dict:
+    """
+    Simulate a loop roll / stutter exit on source while bringing in dest track.
+
+    Source track gets an oscillating filter chop (simulating loop subdivisions)
+    + delay feedback swell, then cuts. Dest track enters cleanly at the end.
+
+    Args:
+        source_track_index: Outgoing track.
+        dest_track_index: Incoming track.
+        start_bar: 1-based start bar.
+        start_beat: Start beat within bar (default 1).
+        length_beats: Total length in beats (default 4 = 1 bar in 4/4).
+        roll_subdivisions: Number of filter chops (2, 4, or 8; default 4).
+        intensity: Scale factor 0.0–1.0.
+        time_signature_numerator: Beats per bar (default 4).
+
+    Returns:
+        {macro, source_track_index, dest_track_index, start_time, end_time,
+         steps_applied, steps_skipped, roll_subdivisions}
+    """
+    intensity = max(0.0, min(1.0, intensity))
+    start_time = _bars_beats_to_song_time(start_bar, start_beat, time_signature_numerator)
+    end_time = start_time + length_beats
+
+    _send("begin_undo_step", {"name": "dj_loop_roll"})
+    try:
+        result = _apply_dj_macro(
+            "dj_loop_roll", source_track_index, dest_track_index,
+            start_time, end_time, intensity,
+        )
+    finally:
+        _send("end_undo_step", {})
+
+    return {
+        "macro": "dj_loop_roll",
+        "source_track_index": source_track_index,
+        "dest_track_index": dest_track_index,
+        "start_time": start_time,
+        "end_time": end_time,
+        "roll_subdivisions": roll_subdivisions,
+        **result,
     }
 
 
