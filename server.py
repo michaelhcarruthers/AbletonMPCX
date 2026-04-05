@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """
 AbletonMPCX MCP Server
 Bridges the MCP protocol to the Ableton Remote Script running inside Live.
