@@ -2492,6 +2492,10 @@ class AbletonMPCX(ControlSurface):
 
         return snapshot
 
+    # -------------------------------------------------------------------------
+    # Missing media
+    # -------------------------------------------------------------------------
+
     def _cmd_get_missing_media(self, params):
         """Return all clips with missing/offline audio files."""
         s = self._song
@@ -2500,6 +2504,7 @@ class AbletonMPCX(ControlSurface):
         total_checked = 0
         for track_index, track in enumerate(all_tracks):
             is_return = track_index >= len(list(s.tracks))
+            display_index = track_index - len(list(s.tracks)) if is_return else track_index
             for slot_index, slot in enumerate(track.clip_slots):
                 if not slot.has_clip:
                     continue
