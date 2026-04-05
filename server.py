@@ -5749,13 +5749,17 @@ def project_health_report() -> dict:
     unnamed_tracks = []
     armed_tracks = []
 
+    import re as _re
+    _default_name_pattern = _re.compile(
+        r"^(Audio|MIDI|1-Audio|1-MIDI)\s*\d*$|^\d+$", _re.IGNORECASE
+    )
+
     for track in tracks:
         track_index = track["index"]
         track_name = track["name"]
         if track.get("clip_count", 0) == 0 and track.get("device_count", 0) == 0:
             empty_tracks.append({"track_index": track_index, "track_name": track_name})
-        if not track_name or track_name.strip() in ("Audio", "MIDI", "1", "2", "3", "4",
-                                                      "5", "6", "7", "8"):
+        if not track_name or _default_name_pattern.match(track_name.strip()):
             unnamed_tracks.append({"track_index": track_index, "track_name": track_name})
         if track.get("arm"):
             armed_tracks.append({"track_index": track_index, "track_name": track_name})

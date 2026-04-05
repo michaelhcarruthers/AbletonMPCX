@@ -2537,6 +2537,17 @@ class AbletonMPCX(ControlSurface):
         relinked = []
         still_missing = []
 
+        # Build a filename→path index up front to avoid repeated os.walk calls
+        filename_index = {}
+        for folder in search_folders:
+            try:
+                for root, _dirs, files in os.walk(folder):
+                    for fname in files:
+                        if fname not in filename_index:
+                            filename_index[fname] = os.path.join(root, fname)
+            except (OSError, IOError):
+                pass  # skip inaccessible or non-existent folders
+
         s = self._song
         all_tracks = list(s.tracks) + list(s.return_tracks)
 
@@ -2555,14 +2566,7 @@ class AbletonMPCX(ControlSurface):
                 })
                 continue
 
-            found_path = None
-            for folder in search_folders:
-                for root, _dirs, files in os.walk(folder):
-                    if filename in files:
-                        found_path = os.path.join(root, filename)
-                        break
-                if found_path:
-                    break
+            found_path = filename_index.get(filename)
 
             if found_path:
                 track = all_tracks[track_index]
