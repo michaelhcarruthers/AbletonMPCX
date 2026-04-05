@@ -5477,24 +5477,24 @@ def scan_au_presets(force_rescan: bool = False) -> dict:
                 plugin = _detect_plugin_from_path(path_str)
                 is_drum = _is_drum_plugin(plugin)
 
+                omni_tags: list[str] = []
                 try:
                     if ext == "aupreset":
                         preset_name, _raw = _parse_aupreset(fpath)
                     else:
-                        omni_tags: list[str] = []
                         preset_name, omni_tags = _parse_prt_omni(fpath)
                 except Exception:
                     skipped += 1
                     continue
 
                 if is_drum:
-                    descriptors = _infer_drum_descriptors_from_name(preset_name)
-                    descriptors["is_drum"] = True  # type: ignore[assignment]
+                    descriptors: dict[str, float | bool] = _infer_drum_descriptors_from_name(preset_name)  # type: ignore[assignment]
+                    descriptors["is_drum"] = True
                 else:
-                    descriptors = _infer_descriptors_from_name(preset_name, plugin)
+                    descriptors = _infer_descriptors_from_name(preset_name, plugin)  # type: ignore[assignment]
                     if ext == "prt_omni":
-                        descriptors = _apply_omnisphere_tags(descriptors, omni_tags)
-                    descriptors["is_drum"] = False  # type: ignore[assignment]
+                        descriptors = _apply_omnisphere_tags(descriptors, omni_tags)  # type: ignore[assignment]
+                    descriptors["is_drum"] = False
 
                 entry: dict = {
                     "path":        path_str,
@@ -5615,7 +5615,7 @@ def scan_splice_library(
         band_rms: dict[str, float] = {}
         for band, (lo_hz, hi_hz) in _SPLICE_BAND_RANGES.items():
             lo_bin = max(0, _hz_to_bin(lo_hz))
-            hi_bin = min(stft_mag.shape[0] - 1, _hz_to_bin(hi_hz))
+            hi_bin = min(stft_mag.shape[0], _hz_to_bin(hi_hz))
             if hi_bin <= lo_bin:
                 band_rms[band] = 0.0
                 continue
@@ -5623,7 +5623,7 @@ def scan_splice_library(
 
         # Normalize 0-1
         max_rms = max(band_rms.values()) if band_rms else 0.0
-        if band_rms and max_rms > 0:
+        if max_rms > 0:
             band_rms = {b: v / max_rms for b, v in band_rms.items()}
 
         # Transient strength (normalised onset envelope mean)
