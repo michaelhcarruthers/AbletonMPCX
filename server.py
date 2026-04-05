@@ -4531,6 +4531,156 @@ def batch_auto_humanize(
 
 
 # ---------------------------------------------------------------------------
+# Spectrum Telemetry
+# ---------------------------------------------------------------------------
+
+@mcp.tool()
+def get_spectrum_telemetry_instances(device_name_contains: str = "MCPSpectrum") -> dict:
+    """
+    Scan all tracks (including master) for MCP Spectrum Telemetry analyzer devices
+    and return their current band values with track/device context.
+
+    The plugin exposes 8 bands with explicit frequency ranges in their parameter names
+    (e.g. "Punch (120–250 Hz)"), so no additional mapping is needed — Claude can
+    interpret the band names directly.
+
+    Args:
+        device_name_contains: Substring to match device names (default: "MCPSpectrum").
+                              Adjust if the AU appears under a different name in Live.
+
+    Returns:
+        instance_count: number of analyzer instances found
+        instances: list of {
+            track_index, track_name,
+            device_index, device_name, class_name,
+            bands: {band_name: {value, value_string, parameter_index}}
+        }
+    """
+    tracks = _send("get_track_names", {"include_returns": False, "include_master": True})
+    results = []
+
+    for track in tracks:
+        track_index = track["index"]
+        try:
+            devices = _send("get_devices", {"track_index": track_index})
+        except Exception:
+            continue
+
+        for device in devices:
+            if device_name_contains.lower() in device["name"].lower():
+                try:
+                    params = _send("get_device_parameters", {
+                        "track_index": track_index,
+                        "device_index": device["index"],
+                    })
+                except Exception:
+                    continue
+
+                bands: dict = {}
+                for param in params.get("parameters", []):
+                    bands[param["name"]] = {
+                        "value": param["value"],
+                        "value_string": param.get("value_string", ""),
+                        "parameter_index": param["index"],
+                    }
+
+                results.append({
+                    "track_index": track_index,
+                    "track_name": track["name"],
+                    "device_index": device["index"],
+                    "device_name": device["name"],
+                    "class_name": device.get("class_name", ""),
+                    "bands": bands,
+                })
+
+    return {
+        "instance_count": len(results),
+        "instances": results,
+    }
+
+
+@mcp.tool()
+def diagnose_spectrum_issue(target_band: str, reference_track_index: int = -1) -> dict:
+    """
+    Diagnose a spectrum issue by comparing a target frequency band across all
+    MCP Spectrum Telemetry analyzer instances, ranking sources by their level
+    relative to the reference (master) track.
+
+    Example usage:
+        diagnose_spectrum_issue("Punch (120–250 Hz)")
+        diagnose_spectrum_issue("Body (250–500 Hz)", reference_track_index=-1)
+
+    Args:
+        target_band: Exact band name as exposed by the plugin, e.g. "Punch (120–250 Hz)".
+                     Call get_spectrum_telemetry_instances() to see available band names.
+        reference_track_index: Track index of the reference analyzer (default: -1 = master).
+
+    Returns:
+        target_band: the band queried
+        master_value: the band value on the reference track (None if not found)
+        ranked_sources: list of {
+            track_index, track_name,
+            device_index, device_name,
+            band, value,
+            delta_vs_master  (positive = that track is louder in this band than master)
+        } sorted descending by value
+        warning: optional message if reference instance was not found
+    """
+    data = get_spectrum_telemetry_instances()
+    instances = data["instances"]
+
+    master_inst = None
+    sources = []
+
+    for inst in instances:
+        if inst["track_index"] == reference_track_index:
+            master_inst = inst
+        else:
+            sources.append(inst)
+
+    warning = None
+    master_value = None
+
+    if master_inst is None:
+        warning = (
+            "No analyzer instance found on reference track {} (index {}). "
+            "master_value will be None and delta_vs_master will be None. "
+            "Place MCPSpectrumTelemetry on the master track (index -1) for full diagnosis."
+        ).format(reference_track_index, reference_track_index)
+    else:
+        band_data = master_inst["bands"].get(target_band)
+        if band_data is not None:
+            master_value = band_data["value"]
+
+    ranked = []
+    for inst in sources:
+        band_data = inst["bands"].get(target_band)
+        if band_data is None:
+            continue
+        value = band_data["value"]
+        ranked.append({
+            "track_index": inst["track_index"],
+            "track_name": inst["track_name"],
+            "device_index": inst["device_index"],
+            "device_name": inst["device_name"],
+            "band": target_band,
+            "value": value,
+            "delta_vs_master": round(value - master_value, 4) if master_value is not None else None,
+        })
+
+    ranked.sort(key=lambda x: x["value"], reverse=True)
+
+    result: dict = {
+        "target_band": target_band,
+        "master_value": master_value,
+        "ranked_sources": ranked,
+    }
+    if warning:
+        result["warning"] = warning
+    return result
+
+
+# ---------------------------------------------------------------------------
 # Entry point
 # ---------------------------------------------------------------------------
 
