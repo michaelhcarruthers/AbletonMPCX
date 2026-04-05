@@ -7965,7 +7965,7 @@ def save_version_snapshot(version_name: str) -> dict:
     if source_path and os.path.isfile(source_path):
         base_dir = os.path.dirname(source_path)
         base_name = os.path.splitext(os.path.basename(source_path))[0]
-        date_str = datetime.datetime.now().strftime("%Y-%m-%d")
+        date_str = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%d")
         copy_name = "{} - {} [{}].als".format(base_name, version_name, date_str)
         copy_path = os.path.join(base_dir, copy_name)
         try:
@@ -8873,7 +8873,6 @@ def session_audit(fix: bool = False) -> dict:
     except RuntimeError:
         pass
 
-    severity_order = {"issues": 0, "warning": 1, "info": 2, "good": 3}
     has_issue = any(i["severity"] == "issues" for i in issues)
     has_warning = any(i["severity"] == "warning" for i in issues)
     if has_issue:
