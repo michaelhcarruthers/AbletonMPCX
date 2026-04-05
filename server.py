@@ -5080,6 +5080,58 @@ def _find_or_add_device(track_index: int, device_name: str) -> int:
 # DJ macro helper
 # ---------------------------------------------------------------------------
 
+def _resolve_device_and_param(
+    track_index: int,
+    device_name: str,
+    param_name: str,
+) -> tuple:
+    """
+    Find a device and parameter on a track by name (case-insensitive substring).
+
+    Returns:
+        (device_dict, param_dict, error_string_or_None)
+        On success: (device_info, param_info, None)
+        On failure: (None, None, error_message)
+    """
+    try:
+        devices_result = _send("get_devices", {"track_index": track_index}, _log=False)
+    except Exception as e:
+        return None, None, "Could not get devices for track {}: {}".format(track_index, e)
+
+    device_name_lower = device_name.lower()
+    matched_device = None
+    for d in devices_result:
+        if device_name_lower in d["name"].lower():
+            matched_device = d
+            break
+
+    if matched_device is None:
+        return None, None, "No device matching '{}' found on track {}".format(device_name, track_index)
+
+    try:
+        params_result = _send("get_device_parameters", {
+            "track_index": track_index,
+            "device_index": matched_device["index"],
+        }, _log=False)
+    except Exception as e:
+        return None, None, "Could not read parameters for '{}': {}".format(device_name, e)
+
+    param_name_lower = param_name.lower()
+    matched_param = None
+    for p in params_result.get("parameters", []):
+        if param_name_lower in p["name"].lower():
+            matched_param = p
+            break
+
+    if matched_param is None:
+        available = [p["name"] for p in params_result.get("parameters", [])]
+        return None, None, "Parameter '{}' not found on '{}'. Available: {}".format(
+            param_name, matched_device["name"], available
+        )
+
+    return matched_device, matched_param, None
+
+
 def _apply_dj_macro(
     macro_name: str,
     source_track_index: int,
@@ -5146,7 +5198,7 @@ def _apply_dj_macro(
             continue
 
         # Regular device: find by name
-        matched_device, matched_param, error = _find_device_parameter_by_name(
+        matched_device, matched_param, error = _resolve_device_and_param(
             track_index, device_name, param_name
         )
 
