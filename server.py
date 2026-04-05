@@ -5647,6 +5647,64 @@ _MACRO_DEFINITIONS: dict[str, list[dict]] = {
         {"device": "Auto Filter", "param": "Resonance",  "curve": [(0.0, 0.2), (0.7, 0.65), (1.0, 0.3)], "required": False},
         {"device": "Saturator",   "param": "Drive",      "curve": [(0.0, 0.1), (0.6, 0.75), (1.0, 0.2)], "required": False},
     ],
+
+    "dj_crossfade": [
+        # Source track: volume fades out
+        {"track": "source", "device": "Mixer",      "param": "Volume",    "curve": [(0.0, 1.0), (1.0, 0.0)], "required": True},
+        # Dest track: volume fades in
+        {"track": "dest",   "device": "Mixer",      "param": "Volume",    "curve": [(0.0, 0.0), (1.0, 1.0)], "required": True},
+    ],
+
+    "dj_eq_swap": [
+        # Source track: lows roll off
+        {"track": "source", "device": "EQ Eight",   "param": "1 Gain",    "curve": [(0.0, 0.0), (1.0, -1.0)], "required": False},
+        {"track": "source", "device": "EQ Eight",   "param": "2 Gain",    "curve": [(0.0, 0.0), (0.7, -0.5)], "required": False},
+        # Dest track: lows roll in
+        {"track": "dest",   "device": "EQ Eight",   "param": "1 Gain",    "curve": [(0.0, -1.0), (1.0, 0.0)], "required": False},
+        {"track": "dest",   "device": "EQ Eight",   "param": "2 Gain",    "curve": [(0.0, -0.5), (1.0, 0.0)], "required": False},
+        # Crossfade volumes
+        {"track": "source", "device": "Mixer",      "param": "Volume",    "curve": [(0.0, 1.0), (1.0, 0.0)], "required": True},
+        {"track": "dest",   "device": "Mixer",      "param": "Volume",    "curve": [(0.0, 0.0), (1.0, 1.0)], "required": True},
+    ],
+
+    "dj_filter_blend": [
+        # Source track: high-pass filter sweeps up (cuts lows)
+        {"track": "source", "device": "Auto Filter", "param": "Frequency", "curve": [(0.0, 0.02), (1.0, 0.85)], "required": False},
+        {"track": "source", "device": "Auto Filter", "param": "Resonance", "curve": [(0.0, 0.2),  (0.6, 0.55), (1.0, 0.2)], "required": False},
+        # Dest track: low-pass filter opens from filtered to full
+        {"track": "dest",   "device": "Auto Filter", "param": "Frequency", "curve": [(0.0, 0.15), (1.0, 0.9)], "required": False},
+        {"track": "dest",   "device": "Auto Filter", "param": "Resonance", "curve": [(0.0, 0.3),  (0.5, 0.6), (1.0, 0.2)], "required": False},
+        # Volume crossfade
+        {"track": "source", "device": "Mixer",      "param": "Volume",    "curve": [(0.0, 1.0), (1.0, 0.0)], "required": True},
+        {"track": "dest",   "device": "Mixer",      "param": "Volume",    "curve": [(0.0, 0.0), (1.0, 1.0)], "required": True},
+    ],
+
+    "dj_echo_out": [
+        # Source track: delay throw + volume fades
+        {"track": "source", "device": "Simple Delay", "param": "Dry/Wet",  "curve": [(0.0, 0.0),  (0.3, 0.9), (1.0, 0.0)], "required": False},
+        {"track": "source", "device": "Simple Delay", "param": "Feedback", "curve": [(0.0, 0.3),  (0.5, 0.85), (1.0, 0.0)], "required": False},
+        {"track": "source", "device": "Reverb",       "param": "Dry/Wet",  "curve": [(0.0, 0.0),  (0.4, 0.6), (1.0, 0.0)], "required": False},
+        {"track": "source", "device": "Mixer",        "param": "Volume",   "curve": [(0.0, 1.0),  (0.6, 1.0), (1.0, 0.0)], "required": True},
+        # Dest track: comes in clean (or filtered)
+        {"track": "dest",   "device": "Auto Filter",  "param": "Frequency", "curve": [(0.0, 0.2),  (1.0, 0.85)], "required": False},
+        {"track": "dest",   "device": "Mixer",        "param": "Volume",   "curve": [(0.0, 0.0),  (0.5, 0.0), (1.0, 1.0)], "required": True},
+    ],
+
+    "dj_loop_roll": [
+        # Source track: filter + volume chop (simulates loop roll stutter)
+        {"track": "source", "device": "Auto Filter", "param": "Frequency", "curve": [
+            (0.0, 0.8), (0.25, 0.2), (0.5, 0.8), (0.75, 0.2), (1.0, 0.05)
+        ], "required": False},
+        {"track": "source", "device": "Auto Filter", "param": "Resonance", "curve": [
+            (0.0, 0.2), (0.5, 0.5), (1.0, 0.7)
+        ], "required": False},
+        {"track": "source", "device": "Simple Delay", "param": "Dry/Wet",  "curve": [
+            (0.0, 0.0), (0.5, 0.6), (1.0, 0.0)
+        ], "required": False},
+        {"track": "source", "device": "Mixer",       "param": "Volume",    "curve": [(0.0, 1.0), (1.0, 0.0)], "required": True},
+        # Dest track: clean entry
+        {"track": "dest",   "device": "Mixer",       "param": "Volume",    "curve": [(0.0, 0.0), (0.75, 0.0), (1.0, 1.0)], "required": True},
+    ],
 }
 
 _SETUP_CHAINS: dict[str, list[tuple[str, dict]]] = {
@@ -6177,6 +6235,391 @@ def set_macro_intensity(
         "skipped": skipped,
     }
 
+
+# ---------------------------------------------------------------------------
+# DJ transition macros
+# ---------------------------------------------------------------------------
+
+def _apply_dj_macro(
+    macro_name: str,
+    source_track_index: int,
+    dest_track_index: int,
+    start_time: float,
+    end_time: float,
+    intensity: float = 1.0,
+) -> dict:
+    """
+    Internal: execute a dj_* macro by splitting its steps by track role
+    ('source' vs 'dest') and writing arrangement automation for each.
+
+    Steps with no 'track' key are applied to the source track by default.
+    Steps where device == 'Mixer' target the track's mixer Volume parameter
+    (device_index is omitted so the remote script resolves it as mixer volume).
+
+    Returns dict with steps_applied, steps_skipped, details list.
+    """
+    steps = _MACRO_DEFINITIONS[macro_name]
+    length_beats = end_time - start_time
+
+    steps_applied = 0
+    steps_skipped = []
+    details = []
+
+    for step in steps:
+        track_role = step.get("track", "source")
+        track_index = source_track_index if track_role == "source" else dest_track_index
+
+        device_name = step["device"]
+        param_name = step["param"]
+        curve = step["curve"]
+        required = step.get("required", False)
+
+        # Build time-mapped automation points with intensity scaling
+        points = []
+        for pos_ratio, raw_value in curve:
+            scaled_value = 0.5 + (raw_value - 0.5) * intensity
+            scaled_value = max(0.0, min(1.0, scaled_value))
+            abs_time = start_time + pos_ratio * length_beats
+            points.append({"time": abs_time, "value": scaled_value})
+
+        # Mixer volume is a special case: no device_index needed
+        if device_name.lower() == "mixer":
+            try:
+                write_result = _send("write_arrangement_automation", {
+                    "track_index": track_index,
+                    "points": points,
+                    "clear_range": True,
+                })
+                steps_applied += 1
+                details.append({
+                    "track": track_role,
+                    "track_index": track_index,
+                    "device": device_name,
+                    "param": param_name,
+                    "points_written": write_result.get("points_written", len(points)),
+                })
+            except Exception as e:
+                msg = "Mixer Volume automation write failed: {}".format(str(e))
+                if required:
+                    raise RuntimeError(msg)
+                steps_skipped.append({"track": track_role, "device": device_name, "param": param_name, "reason": msg})
+            continue
+
+        # Regular device: find by name
+        matched_device, matched_param, error = _find_device_parameter_by_name(
+            track_index, device_name, param_name
+        )
+
+        if error is not None:
+            if required:
+                raise RuntimeError(
+                    "Required step failed on track {} ({}): {}".format(
+                        track_index, track_role, error
+                    )
+                )
+            steps_skipped.append({"track": track_role, "device": device_name, "param": param_name, "reason": error})
+            continue
+
+        try:
+            write_result = _send("write_arrangement_automation", {
+                "track_index": track_index,
+                "device_index": matched_device["index"],
+                "parameter_index": matched_param["index"],
+                "points": points,
+                "clear_range": True,
+            })
+            steps_applied += 1
+            details.append({
+                "track": track_role,
+                "track_index": track_index,
+                "device": matched_device["name"],
+                "param": matched_param["name"],
+                "points_written": write_result.get("points_written", len(points)),
+            })
+        except Exception as e:
+            msg = "Automation write failed: {}".format(str(e))
+            if required:
+                raise RuntimeError(
+                    "Required step failed on track {} ({}): {}".format(
+                        track_index, track_role, msg
+                    )
+                )
+            steps_skipped.append({"track": track_role, "device": device_name, "param": param_name, "reason": msg})
+
+    return {
+        "steps_applied": steps_applied,
+        "steps_skipped": steps_skipped,
+        "details": details,
+    }
+
+
+@mcp.tool()
+def dj_crossfade(
+    source_track_index: int,
+    dest_track_index: int,
+    start_bar: int,
+    start_beat: float = 1.0,
+    length_beats: float = 16.0,
+    intensity: float = 1.0,
+    time_signature_numerator: int = 4,
+) -> dict:
+    """
+    Blend one track out while fading another track in over a musical time range.
+
+    Automates volume on source track from full to silent and dest track from
+    silent to full, creating a clean crossfade.
+
+    Args:
+        source_track_index: Track that fades out.
+        dest_track_index: Track that fades in.
+        start_bar: 1-based bar where the crossfade begins.
+        start_beat: 1-based beat within start_bar (default 1).
+        length_beats: Length of the crossfade in beats (default 16 = 4 bars in 4/4).
+        intensity: Scale factor 0.0–1.0 (default 1.0 = full crossfade).
+        time_signature_numerator: Beats per bar (default 4).
+
+    Returns:
+        {macro, source_track_index, dest_track_index, start_time, end_time,
+         steps_applied, steps_skipped}
+    """
+    intensity = max(0.0, min(1.0, intensity))
+    start_time = _bars_beats_to_song_time(start_bar, start_beat, time_signature_numerator)
+    end_time = start_time + length_beats
+
+    _send("begin_undo_step", {"name": "dj_crossfade"})
+    try:
+        result = _apply_dj_macro(
+            "dj_crossfade", source_track_index, dest_track_index,
+            start_time, end_time, intensity,
+        )
+    finally:
+        _send("end_undo_step", {})
+
+    return {
+        "macro": "dj_crossfade",
+        "source_track_index": source_track_index,
+        "dest_track_index": dest_track_index,
+        "start_time": start_time,
+        "end_time": end_time,
+        **result,
+    }
+
+
+@mcp.tool()
+def dj_eq_swap(
+    source_track_index: int,
+    dest_track_index: int,
+    start_bar: int,
+    start_beat: float = 1.0,
+    length_beats: float = 16.0,
+    intensity: float = 1.0,
+    time_signature_numerator: int = 4,
+) -> dict:
+    """
+    Transition between two tracks using EQ low-frequency swapping.
+
+    Rolls off the lows on the outgoing track while bringing in the lows
+    on the incoming track, with a simultaneous volume crossfade.
+    Targets EQ Eight on both tracks (skips EQ steps gracefully if not present).
+
+    Args:
+        source_track_index: Outgoing track.
+        dest_track_index: Incoming track.
+        start_bar: 1-based start bar.
+        start_beat: Start beat within bar (default 1).
+        length_beats: Transition length in beats.
+        intensity: Scale factor 0.0–1.0.
+        time_signature_numerator: Beats per bar (default 4).
+
+    Returns:
+        {macro, source_track_index, dest_track_index, start_time, end_time,
+         steps_applied, steps_skipped}
+    """
+    intensity = max(0.0, min(1.0, intensity))
+    start_time = _bars_beats_to_song_time(start_bar, start_beat, time_signature_numerator)
+    end_time = start_time + length_beats
+
+    _send("begin_undo_step", {"name": "dj_eq_swap"})
+    try:
+        result = _apply_dj_macro(
+            "dj_eq_swap", source_track_index, dest_track_index,
+            start_time, end_time, intensity,
+        )
+    finally:
+        _send("end_undo_step", {})
+
+    return {
+        "macro": "dj_eq_swap",
+        "source_track_index": source_track_index,
+        "dest_track_index": dest_track_index,
+        "start_time": start_time,
+        "end_time": end_time,
+        **result,
+    }
+
+
+@mcp.tool()
+def dj_filter_blend(
+    source_track_index: int,
+    dest_track_index: int,
+    start_bar: int,
+    start_beat: float = 1.0,
+    length_beats: float = 16.0,
+    intensity: float = 1.0,
+    time_signature_numerator: int = 4,
+) -> dict:
+    """
+    Transition between tracks using high-pass / low-pass filter sweeps.
+
+    Source track gets a rising high-pass sweep (cutting lows progressively).
+    Dest track gets a low-pass opening sweep (starting filtered, opening to full).
+    Both tracks fade via volume automation simultaneously.
+
+    Args:
+        source_track_index: Outgoing track.
+        dest_track_index: Incoming track.
+        start_bar: 1-based start bar.
+        start_beat: Start beat within bar (default 1).
+        length_beats: Transition length in beats.
+        intensity: Scale factor 0.0–1.0.
+        time_signature_numerator: Beats per bar (default 4).
+
+    Returns:
+        {macro, source_track_index, dest_track_index, start_time, end_time,
+         steps_applied, steps_skipped}
+    """
+    intensity = max(0.0, min(1.0, intensity))
+    start_time = _bars_beats_to_song_time(start_bar, start_beat, time_signature_numerator)
+    end_time = start_time + length_beats
+
+    _send("begin_undo_step", {"name": "dj_filter_blend"})
+    try:
+        result = _apply_dj_macro(
+            "dj_filter_blend", source_track_index, dest_track_index,
+            start_time, end_time, intensity,
+        )
+    finally:
+        _send("end_undo_step", {})
+
+    return {
+        "macro": "dj_filter_blend",
+        "source_track_index": source_track_index,
+        "dest_track_index": dest_track_index,
+        "start_time": start_time,
+        "end_time": end_time,
+        **result,
+    }
+
+
+@mcp.tool()
+def dj_echo_out(
+    source_track_index: int,
+    dest_track_index: int,
+    start_bar: int,
+    start_beat: float = 1.0,
+    length_beats: float = 8.0,
+    intensity: float = 1.0,
+    time_signature_numerator: int = 4,
+) -> dict:
+    """
+    Throw the outgoing track into delay/reverb while bringing in the next track.
+
+    Source track gets a delay feedback swell + reverb wash before fading.
+    Dest track enters cleanly (or filtered) in the second half of the range.
+
+    Args:
+        source_track_index: Outgoing track.
+        dest_track_index: Incoming track.
+        start_bar: 1-based start bar.
+        start_beat: Start beat within bar (default 1).
+        length_beats: Transition length in beats (default 8 = 2 bars in 4/4).
+        intensity: Scale factor 0.0–1.0.
+        time_signature_numerator: Beats per bar (default 4).
+
+    Returns:
+        {macro, source_track_index, dest_track_index, start_time, end_time,
+         steps_applied, steps_skipped}
+    """
+    intensity = max(0.0, min(1.0, intensity))
+    start_time = _bars_beats_to_song_time(start_bar, start_beat, time_signature_numerator)
+    end_time = start_time + length_beats
+
+    _send("begin_undo_step", {"name": "dj_echo_out"})
+    try:
+        result = _apply_dj_macro(
+            "dj_echo_out", source_track_index, dest_track_index,
+            start_time, end_time, intensity,
+        )
+    finally:
+        _send("end_undo_step", {})
+
+    return {
+        "macro": "dj_echo_out",
+        "source_track_index": source_track_index,
+        "dest_track_index": dest_track_index,
+        "start_time": start_time,
+        "end_time": end_time,
+        **result,
+    }
+
+
+@mcp.tool()
+def dj_loop_roll(
+    source_track_index: int,
+    dest_track_index: int,
+    start_bar: int,
+    start_beat: float = 1.0,
+    length_beats: float = 4.0,
+    roll_subdivisions: int = 4,
+    intensity: float = 1.0,
+    time_signature_numerator: int = 4,
+) -> dict:
+    """
+    Simulate a loop roll / stutter exit on source while bringing in dest track.
+
+    Source track gets an oscillating filter chop (simulating loop subdivisions)
+    + delay feedback swell, then cuts. Dest track enters cleanly at the end.
+
+    Args:
+        source_track_index: Outgoing track.
+        dest_track_index: Incoming track.
+        start_bar: 1-based start bar.
+        start_beat: Start beat within bar (default 1).
+        length_beats: Total length in beats (default 4 = 1 bar in 4/4).
+        roll_subdivisions: Number of filter chops (2, 4, or 8; default 4).
+            The curve in _MACRO_DEFINITIONS uses 4 subdivisions; this parameter
+            is echoed back in the return value for caller reference.
+        intensity: Scale factor 0.0–1.0.
+        time_signature_numerator: Beats per bar (default 4).
+
+    Returns:
+        {macro, source_track_index, dest_track_index, start_time, end_time,
+         steps_applied, steps_skipped, roll_subdivisions}
+    """
+    intensity = max(0.0, min(1.0, intensity))
+    if roll_subdivisions not in (2, 4, 8):
+        raise ValueError("roll_subdivisions must be 2, 4, or 8; got {}".format(roll_subdivisions))
+    start_time = _bars_beats_to_song_time(start_bar, start_beat, time_signature_numerator)
+    end_time = start_time + length_beats
+
+    _send("begin_undo_step", {"name": "dj_loop_roll"})
+    try:
+        result = _apply_dj_macro(
+            "dj_loop_roll", source_track_index, dest_track_index,
+            start_time, end_time, intensity,
+        )
+    finally:
+        _send("end_undo_step", {})
+
+    return {
+        "macro": "dj_loop_roll",
+        "source_track_index": source_track_index,
+        "dest_track_index": dest_track_index,
+        "start_time": start_time,
+        "end_time": end_time,
+        "roll_subdivisions": roll_subdivisions,
+        **result,
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -9090,6 +9533,256 @@ def mix_correction_loop(
         "parameter_changes": parameter_changes,
         "snapshot_saved": snapshot_saved,
         "summary": summary,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Project audit tools
+# ---------------------------------------------------------------------------
+
+_MISSING_PLUGIN_INDICATORS = ["missing", "disabled", "unknown plugin", "vst not found", "au not found"]
+
+
+@mcp.tool()
+def find_missing_plugins(dry_run: bool = True) -> dict:
+    """
+    Scan all tracks for missing or disabled plugin placeholders.
+
+    A "missing plugin" is a device whose name contains indicators like
+    "Missing", "Disabled", "Unknown Plugin", "VST Not Found", or "AU Not Found"
+    (case-insensitive), or whose ``is_active`` field is False, or whose
+    ``has_error`` field is True.
+
+    Args:
+        dry_run: If True (default), report what would be deleted without
+                 making any changes. Set to False to actually delete them.
+
+    Returns:
+        missing: list of {track_index, track_name, device_index, device_name, reason}
+        deleted: list of same shape (populated only when dry_run=False)
+        dry_run: bool echo
+        total_found: int
+        total_deleted: int
+    """
+    tracks = _send("get_tracks", {})
+    missing = []
+    for track in tracks:
+        track_index = track["index"]
+        track_name = track["name"]
+        devices = _send("get_devices", {"track_index": track_index})
+        for device in devices:
+            device_index = device["index"]
+            device_name = device.get("name", "")
+            reason = None
+            name_lower = device_name.lower()
+            for indicator in _MISSING_PLUGIN_INDICATORS:
+                if indicator in name_lower:
+                    reason = "name contains '{}'".format(indicator)
+                    break
+            if reason is None and device.get("is_active") is False:
+                reason = "is_active=False"
+            if reason is None and device.get("has_error") is True:
+                reason = "has_error=True"
+            if reason is not None:
+                missing.append({
+                    "track_index": track_index,
+                    "track_name": track_name,
+                    "device_index": device_index,
+                    "device_name": device_name,
+                    "reason": reason,
+                })
+
+    deleted = []
+    if not dry_run and missing:
+        _send("begin_undo_step", {"name": "delete_missing_plugins"})
+        try:
+            # Delete in reverse order to preserve indices
+            for entry in reversed(missing):
+                _send("delete_device", {
+                    "track_index": entry["track_index"],
+                    "device_index": entry["device_index"],
+                })
+                deleted.append(entry)
+        finally:
+            _send("end_undo_step", {})
+
+    return {
+        "missing": missing,
+        "deleted": deleted,
+        "dry_run": dry_run,
+        "total_found": len(missing),
+        "total_deleted": len(deleted),
+    }
+
+
+@mcp.tool()
+def get_missing_media_status() -> dict:
+    """
+    Report all missing audio files in the current Live set.
+
+    Calls the Remote Script to inspect clip sample references across
+    all tracks and return which samples are missing/offline.
+
+    Returns:
+        missing_samples: list of {track_index, track_name, clip_index, clip_name, sample_path, status}
+        total_missing: int
+        total_checked: int
+        can_search: bool  -- whether search_missing_media() is supported
+    """
+    result = _send("get_missing_media", {})
+    missing = result.get("missing", [])
+    total_checked = result.get("total_checked", 0)
+    return {
+        "missing_samples": missing,
+        "total_missing": len(missing),
+        "total_checked": total_checked,
+        "can_search": True,
+    }
+
+
+@mcp.tool()
+def search_missing_media(search_folders: list) -> dict:
+    """
+    Attempt to relink missing audio samples by searching the given folders.
+
+    For each missing sample, searches the provided folders for a file with
+    a matching name and relinks it if found.
+
+    Args:
+        search_folders: List of absolute folder paths to search (e.g.
+                        ["/Users/me/Music/Samples", "/Volumes/Drive/Samples"])
+
+    Returns:
+        relinked: list of {sample_name, old_path, new_path, track_index, clip_index}
+        still_missing: list of {sample_name, original_path, track_index, clip_index}
+        relinked_count: int
+        still_missing_count: int
+        searched_folders: list of folders actually searched
+    """
+    _send("begin_undo_step", {"name": "search_missing_media"})
+    try:
+        result = _send("search_missing_media", {"search_folders": search_folders})
+    finally:
+        _send("end_undo_step", {})
+    return result
+
+
+@mcp.tool()
+def project_health_report() -> dict:
+    """
+    Run a full health audit of the current Live set.
+
+    Combines missing plugin detection, missing media status, and session
+    structure checks into a single report with a human-readable summary.
+
+    Returns:
+        set_name: str
+        track_count: int
+        missing_plugins: list (same as find_missing_plugins())
+        missing_media: list (same as get_missing_media_status())
+        empty_tracks: list of {track_index, track_name}
+        unnamed_tracks: list of {track_index, track_name}
+        armed_tracks: list of {track_index, track_name}
+        issues: list of human-readable issue strings
+        health_score: float  -- 0.0 (broken) to 1.0 (clean)
+        recommendations: list of str
+    """
+    # Gather data
+    plugin_report = find_missing_plugins(dry_run=True)
+    media_report = get_missing_media_status()
+    tracks = _send("get_tracks", {})
+
+    try:
+        song_info = _send("get_song_info", {})
+        set_name = song_info.get("name", "")
+    except Exception:
+        set_name = ""
+
+    track_count = len(tracks)
+    empty_tracks = []
+    unnamed_tracks = []
+    armed_tracks = []
+
+    import re as _re
+    _default_name_pattern = _re.compile(
+        r"^(Audio|MIDI|1-Audio|1-MIDI)\s*\d*$|^\d+$", _re.IGNORECASE
+    )
+
+    for track in tracks:
+        track_index = track["index"]
+        track_name = track["name"]
+        if track.get("clip_count", 0) == 0 and track.get("device_count", 0) == 0:
+            empty_tracks.append({"track_index": track_index, "track_name": track_name})
+        if not track_name or _default_name_pattern.match(track_name.strip()):
+            unnamed_tracks.append({"track_index": track_index, "track_name": track_name})
+        if track.get("arm"):
+            armed_tracks.append({"track_index": track_index, "track_name": track_name})
+
+    # Build issue list
+    issues = []
+    missing_plugins = plugin_report["missing"]
+    missing_media = media_report["missing_samples"]
+
+    if missing_plugins:
+        issues.append("{} missing/disabled plugin(s) found".format(len(missing_plugins)))
+    if missing_media:
+        issues.append("{} missing audio file(s) found".format(len(missing_media)))
+    if empty_tracks:
+        issues.append("{} empty track(s) (no clips or devices)".format(len(empty_tracks)))
+    if unnamed_tracks:
+        issues.append("{} track(s) with default/unnamed labels".format(len(unnamed_tracks)))
+    if armed_tracks:
+        issues.append("{} track(s) currently armed for recording".format(len(armed_tracks)))
+
+    # Health score: 1.0 - (issues / max(1, track_count))
+    health_score = max(0.0, 1.0 - (len(issues) / max(1, track_count)))
+
+    # Recommendations
+    recommendations = []
+    if missing_plugins:
+        recommendations.append(
+            "{} missing plugin(s) found — run find_missing_plugins(dry_run=False) to remove them".format(
+                len(missing_plugins)
+            )
+        )
+    if missing_media:
+        recommendations.append(
+            "{} missing audio file(s) — run search_missing_media([...]) with your sample folder paths to relink them".format(
+                len(missing_media)
+            )
+        )
+    if empty_tracks:
+        recommendations.append(
+            "{} empty track(s) found — consider removing them to clean up the session".format(
+                len(empty_tracks)
+            )
+        )
+    if unnamed_tracks:
+        recommendations.append(
+            "{} track(s) with default names — consider renaming for better organisation".format(
+                len(unnamed_tracks)
+            )
+        )
+    if armed_tracks:
+        recommendations.append(
+            "{} track(s) are armed — disarm before saving if not intentional".format(
+                len(armed_tracks)
+            )
+        )
+    if not issues:
+        recommendations.append("No issues found — project looks healthy!")
+
+    return {
+        "set_name": set_name,
+        "track_count": track_count,
+        "missing_plugins": missing_plugins,
+        "missing_media": missing_media,
+        "empty_tracks": empty_tracks,
+        "unnamed_tracks": unnamed_tracks,
+        "armed_tracks": armed_tracks,
+        "issues": issues,
+        "health_score": health_score,
+        "recommendations": recommendations,
     }
 
 
