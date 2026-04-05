@@ -4535,31 +4535,70 @@ def batch_auto_humanize(
 # ---------------------------------------------------------------------------
 
 @mcp.tool()
-def get_spectrum_telemetry_instances(device_name_contains: str = "MCPSpectrum") -> dict:
+def find_spectrum_analyzers(
+    device_name_patterns: list | None = None,
+    min_band_count: int = 4,
+) -> dict:
     """
-    Scan all tracks (including master) for MCP Spectrum Telemetry analyzer devices
-    and return their current band values with track/device context.
+    Auto-discover spectrum analyzer devices across all tracks (including master and returns).
 
-    The plugin exposes 8 bands with explicit frequency ranges in their parameter names
-    (e.g. "Punch (120–250 Hz)"), so no additional mapping is needed — Claude can
-    interpret the band names directly.
+    Detection works in two ways:
+    1. If device_name_patterns is provided, matches devices whose name contains any of the
+       given substrings (case-insensitive).
+    2. If device_name_patterns is None or empty, falls back to heuristic detection:
+       any device with min_band_count or more parameters whose names contain 'Hz' or 'hz'
+       is treated as a spectrum analyzer.
+
+    This is the permanent, generic discovery path — it works regardless of plugin name
+    changes. Add MCPSpectrum, Spectrum, or any third-party analyzer and it will be found.
 
     Args:
-        device_name_contains: Substring to match device names (default: "MCPSpectrum").
-                              Adjust if the AU appears under a different name in Live.
+        device_name_patterns: Optional list of device name substrings to match,
+                               e.g. ["MCPSpectrum", "Spectrum Analyzer", "SPAN"].
+                               Pass None to use heuristic auto-detection.
+        min_band_count: Minimum number of frequency-named parameters a device must have
+                        to qualify under heuristic detection (default 4).
 
     Returns:
-        instance_count: number of analyzer instances found
-        instances: list of {
-            track_index, track_name,
+        analyzer_count: number of analyzer devices found
+        analyzers: list of {
+            track_index, track_name, track_type ("normal"|"master"|"return"),
             device_index, device_name, class_name,
-            bands: {band_name: {value, value_string, parameter_index}}
+            band_count,
+            bands: {band_name: {value, value_string, parameter_index, min, max}}
         }
     """
-    tracks = _send("get_track_names", {"include_returns": False, "include_master": True})
-    results = []
+    # Gather all tracks: normal + master + returns
+    all_tracks = []
+    try:
+        normal = _send("get_track_names", {"include_returns": False, "include_master": False})
+        for t in normal:
+            t["_track_type"] = "normal"
+            all_tracks.append(t)
+    except Exception:
+        pass
+    try:
+        master_tracks = _send("get_track_names", {"include_returns": False, "include_master": True})
+        for t in master_tracks:
+            if t.get("is_master"):
+                t["_track_type"] = "master"
+                all_tracks.append(t)
+    except Exception:
+        pass
+    try:
+        return_tracks = _send("get_track_names", {"include_returns": True, "include_master": False})
+        for t in return_tracks:
+            if t.get("is_return"):
+                t["_track_type"] = "return"
+                all_tracks.append(t)
+    except Exception:
+        pass
 
-    for track in tracks:
+    use_name_match = bool(device_name_patterns)
+    patterns_lower = [p.lower() for p in (device_name_patterns or [])]
+
+    results = []
+    for track in all_tracks:
         track_index = track["index"]
         try:
             devices = _send("get_devices", {"track_index": track_index})
@@ -4567,90 +4606,183 @@ def get_spectrum_telemetry_instances(device_name_contains: str = "MCPSpectrum") 
             continue
 
         for device in devices:
-            if device_name_contains.lower() in device["name"].lower():
-                try:
-                    params = _send("get_device_parameters", {
-                        "track_index": track_index,
-                        "device_index": device["index"],
-                    })
-                except Exception:
+            device_name_lower = device["name"].lower()
+
+            # Name-based matching
+            if use_name_match:
+                if not any(p in device_name_lower for p in patterns_lower):
                     continue
 
-                bands: dict = {}
-                for param in params.get("parameters", []):
-                    bands[param["name"]] = {
-                        "value": param["value"],
-                        "value_string": param.get("value_string", ""),
-                        "parameter_index": param["index"],
-                    }
-
-                results.append({
+            # Fetch parameters
+            try:
+                params_result = _send("get_device_parameters", {
                     "track_index": track_index,
-                    "track_name": track["name"],
                     "device_index": device["index"],
-                    "device_name": device["name"],
-                    "class_name": device.get("class_name", ""),
-                    "bands": bands,
                 })
+            except Exception:
+                continue
+
+            parameters = params_result.get("parameters", [])
+
+            # Heuristic: count parameters with frequency ranges in their names
+            freq_params = [
+                p for p in parameters
+                if "hz" in p["name"].lower() or "Hz" in p["name"]
+            ]
+
+            if not use_name_match and len(freq_params) < min_band_count:
+                continue  # Skip — not a spectrum analyzer
+
+            # Build bands dict
+            band_params = freq_params if not use_name_match else parameters
+            bands: dict = {}
+            for param in band_params:
+                bands[param["name"]] = {
+                    "value": param["value"],
+                    "value_string": param.get("value_string", ""),
+                    "parameter_index": param["index"],
+                    "min": param.get("min", None),
+                    "max": param.get("max", None),
+                }
+
+            results.append({
+                "track_index": track_index,
+                "track_name": track["name"],
+                "track_type": track.get("_track_type", "normal"),
+                "device_index": device["index"],
+                "device_name": device["name"],
+                "class_name": device.get("class_name", ""),
+                "band_count": len(bands),
+                "bands": bands,
+            })
 
     return {
-        "instance_count": len(results),
-        "instances": results,
+        "analyzer_count": len(results),
+        "analyzers": results,
     }
 
 
 @mcp.tool()
-def diagnose_spectrum_issue(target_band: str, reference_track_index: int = -1) -> dict:
+def get_spectrum_telemetry_instances(
+    device_name_patterns: list | None = None,
+) -> dict:
+    """
+    Scan all tracks for MCP Spectrum Telemetry (or compatible) analyzer devices
+    and return their current band values with full track/device context.
+
+    This is a convenience wrapper around find_spectrum_analyzers() that defaults
+    to searching for devices matching common MCPSpectrum name patterns.
+
+    The plugin exposes 8 bands with explicit frequency ranges in parameter names
+    (e.g. "Punch (120–250 Hz)") — no additional mapping needed.
+
+    Args:
+        device_name_patterns: List of device name substrings to match.
+                               Defaults to ["MCPSpectrum", "MCP Spectrum", "MCPSpectrumTelemetry"].
+                               Pass an empty list [] to use heuristic auto-detection instead.
+
+    Returns:
+        instance_count: number of analyzer instances found
+        instances: list of {
+            track_index, track_name, track_type,
+            device_index, device_name, class_name,
+            band_count,
+            bands: {band_name: {value, value_string, parameter_index, min, max}}
+        }
+    """
+    if device_name_patterns is None:
+        device_name_patterns = ["MCPSpectrum", "MCP Spectrum", "MCPSpectrumTelemetry"]
+
+    result = find_spectrum_analyzers(
+        device_name_patterns=device_name_patterns,
+        min_band_count=4,
+    )
+    return {
+        "instance_count": result["analyzer_count"],
+        "instances": result["analyzers"],
+    }
+
+
+@mcp.tool()
+def diagnose_spectrum_issue(
+    target_band: str,
+    reference_track_index: int = -1,
+    device_name_patterns: list | None = None,
+) -> dict:
     """
     Diagnose a spectrum issue by comparing a target frequency band across all
-    MCP Spectrum Telemetry analyzer instances, ranking sources by their level
-    relative to the reference (master) track.
+    discovered analyzer instances, ranking sources by level vs. the reference track.
+
+    Call get_spectrum_telemetry_instances() or find_spectrum_analyzers() first to
+    see available band names and which tracks have analyzers loaded.
 
     Example usage:
         diagnose_spectrum_issue("Punch (120–250 Hz)")
         diagnose_spectrum_issue("Body (250–500 Hz)", reference_track_index=-1)
+        diagnose_spectrum_issue("Bass (60–120 Hz)", device_name_patterns=["SPAN"])
 
     Args:
-        target_band: Exact band name as exposed by the plugin, e.g. "Punch (120–250 Hz)".
-                     Call get_spectrum_telemetry_instances() to see available band names.
+        target_band: Exact band parameter name as exposed by the plugin,
+                     e.g. "Punch (120–250 Hz)". Use get_spectrum_telemetry_instances()
+                     to see available names.
         reference_track_index: Track index of the reference analyzer (default: -1 = master).
+        device_name_patterns: Passed to get_spectrum_telemetry_instances(). Leave None
+                               for default MCPSpectrum detection.
 
     Returns:
         target_band: the band queried
-        master_value: the band value on the reference track (None if not found)
-        ranked_sources: list of {
-            track_index, track_name,
+        reference_track_name: name of the reference track used
+        master_value: band value on the reference track (None if not found)
+        ranked_sources: list sorted descending by value: {
+            track_index, track_name, track_type,
             device_index, device_name,
             band, value,
-            delta_vs_master  (positive = that track is louder in this band than master)
-        } sorted descending by value
+            delta_vs_master (positive = louder than reference in this band)
+        }
+        band_names_available: list of band names found on the reference instance
+                               (useful if target_band is not found)
         warning: optional message if reference instance was not found
     """
-    data = get_spectrum_telemetry_instances()
+    data = get_spectrum_telemetry_instances(device_name_patterns=device_name_patterns)
     instances = data["instances"]
 
-    master_inst = None
+    reference_inst = None
     sources = []
 
     for inst in instances:
         if inst["track_index"] == reference_track_index:
-            master_inst = inst
+            reference_inst = inst
         else:
             sources.append(inst)
 
     warning = None
     master_value = None
+    reference_track_name = None
+    band_names_available: list = []
 
-    if master_inst is None:
+    if reference_inst is None:
         warning = (
-            "No analyzer instance found on reference track {} (index {}). "
-            "master_value will be None and delta_vs_master will be None. "
-            "Place MCPSpectrumTelemetry on the master track (index -1) for full diagnosis."
-        ).format(reference_track_index, reference_track_index)
+            "No analyzer instance found on reference track (index {}). "
+            "Place an MCPSpectrum analyzer on the master track (index -1) for full diagnosis. "
+            "Ranking sources against each other without a master reference."
+        ).format(reference_track_index)
+        # Fall back: treat all instances as sources
+        sources = instances
     else:
-        band_data = master_inst["bands"].get(target_band)
+        reference_track_name = reference_inst["track_name"]
+        band_names_available = list(reference_inst["bands"].keys())
+        band_data = reference_inst["bands"].get(target_band)
         if band_data is not None:
             master_value = band_data["value"]
+        else:
+            warning = (
+                "Band '{}' not found on reference track '{}'. "
+                "Available bands: {}".format(
+                    target_band,
+                    reference_inst["track_name"],
+                    list(reference_inst["bands"].keys()),
+                )
+            )
 
     ranked = []
     for inst in sources:
@@ -4661,6 +4793,7 @@ def diagnose_spectrum_issue(target_band: str, reference_track_index: int = -1) -
         ranked.append({
             "track_index": inst["track_index"],
             "track_name": inst["track_name"],
+            "track_type": inst.get("track_type", "normal"),
             "device_index": inst["device_index"],
             "device_name": inst["device_name"],
             "band": target_band,
@@ -4672,12 +4805,173 @@ def diagnose_spectrum_issue(target_band: str, reference_track_index: int = -1) -
 
     result: dict = {
         "target_band": target_band,
+        "reference_track_name": reference_track_name,
         "master_value": master_value,
         "ranked_sources": ranked,
+        "band_names_available": band_names_available,
     }
     if warning:
         result["warning"] = warning
     return result
+
+
+@mcp.tool()
+def set_device_parameter_by_name(
+    track_index: int,
+    device_index: int,
+    param_name: str,
+    value: float,
+    match_original_name: bool = True,
+) -> dict:
+    """
+    Set a device parameter by name instead of index.
+
+    This is the permanent agent-friendly write path. Instead of requiring the agent
+    to enumerate parameters, find the index, and then write — this tool resolves
+    the parameter by display name (or original_name) and writes in a single call.
+
+    Matching is case-insensitive and uses substring matching as a fallback when
+    exact match fails.
+
+    Use track_index=-1 for the master track.
+
+    Args:
+        track_index: Track index (-1 for master).
+        device_index: Device index on the track.
+        param_name: Parameter display name to match, e.g. "Punch (120–250 Hz)",
+                    "Filter Freq", "Attack". Case-insensitive.
+        value: Value to set. Clamped to parameter min/max automatically.
+        match_original_name: If True (default), also attempts to match against
+                              the parameter's original_name field.
+
+    Returns:
+        parameter_index: the index that was written
+        matched_name: exact parameter name that was matched
+        value_set: the value passed to the setter
+        track_index, device_index
+    """
+    params_result = _send("get_device_parameters", {
+        "track_index": track_index,
+        "device_index": device_index,
+    })
+    parameters = params_result.get("parameters", [])
+
+    param_name_lower = param_name.lower().strip()
+    matched_param = None
+
+    # 1. Exact match on display name
+    for p in parameters:
+        if p["name"].lower().strip() == param_name_lower:
+            matched_param = p
+            break
+
+    # 2. Exact match on original_name
+    if matched_param is None and match_original_name:
+        for p in parameters:
+            orig = p.get("original_name", "")
+            if orig and orig.lower().strip() == param_name_lower:
+                matched_param = p
+                break
+
+    # 3. Substring match on display name
+    if matched_param is None:
+        for p in parameters:
+            if param_name_lower in p["name"].lower():
+                matched_param = p
+                break
+
+    # 4. Substring match on original_name
+    if matched_param is None and match_original_name:
+        for p in parameters:
+            orig = p.get("original_name", "")
+            if orig and param_name_lower in orig.lower():
+                matched_param = p
+                break
+
+    if matched_param is None:
+        available = [p["name"] for p in parameters]
+        raise ValueError(
+            "Parameter '{}' not found on device at track={}, device={}. "
+            "Available parameters: {}".format(param_name, track_index, device_index, available)
+        )
+
+    _send("set_device_parameter", {
+        "track_index": track_index,
+        "device_index": device_index,
+        "parameter_index": matched_param["index"],
+        "value": value,
+    })
+
+    return {
+        "parameter_index": matched_param["index"],
+        "matched_name": matched_param["name"],
+        "value_set": value,
+        "track_index": track_index,
+        "device_index": device_index,
+    }
+
+
+@mcp.tool()
+def set_spectrum_band_on_track(
+    track_index: int,
+    band_name: str,
+    value: float,
+    device_name_patterns: list | None = None,
+) -> dict:
+    """
+    Set a spectrum analyzer band value on a specific track by band name.
+
+    Finds the first matching analyzer device on the track and sets the named
+    band parameter — no need to know device index or parameter index.
+
+    Args:
+        track_index: Track to target (-1 for master).
+        band_name: Band parameter name, e.g. "Punch (120–250 Hz)".
+                   Use get_spectrum_telemetry_instances() to list available names.
+        value: Value to set (clamped to parameter range automatically).
+        device_name_patterns: Optional device name filter. Defaults to MCPSpectrum patterns.
+
+    Returns:
+        track_index, device_index, device_name,
+        band_name, parameter_index, value_set
+    """
+    if device_name_patterns is None:
+        device_name_patterns = ["MCPSpectrum", "MCP Spectrum", "MCPSpectrumTelemetry"]
+
+    try:
+        devices = _send("get_devices", {"track_index": track_index})
+    except Exception as e:
+        raise RuntimeError("Could not get devices for track {}: {}".format(track_index, e))
+
+    patterns_lower = [p.lower() for p in device_name_patterns]
+    target_device = None
+    for device in devices:
+        if any(p in device["name"].lower() for p in patterns_lower):
+            target_device = device
+            break
+
+    if target_device is None:
+        device_names = [d["name"] for d in devices]
+        raise ValueError(
+            "No spectrum analyzer device found on track {} matching patterns {}. "
+            "Devices on track: {}".format(track_index, device_name_patterns, device_names)
+        )
+
+    result = set_device_parameter_by_name(
+        track_index=track_index,
+        device_index=target_device["index"],
+        param_name=band_name,
+        value=value,
+    )
+
+    return {
+        "track_index": track_index,
+        "device_index": target_device["index"],
+        "device_name": target_device["name"],
+        "band_name": band_name,
+        "parameter_index": result["parameter_index"],
+        "value_set": value,
+    }
 
 
 # ---------------------------------------------------------------------------

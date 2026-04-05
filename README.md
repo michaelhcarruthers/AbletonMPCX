@@ -184,6 +184,57 @@ The MCP server (`server.py`) communicates with the Remote Script (`__init__.py`)
 
 ---
 
+## Spectrum Telemetry
+
+AbletonMPCX includes a permanent, generic spectrum analysis layer that works with the [MCPSpectrumTelemetry](https://github.com/michaelhcarruthers/MCPSpectrumTelemetry) AU plugin (or any compatible spectrum analyzer).
+
+### Architecture
+
+| Layer | Responsibility |
+|---|---|
+| **Plugin (MCPSpectrumTelemetry AU)** | Source of truth — defines band names with explicit frequency ranges, e.g. `"Punch (120–250 Hz)"` |
+| **MCP Server (`server.py`)** | Discovery, diagnosis, and write path — agents never need to know device or parameter indices |
+| **Claude / Agent** | Interprets band values and issues commands using the tool layer |
+
+### Tools
+
+| Tool | Purpose |
+|---|---|
+| `find_spectrum_analyzers()` | Auto-discover any spectrum analyzer across all tracks (heuristic or name-based) |
+| `get_spectrum_telemetry_instances()` | Find all MCPSpectrum devices with their current band values |
+| `diagnose_spectrum_issue(band)` | Compare a band across all instances, rank sources vs. master |
+| `set_device_parameter_by_name(track, device, name, value)` | Write a parameter by name — no index lookup needed |
+| `set_spectrum_band_on_track(track, band, value)` | High-level: set a band on a track without knowing device/parameter indices |
+
+### Usage Example
+
+```python
+# Find all analyzers (generic — works with any plugin)
+find_spectrum_analyzers()
+
+# Find only MCPSpectrum instances
+get_spectrum_telemetry_instances()
+
+# Diagnose where the Punch buildup is coming from
+diagnose_spectrum_issue("Punch (120–250 Hz)")
+
+# Write a band value by name — no index needed
+set_device_parameter_by_name(track_index=2, device_index=0, param_name="Punch (120–250 Hz)", value=-24.0)
+
+# High-level: set band on a track
+set_spectrum_band_on_track(track_index=2, band_name="Punch (120–250 Hz)", value=-24.0)
+```
+
+### Adding a New Analyzer
+
+No code changes needed. Any device that:
+- Has its name in `device_name_patterns` (passed to `get_spectrum_telemetry_instances`), **OR**
+- Has 4+ parameters with `Hz` in the parameter name (heuristic auto-detection via `find_spectrum_analyzers`)
+
+...will be automatically discovered.
+
+---
+
 ## Notes
 
 - The Remote Script runs on Ableton's internal Python interpreter (CPython 3.6+ in Live 11/12).
