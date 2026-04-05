@@ -2481,6 +2481,8 @@ class AbletonMPCX(ControlSurface):
 
             if clear_range:
                 try:
+                    # clear_all_envelopes() is the Live API method on an individual
+                    # AutomationEnvelope; despite the name it clears only this envelope's points.
                     target_env.clear_all_envelopes()
                 except AttributeError:
                     pass

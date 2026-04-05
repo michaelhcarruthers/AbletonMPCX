@@ -6040,6 +6040,8 @@ def dj_loop_roll(
         start_beat: Start beat within bar (default 1).
         length_beats: Total length in beats (default 4 = 1 bar in 4/4).
         roll_subdivisions: Number of filter chops (2, 4, or 8; default 4).
+            The curve in _MACRO_DEFINITIONS uses 4 subdivisions; this parameter
+            is echoed back in the return value for caller reference.
         intensity: Scale factor 0.0–1.0.
         time_signature_numerator: Beats per bar (default 4).
 
@@ -6048,6 +6050,8 @@ def dj_loop_roll(
          steps_applied, steps_skipped, roll_subdivisions}
     """
     intensity = max(0.0, min(1.0, intensity))
+    if roll_subdivisions not in (2, 4, 8):
+        raise ValueError("roll_subdivisions must be 2, 4, or 8; got {}".format(roll_subdivisions))
     start_time = _bars_beats_to_song_time(start_bar, start_beat, time_signature_numerator)
     end_time = start_time + length_beats
 
