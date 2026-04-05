@@ -4989,7 +4989,7 @@ def set_spectrum_band_on_track(
 #
 # device: substring to match against device name (case-insensitive)
 # param: substring to match against parameter name (case-insensitive)
-# required: if True, skip this step silently when device not found (don't fail)
+# required: if True, device is required; missing required steps are flagged in check_macro_readiness()
 # ---------------------------------------------------------------------------
 
 _MACRO_DEFINITIONS: dict[str, list[dict]] = {
@@ -5003,17 +5003,17 @@ _MACRO_DEFINITIONS: dict[str, list[dict]] = {
     "break": [
         {"device": "Auto Filter", "param": "Frequency",  "curve": [(0.0, 0.85), (1.0, 0.05)], "required": False},
         {"device": "Auto Filter", "param": "Resonance",  "curve": [(0.0, 0.2),  (1.0, 0.6)],  "required": False},
-        {"device": "Simple Delay","param": "Feedback",   "curve": [(0.0, 0.3),  (0.7, 0.85), (1.0, 0.0)], "required": False},
+        {"device": "Simple Delay", "param": "Feedback",  "curve": [(0.0, 0.3),  (0.7, 0.85), (1.0, 0.0)], "required": False},
         {"device": "Utility",     "param": "Width",      "curve": [(0.0, 1.0),  (1.0, 0.6)],  "required": False},
     ],
     "throw": [
         {"device": "Reverb",      "param": "Dry/Wet",    "curve": [(0.0, 0.0), (0.5, 1.0), (1.0, 0.0)], "required": False},
-        {"device": "Auto Filter", "param": "Frequency",  "curve": [(0.0, 0.4), (0.5, 0.85),(1.0, 0.4)], "required": False},
+        {"device": "Auto Filter", "param": "Frequency",  "curve": [(0.0, 0.4), (0.5, 0.85), (1.0, 0.4)], "required": False},
     ],
     "drop": [
         {"device": "Auto Filter", "param": "Frequency",  "curve": [(0.0, 0.9),  (1.0, 0.04)], "required": False},
-        {"device": "Simple Delay","param": "Dry/Wet",    "curve": [(0.0, 0.0),  (0.6, 0.8), (1.0, 0.0)], "required": False},
-        {"device": "Simple Delay","param": "Feedback",   "curve": [(0.0, 0.3),  (0.8, 0.85),(1.0, 0.0)], "required": False},
+        {"device": "Simple Delay", "param": "Dry/Wet",   "curve": [(0.0, 0.0),  (0.6, 0.8),  (1.0, 0.0)], "required": False},
+        {"device": "Simple Delay", "param": "Feedback",  "curve": [(0.0, 0.3),  (0.8, 0.85), (1.0, 0.0)], "required": False},
     ],
     "heat": [
         {"device": "Saturator",   "param": "Drive",      "curve": [(0.0, 0.0), (1.0, 0.8)],  "required": False},
@@ -5021,8 +5021,8 @@ _MACRO_DEFINITIONS: dict[str, list[dict]] = {
         {"device": "Compressor",  "param": "Threshold",  "curve": [(0.0, 0.7), (1.0, 0.3)],  "required": False},
     ],
     "space": [
-        {"device": "Reverb",      "param": "Dry/Wet",    "curve": [(0.0, 0.05),(1.0, 0.7)],  "required": False},
-        {"device": "Simple Delay","param": "Dry/Wet",    "curve": [(0.0, 0.0), (1.0, 0.5)],  "required": False},
+        {"device": "Reverb",       "param": "Dry/Wet",   "curve": [(0.0, 0.05), (1.0, 0.7)],  "required": False},
+        {"device": "Simple Delay", "param": "Dry/Wet",   "curve": [(0.0, 0.0),  (1.0, 0.5)],  "required": False},
         {"device": "Utility",     "param": "Width",      "curve": [(0.0, 0.7), (1.0, 1.0)],  "required": False},
     ],
     "tension": [
@@ -5039,8 +5039,8 @@ _MACRO_DEFINITIONS: dict[str, list[dict]] = {
     "filter_drive": [
         # The classic combo: filter sweep + drive rise together
         {"device": "Auto Filter", "param": "Frequency",  "curve": [(0.0, 0.1), (1.0, 0.9)],  "required": True},
-        {"device": "Auto Filter", "param": "Resonance",  "curve": [(0.0, 0.2), (0.7, 0.65),(1.0, 0.3)], "required": False},
-        {"device": "Saturator",   "param": "Drive",      "curve": [(0.0, 0.1), (0.6, 0.75),(1.0, 0.2)], "required": False},
+        {"device": "Auto Filter", "param": "Resonance",  "curve": [(0.0, 0.2), (0.7, 0.65), (1.0, 0.3)], "required": False},
+        {"device": "Saturator",   "param": "Drive",      "curve": [(0.0, 0.1), (0.6, 0.75), (1.0, 0.2)], "required": False},
     ],
 }
 
