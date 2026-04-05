@@ -235,6 +235,58 @@ No code changes needed. Any device that:
 
 ---
 
+## Performance Macros
+
+Performance macros let you trigger multi-parameter musical gestures with a single command.
+
+### Design principles
+
+- **Existing devices first** — `perform_macro` never adds devices. It only targets devices already on the track.
+- **Fail gracefully** — if a device is missing, it reports what was skipped and why.
+- **Setup macros are separate** — `setup_fx_chain` is the only tool that adds devices, and only for one-time chain creation.
+
+### Available macros
+
+| Macro | Effect | Devices targeted |
+|---|---|---|
+| `build` | Filter opens + drive rises + reverb comes in + width expands | Auto Filter, Saturator, Reverb, Utility |
+| `break` | Filter closes + delay feedback spikes + width narrows | Auto Filter, Simple Delay, Utility |
+| `throw` | Reverb wet swell + filter opens momentarily | Reverb, Auto Filter |
+| `drop` | Hard low-pass + echo out | Auto Filter, Simple Delay |
+| `heat` | Drive + resonance + compression tightens | Saturator, Auto Filter, Compressor |
+| `space` | Reverb + delay open + width expands | Reverb, Simple Delay, Utility |
+| `tension` | Filter closes + resonance rises + drive up | Auto Filter, Saturator |
+| `release` | Reverb burst + filter opens + drive fades | Reverb, Auto Filter, Saturator, Utility |
+| `filter_drive` | Filter sweep + drive rise together | Auto Filter, Saturator |
+
+### Usage
+
+```python
+# Check what's available on a track first
+check_macro_readiness(track_index=1, macro_name="build")
+
+# Trigger a macro
+perform_macro(track_index=1, macro_name="build", start_bar=31, start_beat=1, length_beats=4.0)
+
+# With intensity scaling (0.0–1.0)
+perform_macro(track_index=0, macro_name="throw", start_bar=50, start_beat=3, length_beats=1.0, intensity=0.7)
+
+# Set a static intensity (no automation, just set values)
+set_macro_intensity(track_index=1, macro_name="build", intensity=0.8)
+
+# One-time setup: add the device chain a macro needs
+setup_fx_chain(track_index=3, chain_type="build_chain")
+```
+
+### Workflow
+
+1. Call `check_macro_readiness(track, macro)` — see what's ready and what's missing
+2. If devices are missing, call `setup_fx_chain(track, chain_type)` once
+3. Call `perform_macro(track, macro, bar, beat, length)` to trigger
+4. Undo with a single Cmd+Z — all changes are grouped into one undo step
+
+---
+
 ## Notes
 
 - The Remote Script runs on Ableton's internal Python interpreter (CPython 3.6+ in Live 11/12).
