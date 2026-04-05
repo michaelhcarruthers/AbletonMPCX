@@ -4975,6 +4975,613 @@ def set_spectrum_band_on_track(
 
 
 # ---------------------------------------------------------------------------
+# Arrangement automation helpers (module-level, not MCP tools)
+# ---------------------------------------------------------------------------
+
+def _bars_beats_to_song_time(bar: int, beat: float, time_signature_numerator: int = 4) -> float:
+    """
+    Convert a bar/beat position to absolute song time in beats.
+
+    bar is 1-based (bar 1 = beat 0.0 of the song).
+    beat is 1-based (beat 1 = start of bar, beat 2 = second beat, etc).
+    beat can be fractional (e.g. beat 2.5 = halfway through beat 2).
+    time_signature_numerator: beats per bar (4 for 4/4, 3 for 3/4, etc).
+
+    Examples:
+        _bars_beats_to_song_time(1, 1) -> 0.0
+        _bars_beats_to_song_time(1, 2) -> 1.0
+        _bars_beats_to_song_time(2, 1) -> 4.0
+        _bars_beats_to_song_time(50, 3) -> 197.0  (in 4/4)
+        _bars_beats_to_song_time(50, 3, numerator=3) -> 149.0  (in 3/4)
+    """
+    return float((bar - 1) * time_signature_numerator + (beat - 1))
+
+
+def _find_device_parameter_by_name(
+    track_index: int,
+    device_index: int,
+    param_name: str,
+) -> tuple:
+    """
+    Find a device parameter by name (case-insensitive substring match).
+
+    Returns:
+        (parameter_index, parameter_info_dict)
+
+    Raises:
+        RuntimeError if not found, with a helpful message listing available params.
+    """
+    result = _send("get_device_parameters", {
+        "track_index": track_index,
+        "device_index": device_index,
+    }, _log=False)
+    parameters = result.get("parameters", [])
+    name_lower = param_name.lower().strip()
+
+    # 1. Exact match on name
+    for p in parameters:
+        if p["name"].lower().strip() == name_lower:
+            return p["index"], p
+
+    # 2. Exact match on original_name
+    for p in parameters:
+        orig = p.get("original_name", "")
+        if orig and orig.lower().strip() == name_lower:
+            return p["index"], p
+
+    # 3. Substring match on name
+    for p in parameters:
+        if name_lower in p["name"].lower():
+            return p["index"], p
+
+    # 4. Substring match on original_name
+    for p in parameters:
+        orig = p.get("original_name", "")
+        if orig and name_lower in orig.lower():
+            return p["index"], p
+
+    available = [p["name"] for p in parameters]
+    raise RuntimeError(
+        "Parameter '{}' not found on device at track={}, device={}. "
+        "Available parameters: {}".format(param_name, track_index, device_index, available)
+    )
+
+
+def _find_or_add_device(track_index: int, device_name: str) -> int:
+    """
+    Find or add a device on a track by name.
+
+    1. Calls get_devices(track_index)
+    2. Searches for a device whose name contains device_name (case-insensitive)
+    3. If not found, calls add_native_device(track_index, device_name)
+    4. Returns the device index.
+    """
+    devices = _send("get_devices", {"track_index": track_index}, _log=False)
+    name_lower = device_name.lower()
+    for d in devices:
+        if name_lower in d["name"].lower():
+            return d["index"]
+    # Not found — add it
+    _send("add_native_device", {"track_index": track_index, "device_name": device_name})
+    # Re-fetch to get the new index
+    devices = _send("get_devices", {"track_index": track_index}, _log=False)
+    for d in devices:
+        if name_lower in d["name"].lower():
+            return d["index"]
+    raise RuntimeError(
+        "Device '{}' could not be added to track {}.".format(device_name, track_index)
+    )
+
+
+# ---------------------------------------------------------------------------
+# Arrangement automation MCP tools
+# ---------------------------------------------------------------------------
+
+@mcp.tool()
+def bars_beats_to_song_time(
+    bar: int,
+    beat: float,
+    time_signature_numerator: int = 4,
+) -> dict:
+    """
+    Convert a musical bar/beat position to absolute song time in beats.
+
+    bar is 1-based (bar 1 = the very start of the song).
+    beat is 1-based (beat 1 = start of bar, beat 2 = second beat, etc).
+    beat can be fractional (e.g. beat 2.5 = halfway through beat 2).
+    time_signature_numerator: beats per bar (4 for 4/4, 3 for 3/4, etc).
+
+    Returns:
+        song_time_beats (float): absolute song time as used by Live's API
+        bar, beat, time_signature_numerator (echo of inputs)
+    """
+    song_time_beats = _bars_beats_to_song_time(bar, beat, time_signature_numerator)
+    return {
+        "song_time_beats": song_time_beats,
+        "bar": bar,
+        "beat": beat,
+        "time_signature_numerator": time_signature_numerator,
+    }
+
+
+@mcp.tool()
+def get_arrangement_automation_targets(track_index: int, device_index: int) -> dict:
+    """
+    Return all automatable parameters for a track/device, for use with write_arrangement_automation.
+
+    Args:
+        track_index: Track index (-1 for master).
+        device_index: Device index.
+
+    Returns:
+        parameters: list of {parameter_index, name, value, min, max}
+        device_name: name of the device
+    """
+    return _send("get_arrangement_automation_targets", {
+        "track_index": track_index,
+        "device_index": device_index,
+    })
+
+
+@mcp.tool()
+def write_arrangement_automation(
+    track_index: int,
+    device_index: int,
+    parameter_index: int,
+    points: list,
+    clear_range: bool = False,
+) -> dict:
+    """
+    Write automation points to an arrangement lane for a device parameter.
+
+    Each point dict: {"time": float_beats, "value": float}
+
+    If clear_range=True, clears existing automation in the time range
+    covered by the provided points before writing.
+
+    Use get_device_parameters() to find parameter_index values.
+    Use bars_beats_to_song_time() to convert bar/beat positions to beat times.
+
+    Args:
+        track_index: Track index (-1 for master).
+        device_index: Device index on the track.
+        parameter_index: Parameter index within the device.
+        points: List of {time: float, value: float} dicts.
+        clear_range: If True, clear existing automation in the covered range first.
+
+    Returns:
+        points_written, parameter_name, track_index, device_index, parameter_index
+    """
+    result = _send("write_arrangement_automation", {
+        "track_index": track_index,
+        "device_index": device_index,
+        "parameter_index": parameter_index,
+        "points": points,
+        "clear_range": clear_range,
+    })
+    result["parameter_index"] = parameter_index
+    return result
+
+
+# ---------------------------------------------------------------------------
+# Performance FX MCP tools
+# ---------------------------------------------------------------------------
+
+@mcp.tool()
+def reverb_throw(
+    track_index: int,
+    start_bar: int,
+    start_beat: float,
+    length_beats: float = 1.0,
+    device_index: int | None = None,
+    peak_wet: float = 0.9,
+    time_signature_numerator: int = 4,
+) -> dict:
+    """
+    Add a reverb throw automation: Dry/Wet ramps from 0 → peak_wet → 0 over length_beats.
+
+    Finds the first Reverb device on the track (or use device_index to specify one).
+    If no Reverb is found, adds one first.
+    Writes automation to the Dry/Wet parameter in the Arrangement View.
+
+    The shape is: 0 at start, peak_wet at midpoint, 0 at end.
+
+    Args:
+        track_index: Track to add the effect to.
+        start_bar: 1-based bar number where the throw starts.
+        start_beat: 1-based beat within the bar.
+        length_beats: Duration of the throw in beats (default 1.0 = one beat).
+        device_index: Specific device index. If None, finds first Reverb on track.
+        peak_wet: Peak Dry/Wet value (0.0-1.0, default 0.9).
+        time_signature_numerator: Beats per bar (default 4).
+
+    Returns:
+        track_index, device_index, device_name, parameter_name,
+        start_time_beats, end_time_beats, peak_wet, points_written
+    """
+    _send("begin_undo_step", {"name": "reverb_throw"})
+    try:
+        if device_index is None:
+            device_index = _find_or_add_device(track_index, "Reverb")
+
+        devices = _send("get_devices", {"track_index": track_index}, _log=False)
+        device_name = next(
+            (d["name"] for d in devices if d["index"] == device_index),
+            "Reverb",
+        )
+
+        param_idx, param_info = _find_device_parameter_by_name(
+            track_index, device_index, "Dry/Wet"
+        )
+
+        start_time = _bars_beats_to_song_time(start_bar, start_beat, time_signature_numerator)
+        mid_time = start_time + length_beats / 2.0
+        end_time = start_time + length_beats
+
+        points = [
+            {"time": start_time, "value": 0.0},
+            {"time": mid_time, "value": peak_wet},
+            {"time": end_time, "value": 0.0},
+        ]
+
+        result = _send("write_arrangement_automation", {
+            "track_index": track_index,
+            "device_index": device_index,
+            "parameter_index": param_idx,
+            "points": points,
+            "clear_range": True,
+        })
+    finally:
+        _send("end_undo_step", {})
+
+    return {
+        "track_index": track_index,
+        "device_index": device_index,
+        "device_name": device_name,
+        "parameter_name": param_info["name"],
+        "start_time_beats": start_time,
+        "end_time_beats": end_time,
+        "peak_wet": peak_wet,
+        "points_written": result.get("points_written", len(points)),
+    }
+
+
+@mcp.tool()
+def filter_sweep(
+    track_index: int,
+    start_bar: int,
+    start_beat: float,
+    length_beats: float = 4.0,
+    start_freq_hz: float = 200.0,
+    end_freq_hz: float = 18000.0,
+    device_index: int | None = None,
+    time_signature_numerator: int = 4,
+) -> dict:
+    """
+    Add a filter sweep: automates Auto Filter cutoff frequency from start_freq to end_freq.
+
+    Finds the first Auto Filter on the track (or use device_index).
+    If no Auto Filter is found, adds one.
+    Writes a linear ramp on the frequency parameter in the Arrangement View.
+
+    Args:
+        track_index: Track to sweep.
+        start_bar: 1-based bar number where the sweep starts.
+        start_beat: 1-based beat within the bar.
+        length_beats: Duration of the sweep in beats.
+        start_freq_hz: Starting cutoff frequency in Hz.
+        end_freq_hz: Ending cutoff frequency in Hz.
+        device_index: Specific Auto Filter device index. If None, auto-detect.
+        time_signature_numerator: Beats per bar (default 4).
+
+    Returns:
+        track_index, device_index, start_freq_hz, end_freq_hz,
+        start_time_beats, end_time_beats, points_written
+    """
+    _send("begin_undo_step", {"name": "filter_sweep"})
+    try:
+        if device_index is None:
+            device_index = _find_or_add_device(track_index, "Auto Filter")
+
+        param_idx, param_info = _find_device_parameter_by_name(
+            track_index, device_index, "Frequency"
+        )
+
+        start_time = _bars_beats_to_song_time(start_bar, start_beat, time_signature_numerator)
+        end_time = start_time + length_beats
+
+        points = [
+            {"time": start_time, "value": start_freq_hz},
+            {"time": end_time, "value": end_freq_hz},
+        ]
+
+        result = _send("write_arrangement_automation", {
+            "track_index": track_index,
+            "device_index": device_index,
+            "parameter_index": param_idx,
+            "points": points,
+            "clear_range": True,
+        })
+    finally:
+        _send("end_undo_step", {})
+
+    return {
+        "track_index": track_index,
+        "device_index": device_index,
+        "start_freq_hz": start_freq_hz,
+        "end_freq_hz": end_freq_hz,
+        "start_time_beats": start_time,
+        "end_time_beats": end_time,
+        "points_written": result.get("points_written", len(points)),
+    }
+
+
+@mcp.tool()
+def delay_echo_out(
+    track_index: int,
+    start_bar: int,
+    start_beat: float,
+    length_beats: float = 2.0,
+    device_index: int | None = None,
+    peak_feedback: float = 0.85,
+    time_signature_numerator: int = 4,
+) -> dict:
+    """
+    Add a delay echo-out: ramps Feedback up then cuts Dry/Wet to 0 at the end.
+
+    Finds the first Delay or Echo device on the track (or use device_index).
+    If no delay device is found, adds a Simple Delay.
+
+    Shape:
+    - Feedback: ramps from current value to peak_feedback over length_beats
+    - Dry/Wet: stays at current value, then snaps to 0 at the end
+
+    Args:
+        track_index: Track to apply the echo-out to.
+        start_bar: 1-based bar number.
+        start_beat: 1-based beat.
+        length_beats: Duration in beats.
+        device_index: Specific delay device. If None, auto-detect.
+        peak_feedback: Maximum feedback value (0.0-1.0).
+        time_signature_numerator: Beats per bar.
+
+    Returns:
+        track_index, device_index, device_name, start_time_beats, end_time_beats, points_written
+    """
+    _send("begin_undo_step", {"name": "delay_echo_out"})
+    try:
+        if device_index is None:
+            # Try to find an existing delay or echo device
+            devices = _send("get_devices", {"track_index": track_index}, _log=False)
+            device_index = None
+            for d in devices:
+                name_lower = d["name"].lower()
+                if "delay" in name_lower or "echo" in name_lower:
+                    device_index = d["index"]
+                    break
+            if device_index is None:
+                device_index = _find_or_add_device(track_index, "Delay")
+
+        devices = _send("get_devices", {"track_index": track_index}, _log=False)
+        device_name = next(
+            (d["name"] for d in devices if d["index"] == device_index),
+            "Delay",
+        )
+
+        start_time = _bars_beats_to_song_time(start_bar, start_beat, time_signature_numerator)
+        end_time = start_time + length_beats
+
+        total_points = 0
+
+        # Feedback: ramp from current to peak_feedback
+        try:
+            fb_idx, fb_info = _find_device_parameter_by_name(
+                track_index, device_index, "Feedback"
+            )
+            current_feedback = fb_info.get("value", 0.5)
+            fb_points = [
+                {"time": start_time, "value": current_feedback},
+                {"time": end_time, "value": peak_feedback},
+            ]
+            fb_result = _send("write_arrangement_automation", {
+                "track_index": track_index,
+                "device_index": device_index,
+                "parameter_index": fb_idx,
+                "points": fb_points,
+                "clear_range": True,
+            })
+            total_points += fb_result.get("points_written", len(fb_points))
+        except (RuntimeError, Exception):
+            pass
+
+        # Dry/Wet: snap to 0 at the end
+        try:
+            dw_idx, dw_info = _find_device_parameter_by_name(
+                track_index, device_index, "Dry/Wet"
+            )
+            current_wet = dw_info.get("value", 1.0)
+            dw_points = [
+                {"time": start_time, "value": current_wet},
+                {"time": end_time - 0.001, "value": current_wet},
+                {"time": end_time, "value": 0.0},
+            ]
+            dw_result = _send("write_arrangement_automation", {
+                "track_index": track_index,
+                "device_index": device_index,
+                "parameter_index": dw_idx,
+                "points": dw_points,
+                "clear_range": True,
+            })
+            total_points += dw_result.get("points_written", len(dw_points))
+        except (RuntimeError, Exception):
+            pass
+
+    finally:
+        _send("end_undo_step", {})
+
+    return {
+        "track_index": track_index,
+        "device_index": device_index,
+        "device_name": device_name,
+        "start_time_beats": start_time,
+        "end_time_beats": end_time,
+        "points_written": total_points,
+    }
+
+
+@mcp.tool()
+def stutter_clip(
+    track_index: int,
+    start_bar: int,
+    start_beat: float,
+    length_beats: float = 1.0,
+    chop_size_beats: float = 0.125,
+    time_signature_numerator: int = 4,
+) -> dict:
+    """
+    Create a volume stutter effect by automating track volume on/off at chop_size_beats intervals.
+
+    Writes alternating 0.0/1.0 volume automation points to create a gate/chop effect.
+    Uses the track's mixer volume parameter in the Arrangement View.
+
+    Args:
+        track_index: Track to stutter.
+        start_bar: 1-based bar number.
+        start_beat: 1-based beat.
+        length_beats: Total duration of the stutter in beats.
+        chop_size_beats: Size of each chop in beats (default 0.125 = 1/32 note at 1 beat = quarter).
+        time_signature_numerator: Beats per bar.
+
+    Returns:
+        track_index, start_time_beats, end_time_beats, chop_count, points_written
+    """
+    _send("begin_undo_step", {"name": "stutter_clip"})
+    try:
+        # Get the volume parameter index from the mixer
+        mixer_params = _send("get_arrangement_automation_targets", {
+            "track_index": track_index,
+        }, _log=False)
+        params_list = mixer_params.get("parameters", [])
+        vol_idx = None
+        for p in params_list:
+            if "volume" in p["name"].lower() or "vol" in p["name"].lower():
+                vol_idx = p["parameter_index"]
+                break
+        if vol_idx is None:
+            # Fallback: use index 0 (typically volume for mixer)
+            vol_idx = 0
+
+        start_time = _bars_beats_to_song_time(start_bar, start_beat, time_signature_numerator)
+        end_time = start_time + length_beats
+
+        points = []
+        t = start_time
+        on = True
+        chop_count = 0
+        while t < end_time:
+            points.append({"time": t, "value": 1.0 if on else 0.0})
+            t += chop_size_beats
+            on = not on
+            chop_count += 1
+        # Restore volume at the end
+        points.append({"time": end_time, "value": 1.0})
+
+        result = _send("write_arrangement_automation", {
+            "track_index": track_index,
+            "device_index": None,
+            "parameter_index": vol_idx,
+            "points": points,
+            "clear_range": True,
+        })
+    finally:
+        _send("end_undo_step", {})
+
+    return {
+        "track_index": track_index,
+        "start_time_beats": start_time,
+        "end_time_beats": end_time,
+        "chop_count": chop_count,
+        "points_written": result.get("points_written", len(points)),
+    }
+
+
+@mcp.tool()
+def add_performance_fx(
+    track_index: int,
+    fx_type: str,
+    start_bar: int,
+    start_beat: float,
+    length_beats: float = 1.0,
+    time_signature_numerator: int = 4,
+    **kwargs,
+) -> dict:
+    """
+    Add a performance effect to a track at a musical position.
+
+    This is the unified entry point — dispatches to the appropriate specific tool.
+
+    fx_type options:
+        'reverb_throw'   — reverb wet automation swell
+        'filter_sweep'   — Auto Filter cutoff ramp
+        'delay_echo_out' — delay feedback ramp + wet cutoff
+        'stutter'        — volume chop gate
+
+    Args:
+        track_index: Track to apply the effect to.
+        fx_type: Type of effect (see above).
+        start_bar: 1-based bar number.
+        start_beat: 1-based beat within the bar.
+        length_beats: Duration in beats.
+        time_signature_numerator: Beats per bar (default 4).
+        **kwargs: Additional parameters passed to the specific effect tool.
+                  e.g. peak_wet=0.8 for reverb_throw,
+                       start_freq_hz=100, end_freq_hz=8000 for filter_sweep
+
+    Returns:
+        fx_type, track_index, start_bar, start_beat, length_beats,
+        plus all fields returned by the specific effect tool.
+
+    Examples:
+        add_performance_fx(0, 'reverb_throw', 50, 3, 1.0)
+        add_performance_fx(1, 'filter_sweep', 32, 1, 4.0, start_freq_hz=80, end_freq_hz=12000)
+        add_performance_fx(2, 'stutter', 64, 1, 1.0, chop_size_beats=0.0625)
+    """
+    common_kwargs = dict(
+        track_index=track_index,
+        start_bar=start_bar,
+        start_beat=start_beat,
+        length_beats=length_beats,
+        time_signature_numerator=time_signature_numerator,
+    )
+    common_kwargs.update(kwargs)
+
+    fx_map = {
+        "reverb_throw": reverb_throw,
+        "filter_sweep": filter_sweep,
+        "delay_echo_out": delay_echo_out,
+        "stutter": stutter_clip,
+    }
+
+    if fx_type not in fx_map:
+        raise ValueError(
+            "Unknown fx_type '{}'. Valid options: {}".format(
+                fx_type, list(fx_map.keys())
+            )
+        )
+
+    specific_result = fx_map[fx_type](**common_kwargs)
+
+    return {
+        "fx_type": fx_type,
+        "track_index": track_index,
+        "start_bar": start_bar,
+        "start_beat": start_beat,
+        "length_beats": length_beats,
+        **specific_result,
+    }
+
+
+# ---------------------------------------------------------------------------
 # Entry point
 # ---------------------------------------------------------------------------
 

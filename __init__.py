@@ -1568,6 +1568,114 @@ class AbletonMPCX(ControlSurface):
         return {"point_count": len(points)}
 
     # -------------------------------------------------------------------------
+    # Arrangement automation
+    # -------------------------------------------------------------------------
+
+    def _cmd_get_arrangement_automation_targets(self, params):
+        """Return all automatable parameters for a track/device combination."""
+        track_index = int(params["track_index"])
+        device_index = params.get("device_index")
+        track = self._get_track(track_index)
+        result = []
+        if device_index is not None:
+            device = self._get_device(track_index, int(device_index))
+            for i, p in enumerate(device.parameters):
+                result.append({
+                    "parameter_index": i,
+                    "name": p.name,
+                    "original_name": getattr(p, "original_name", p.name),
+                    "value": p.value,
+                    "min": p.min,
+                    "max": p.max,
+                    "is_quantized": p.is_quantized,
+                })
+            return {"parameters": result, "device_name": device.name}
+        # No device_index — return mixer parameters
+        mixer = track.mixer_device
+        for i, p in enumerate(mixer.parameters):
+            result.append({
+                "parameter_index": i,
+                "name": p.name,
+                "original_name": getattr(p, "original_name", p.name),
+                "value": p.value,
+                "min": p.min,
+                "max": p.max,
+                "is_quantized": p.is_quantized,
+            })
+        return {"parameters": result, "device_name": "Mixer"}
+
+    def _cmd_write_arrangement_automation(self, params):
+        """Write automation points to an arrangement lane for a device parameter."""
+        track_index = int(params["track_index"])
+        device_index = params.get("device_index")
+        parameter_index = int(params["parameter_index"])
+        points = params.get("points", [])
+        clear_range = bool(params.get("clear_range", False))
+
+        track = self._get_track(track_index)
+
+        if device_index is not None:
+            device = self._get_device(track_index, int(device_index))
+            parameters = list(device.parameters)
+        else:
+            parameters = list(track.mixer_device.parameters)
+            device_index = None
+
+        if parameter_index < 0 or parameter_index >= len(parameters):
+            raise IndexError("parameter_index {} out of range".format(parameter_index))
+        target_param = parameters[parameter_index]
+        param_name = target_param.name
+
+        def fn():
+            if not hasattr(track, "automation_envelopes"):
+                raise RuntimeError(
+                    "Arrangement automation requires Live 9+. "
+                    "track.automation_envelopes not available."
+                )
+            # Get or create the envelope for this parameter
+            env = None
+            if hasattr(track, "automation_envelope") and callable(track.automation_envelope):
+                try:
+                    env = track.automation_envelope(target_param)
+                except Exception:
+                    env = None
+            if env is None:
+                for candidate in track.automation_envelopes:
+                    try:
+                        if candidate.automation_parameter == target_param:
+                            env = candidate
+                            break
+                    except Exception:
+                        continue
+            if env is None:
+                raise RuntimeError(
+                    "Could not get or create arrangement automation envelope "
+                    "for parameter '{}'.".format(param_name)
+                )
+            if clear_range and points:
+                times = [float(pt["time"]) for pt in points]
+                start_time = min(times)
+                end_time = max(times)
+                try:
+                    env.clear_envelope(start_time, end_time - start_time)
+                except AttributeError:
+                    pass
+            for pt in points:
+                try:
+                    env.insert_step(float(pt["time"]), 0.0, float(pt["value"]))
+                except AttributeError:
+                    raise RuntimeError("insert_step not available in this Live version")
+            return len(points)
+
+        points_written = self._run_on_main_thread(fn)
+        return {
+            "points_written": points_written,
+            "parameter_name": param_name,
+            "track_index": track_index,
+            "device_index": device_index,
+        }
+
+    # -------------------------------------------------------------------------
     # Device (read)
     # -------------------------------------------------------------------------
 
