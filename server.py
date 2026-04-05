@@ -5339,6 +5339,7 @@ def analyze_mix_balance(
             source_avg[band] = sum(vals) / len(vals)
 
     def _safe_db(linear: float) -> float:
+        """Convert a linear amplitude value to dB; returns -120 dB for silence."""
         if linear <= 0.0:
             return -120.0
         return 20.0 * math.log10(linear)
@@ -5480,6 +5481,7 @@ def scan_au_presets(force_rescan: bool = False) -> dict:
                     if ext == "aupreset":
                         preset_name, _raw = _parse_aupreset(fpath)
                     else:
+                        omni_tags: list[str] = []
                         preset_name, omni_tags = _parse_prt_omni(fpath)
                 except Exception:
                     skipped += 1
@@ -5491,7 +5493,7 @@ def scan_au_presets(force_rescan: bool = False) -> dict:
                 else:
                     descriptors = _infer_descriptors_from_name(preset_name, plugin)
                     if ext == "prt_omni":
-                        descriptors = _apply_omnisphere_tags(descriptors, omni_tags)  # type: ignore[possibly-undefined]
+                        descriptors = _apply_omnisphere_tags(descriptors, omni_tags)
                     descriptors["is_drum"] = False  # type: ignore[assignment]
 
                 entry: dict = {
@@ -5501,7 +5503,7 @@ def scan_au_presets(force_rescan: bool = False) -> dict:
                     "category":    fpath.parent.name,
                     "tags":        [],
                     "measured":    False,
-                    "scan_date":   datetime.datetime.utcnow().isoformat(),
+                    "scan_date":   datetime.datetime.now(datetime.timezone.utc).isoformat(),
                 }
                 entry.update(descriptors)
 
@@ -5620,8 +5622,8 @@ def scan_splice_library(
             band_rms[band] = float(np.sqrt(np.mean(stft_mag[lo_bin:hi_bin] ** 2)))
 
         # Normalize 0-1
-        max_rms = max(band_rms.values()) if band_rms else 1.0
-        if max_rms > 0:
+        max_rms = max(band_rms.values()) if band_rms else 0.0
+        if band_rms and max_rms > 0:
             band_rms = {b: v / max_rms for b, v in band_rms.items()}
 
         # Transient strength (normalised onset envelope mean)
@@ -5634,9 +5636,10 @@ def scan_splice_library(
         # Sustain: ratio of tail RMS to peak RMS
         try:
             frame_rms = librosa.feature.rms(y=y_mono, hop_length=hop_length)[0]
-            peak_rms = float(np.max(frame_rms)) if len(frame_rms) else 0.0
-            if len(frame_rms) > 4 and peak_rms > 0:
-                tail_rms = float(np.mean(frame_rms[-len(frame_rms) // 4:]))
+            n_frames = len(frame_rms)
+            peak_rms = float(np.max(frame_rms)) if n_frames else 0.0
+            if n_frames > 4 and peak_rms > 0:
+                tail_rms = float(np.mean(frame_rms[-n_frames // 4:]))
                 sustain = float(np.clip(tail_rms / peak_rms, 0.0, 1.0))
             else:
                 sustain = 0.0
@@ -5665,7 +5668,7 @@ def scan_splice_library(
             "tags":        [],
             "measured":    True,
             "is_drum":     False,
-            "scan_date":   datetime.datetime.utcnow().isoformat(),
+            "scan_date":   datetime.datetime.now(datetime.timezone.utc).isoformat(),
             "transient":   round(transient, 3),
             "sustain":     round(sustain, 3),
             "width":       round(width, 3),
@@ -5776,7 +5779,7 @@ def recommend_presets(
     usable_slice = scored[third : third * 2]
     clash_slice  = scored[third * 2:]
 
-    def _fmt(items: list[tuple[float, dict]], n: int) -> list[dict]:
+    def _format_scored_entries(items: list[tuple[float, dict]], n: int) -> list[dict]:
         result = []
         for score, entry in items[:n]:
             result.append({
@@ -5790,9 +5793,9 @@ def recommend_presets(
         return result
 
     return {
-        "best_fit":     _fmt(best_slice, top_n),
-        "usable":       _fmt(usable_slice, top_n),
-        "likely_clash": _fmt(clash_slice, top_n),
+        "best_fit":     _format_scored_entries(best_slice, top_n),
+        "usable":       _format_scored_entries(usable_slice, top_n),
+        "likely_clash": _format_scored_entries(clash_slice, top_n),
         "total_scored": total,
         "target_bands": target_bands,
         "avoid_bands":  avoid_bands,
@@ -5889,7 +5892,7 @@ def audit_preset(
     target_entry = matches[0]
     target_entry.update(measured)
     target_entry["measured"] = True
-    target_entry["scan_date"] = datetime.datetime.utcnow().isoformat()
+    target_entry["scan_date"] = datetime.datetime.now(datetime.timezone.utc).isoformat()
 
     _save_cache(cache)
 
