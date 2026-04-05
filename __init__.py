@@ -7,6 +7,7 @@ from __future__ import absolute_import, print_function, unicode_literals
 
 import json
 import math
+import os
 import socket
 import struct
 import threading
@@ -2490,3 +2491,115 @@ class AbletonMPCX(ControlSurface):
         snapshot["track_count"] = len(tracks)
 
         return snapshot
+
+    # -------------------------------------------------------------------------
+    # Missing media
+    # -------------------------------------------------------------------------
+
+    def _cmd_get_missing_media(self, params):
+        """Return all clips with missing/offline audio files."""
+        s = self._song
+        all_tracks = list(s.tracks) + list(s.return_tracks)
+        missing = []
+        total_checked = 0
+        for track_index, track in enumerate(all_tracks):
+            is_return = track_index >= len(list(s.tracks))
+            display_index = track_index - len(list(s.tracks)) if is_return else track_index
+            for slot_index, slot in enumerate(track.clip_slots):
+                if not slot.has_clip:
+                    continue
+                clip = slot.clip
+                if not clip.is_audio_clip:
+                    continue
+                total_checked += 1
+                try:
+                    file_path = clip.file_path
+                except AttributeError:
+                    file_path = ""
+                if not file_path or not os.path.exists(file_path):
+                    missing.append({
+                        "track_index": track_index,
+                        "track_name": track.name,
+                        "clip_index": slot_index,
+                        "clip_name": clip.name,
+                        "sample_path": file_path,
+                        "status": "missing" if file_path else "no_path",
+                        "is_return_track": is_return,
+                    })
+        return {"missing": missing, "total_checked": total_checked}
+
+    def _cmd_search_missing_media(self, params):
+        """Search folders to relink missing audio samples."""
+        search_folders = params.get("search_folders", [])
+        missing_result = self._cmd_get_missing_media({})
+        missing_clips = missing_result.get("missing", [])
+
+        relinked = []
+        still_missing = []
+
+        # Build a filename→path index up front to avoid repeated os.walk calls
+        filename_index = {}
+        for folder in search_folders:
+            try:
+                for root, _dirs, files in os.walk(folder):
+                    for fname in files:
+                        if fname not in filename_index:
+                            filename_index[fname] = os.path.join(root, fname)
+            except (OSError, IOError):
+                pass  # skip inaccessible or non-existent folders
+
+        s = self._song
+        all_tracks = list(s.tracks) + list(s.return_tracks)
+
+        for entry in missing_clips:
+            track_index = entry["track_index"]
+            slot_index = entry["clip_index"]
+            original_path = entry["sample_path"]
+            filename = os.path.basename(original_path) if original_path else ""
+
+            if not filename:
+                still_missing.append({
+                    "sample_name": "",
+                    "original_path": original_path,
+                    "track_index": track_index,
+                    "clip_index": slot_index,
+                })
+                continue
+
+            found_path = filename_index.get(filename)
+
+            if found_path:
+                track = all_tracks[track_index]
+                slot = list(track.clip_slots)[slot_index]
+                clip = slot.clip
+                new_path = found_path
+
+                def _relink(c=clip, p=new_path):
+                    try:
+                        c.file_path = p
+                    except AttributeError:
+                        pass
+
+                self._run_on_main_thread(_relink)
+                relinked.append({
+                    "sample_name": filename,
+                    "old_path": original_path,
+                    "new_path": new_path,
+                    "track_index": track_index,
+                    "clip_index": slot_index,
+                })
+            else:
+                still_missing.append({
+                    "sample_name": filename,
+                    "original_path": original_path,
+                    "track_index": track_index,
+                    "clip_index": slot_index,
+                })
+
+        return {
+            "relinked": relinked,
+            "still_missing": still_missing,
+            "relinked_count": len(relinked),
+            "still_missing_count": len(still_missing),
+            "searched_folders": search_folders,
+        }
