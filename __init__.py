@@ -1568,6 +1568,114 @@ class AbletonMPCX(ControlSurface):
         return {"point_count": len(points)}
 
     # -------------------------------------------------------------------------
+    # Arrangement automation
+    # -------------------------------------------------------------------------
+
+    def _cmd_get_arrangement_automation_targets(self, params):
+        """Return all automatable parameters for a track/device combination."""
+        track_index = int(params["track_index"])
+        device_index = params.get("device_index")
+        track = self._get_track(track_index)
+        result = []
+        if device_index is not None:
+            device = self._get_device(track_index, int(device_index))
+            for i, p in enumerate(device.parameters):
+                result.append({
+                    "parameter_index": i,
+                    "name": p.name,
+                    "original_name": getattr(p, "original_name", p.name),
+                    "value": p.value,
+                    "min": p.min,
+                    "max": p.max,
+                    "is_quantized": p.is_quantized,
+                })
+            return {"parameters": result, "device_name": device.name}
+        # No device_index — return mixer parameters
+        mixer = track.mixer_device
+        for i, p in enumerate(mixer.parameters):
+            result.append({
+                "parameter_index": i,
+                "name": p.name,
+                "original_name": getattr(p, "original_name", p.name),
+                "value": p.value,
+                "min": p.min,
+                "max": p.max,
+                "is_quantized": p.is_quantized,
+            })
+        return {"parameters": result, "device_name": "Mixer"}
+
+    def _cmd_write_arrangement_automation(self, params):
+        """Write automation points to an arrangement lane for a device parameter."""
+        track_index = int(params["track_index"])
+        device_index = params.get("device_index")
+        parameter_index = int(params["parameter_index"])
+        points = params.get("points", [])
+        clear_range = bool(params.get("clear_range", False))
+
+        track = self._get_track(track_index)
+
+        if device_index is not None:
+            device = self._get_device(track_index, int(device_index))
+            parameters = list(device.parameters)
+        else:
+            parameters = list(track.mixer_device.parameters)
+            device_index = None
+
+        if parameter_index < 0 or parameter_index >= len(parameters):
+            raise IndexError("parameter_index {} out of range".format(parameter_index))
+        target_param = parameters[parameter_index]
+        param_name = target_param.name
+
+        def fn():
+            if not hasattr(track, "automation_envelopes"):
+                raise RuntimeError(
+                    "Arrangement automation requires Live 9+. "
+                    "track.automation_envelopes not available."
+                )
+            # Get or create the envelope for this parameter
+            env = None
+            if hasattr(track, "automation_envelope") and callable(track.automation_envelope):
+                try:
+                    env = track.automation_envelope(target_param)
+                except Exception:
+                    env = None
+            if env is None:
+                for candidate in track.automation_envelopes:
+                    try:
+                        if candidate.automation_parameter == target_param:
+                            env = candidate
+                            break
+                    except Exception:
+                        continue
+            if env is None:
+                raise RuntimeError(
+                    "Could not get or create arrangement automation envelope "
+                    "for parameter '{}'.".format(param_name)
+                )
+            if clear_range and points:
+                times = [float(pt["time"]) for pt in points]
+                start_time = min(times)
+                end_time = max(times)
+                try:
+                    env.clear_envelope(start_time, end_time - start_time)
+                except AttributeError:
+                    pass
+            for pt in points:
+                try:
+                    env.insert_step(float(pt["time"]), 0.0, float(pt["value"]))
+                except AttributeError:
+                    raise RuntimeError("insert_step not available in this Live version")
+            return len(points)
+
+        points_written = self._run_on_main_thread(fn)
+        return {
+            "points_written": points_written,
+            "parameter_name": param_name,
+            "track_index": track_index,
+            "device_index": device_index,
+        }
+
+    # -------------------------------------------------------------------------
     # Device (read)
     # -------------------------------------------------------------------------
 
@@ -2382,115 +2490,3 @@ class AbletonMPCX(ControlSurface):
         snapshot["track_count"] = len(tracks)
 
         return snapshot
-
-    def _cmd_write_arrangement_automation(self, params):
-        """
-        Write automation points for a device parameter or the track's mixer volume
-        in the arrangement view.
-
-        For device parameters, provide device_index and parameter_index.
-        For mixer volume, omit device_index (or pass None) — the track's
-        mixer_device.volume parameter is targeted automatically.
-
-        Points are written to the arrangement clip that covers the full time range
-        of the points.  If no single clip covers the range, an error is raised.
-
-        params:
-            track_index: int
-            device_index: int or None  (None = mixer volume)
-            parameter_index: int  (required when device_index is provided)
-            points: list of {"time": float_beats, "value": float_0_to_1}
-            clear_range: bool (default True) — clear existing points before writing
-        """
-        track_index = int(params["track_index"])
-        points = params.get("points", [])
-        clear_range = params.get("clear_range", True)
-
-        if not points:
-            return {"points_written": 0}
-
-        track = self._get_track(track_index)
-
-        # Resolve target Live parameter object
-        raw_device_index = params.get("device_index")
-        if raw_device_index is None:
-            target_param = track.mixer_device.volume
-        else:
-            device = self._get_device(track_index, int(raw_device_index))
-            param_index = int(params["parameter_index"])
-            device_params = list(device.parameters)
-            if param_index < 0 or param_index >= len(device_params):
-                raise IndexError("parameter_index {} out of range".format(param_index))
-            target_param = device_params[param_index]
-
-        start_beats = float(min(p["time"] for p in points))
-        end_beats = float(max(p["time"] for p in points))
-
-        written = [0]
-
-        def fn():
-            if not hasattr(track, "arrangement_clips"):
-                raise RuntimeError(
-                    "track.arrangement_clips not available; "
-                    "this Live version may not support arrangement automation via the API"
-                )
-
-            # Find the arrangement clip whose time range fully contains our points
-            covering_clip = None
-            for clip in track.arrangement_clips:
-                cs = float(clip.start_time)
-                ce = float(clip.end_time)
-                if cs <= start_beats and ce >= end_beats:
-                    covering_clip = clip
-                    break
-
-            if covering_clip is None:
-                raise RuntimeError(
-                    "No arrangement clip covers the time range [{}, {}] on track {}. "
-                    "Create a clip spanning that range first.".format(
-                        start_beats, end_beats, track_index
-                    )
-                )
-
-            clip_start = float(covering_clip.start_time)
-
-            # Locate the automation envelope for the target parameter
-            target_env = None
-            if hasattr(covering_clip, "automation_envelopes"):
-                for env in covering_clip.automation_envelopes:
-                    env_param = getattr(env, "automation_parameter", None)
-                    if env_param is not None and env_param is target_param:
-                        target_env = env
-                        break
-
-            # If not found, try clip.automation_envelope(param) (Live 11.1+)
-            if target_env is None and hasattr(covering_clip, "automation_envelope"):
-                try:
-                    target_env = covering_clip.automation_envelope(target_param)
-                except Exception:
-                    pass
-
-            if target_env is None:
-                raise RuntimeError(
-                    "Could not find or create automation envelope for parameter '{}' "
-                    "in arrangement clip on track {}. "
-                    "Automate this parameter manually once to create the envelope.".format(
-                        getattr(target_param, "name", "unknown"), track_index
-                    )
-                )
-
-            if clear_range:
-                try:
-                    # clear_all_envelopes() is the Live API method on an individual
-                    # AutomationEnvelope; despite the name it clears only this envelope's points.
-                    target_env.clear_all_envelopes()
-                except AttributeError:
-                    pass
-
-            for pt in points:
-                rel_time = float(pt["time"]) - clip_start
-                target_env.insert_step(rel_time, 0.0, float(pt["value"]))
-                written[0] += 1
-
-        self._run_on_main_thread(fn)
-        return {"points_written": written[0]}
