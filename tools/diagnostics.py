@@ -5,6 +5,7 @@ import collections
 import copy
 import datetime
 import json
+import logging
 import math
 import os
 import pathlib
@@ -18,6 +19,8 @@ import threading
 import time
 from contextlib import contextmanager
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 import helpers
 from helpers import (
@@ -159,9 +162,8 @@ def _load_cache() -> dict:
         try:
             with open(_CACHE_FILE, "r", encoding="utf-8") as fh:
                 return json.load(fh)
-        except Exception:
-            pass
-    return {"entries": []}
+        except Exception as e:
+            logger.warning("Failed to load sound library cache: %s", e)
 
 
 def _save_cache(cache: dict) -> None:
@@ -270,18 +272,16 @@ def _parse_prt_omni(path: pathlib.Path) -> tuple[str, list[str]]:
         if isinstance(char, list):
             tags = [str(t) for t in char]
         return name, tags
-    except Exception:
-        pass
-    # Fall back to text regex search
+    except Exception as e:
+        logger.debug("Failed to parse plist for '%s': %s", path, e)
     try:
         text = path.read_text(encoding="utf-8", errors="replace")
         m = re.search(r"PatchName[^\w]+([\w\s]+)", text)
         if m:
             name = m.group(1).strip()
         tags = re.findall(r"<string>([\w]+)</string>", text)
-    except Exception:
-        pass
-    return name, tags
+    except Exception as e:
+        logger.debug("Failed to read text for '%s': %s", path, e)
 
 
 def _apply_omnisphere_tags(
@@ -656,8 +656,8 @@ def scan_splice_library(
                     corr = float(np.mean(left * right) / denom)
                     # corr=1 → mono, corr=-1 → fully out of phase → wide
                     width = float(np.clip((1.0 - corr) / 2.0, 0.0, 1.0))
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug("Could not measure stereo width for '%s': %s", fpath, e)
 
         entry: dict = {
             "path":        path_str,
@@ -1240,11 +1240,8 @@ def diagnose_mix() -> dict:
                 penalty += 20
             else:
                 info.append("Master bus: {:+.1f} dB".format(db))
-    except Exception:
-        pass
-
-    if not warnings:
-        info.append("Mix looks healthy — no major issues found")
+    except Exception as e:
+        logger.warning("Could not complete mix health check: %s", e)
     else:
         recommendations.append("Address clipping tracks first, then review devices and routing")
 

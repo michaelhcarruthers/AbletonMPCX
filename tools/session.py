@@ -5,6 +5,7 @@ import collections
 import copy
 import datetime
 import json
+import logging
 import math
 import os
 import pathlib
@@ -17,6 +18,8 @@ import time
 from contextlib import contextmanager
 from typing import Any
 
+logger = logging.getLogger(__name__)
+
 import helpers
 from helpers import (
     mcp,
@@ -25,8 +28,11 @@ from helpers import (
     _operation_log,
     _MAX_LOG_ENTRIES,
     _snapshots,
+    _snapshots_lock,
     _reference_profiles,
+    _reference_profiles_lock,
     _audio_analysis_cache,
+    _audio_analysis_cache_lock,
     _get_memory,
     _save_memory,
     _load_memory,
@@ -485,7 +491,8 @@ def take_snapshot(label: str) -> dict:
     snapshot = _send("get_session_snapshot")
     snapshot["_label"] = label
     snapshot["_timestamp_ms"] = int(time.time() * 1000)
-    _snapshots[label] = snapshot
+    with _snapshots_lock:
+        _snapshots[label] = snapshot
     return {
         "label": label,
         "track_count": snapshot.get("track_count", 0),
@@ -502,25 +509,27 @@ def list_snapshots() -> dict:
     Returns:
         snapshots: list of {label, track_count, scene_count, timestamp_ms}
     """
-    return {
-        "snapshots": [
-            {
-                "label": label,
-                "track_count": s.get("track_count", 0),
-                "scene_count": s.get("scene_count", 0),
-                "timestamp_ms": s.get("_timestamp_ms", 0),
-            }
-            for label, s in sorted(_snapshots.items(), key=lambda x: x[1].get("_timestamp_ms", 0))
-        ]
-    }
+    with _snapshots_lock:
+        return {
+            "snapshots": [
+                {
+                    "label": label,
+                    "track_count": s.get("track_count", 0),
+                    "scene_count": s.get("scene_count", 0),
+                    "timestamp_ms": s.get("_timestamp_ms", 0),
+                }
+                for label, s in sorted(_snapshots.items(), key=lambda x: x[1].get("_timestamp_ms", 0))
+            ]
+        }
 
 
 @mcp.tool()
 def delete_snapshot(label: str) -> dict:
     """Delete a stored snapshot by label."""
-    if label not in _snapshots:
-        raise ValueError("No snapshot with label '{}'".format(label))
-    del _snapshots[label]
+    with _snapshots_lock:
+        if label not in _snapshots:
+            raise ValueError("No snapshot with label '{}'".format(label))
+        del _snapshots[label]
     return {"deleted": label}
 
 
@@ -588,13 +597,13 @@ def diff_snapshots(label_a: str, label_b: str) -> dict:
         take_snapshot('after')
         diff_snapshots('before', 'after')
     """
-    if label_a not in _snapshots:
-        raise ValueError("No snapshot with label '{}'".format(label_a))
-    if label_b not in _snapshots:
-        raise ValueError("No snapshot with label '{}'".format(label_b))
-
-    a = _snapshots[label_a]
-    b = _snapshots[label_b]
+    with _snapshots_lock:
+        if label_a not in _snapshots:
+            raise ValueError("No snapshot with label '{}'".format(label_a))
+        if label_b not in _snapshots:
+            raise ValueError("No snapshot with label '{}'".format(label_b))
+        a = _snapshots[label_a]
+        b = _snapshots[label_b]
 
     changes: list = []
     _diff_value(a, b, "session", changes)
@@ -621,11 +630,12 @@ def diff_snapshot_vs_live(label: str) -> dict:
     Returns:
         label, change_count, changes: list of {path, before, after}
     """
-    if label not in _snapshots:
-        raise ValueError("No snapshot with label '{}'".format(label))
+    with _snapshots_lock:
+        if label not in _snapshots:
+            raise ValueError("No snapshot with label '{}'".format(label))
+        a = _snapshots[label]
 
     live = _send("get_session_snapshot")
-    a = _snapshots[label]
 
     changes: list = []
     _diff_value(a, live, "session", changes)
@@ -802,7 +812,8 @@ def save_snapshot_to_project(label: str) -> dict:
     mem.setdefault("snapshots", {})[label] = snapshot
     _save_memory(helpers._current_project_id, mem)
     # Also store in-process for diff tools
-    _snapshots[label] = snapshot
+    with _snapshots_lock:
+        _snapshots[label] = snapshot
     return {
         "label": label,
         "track_count": snapshot.get("track_count", 0),
@@ -824,8 +835,9 @@ def load_snapshots_from_project() -> dict:
     """
     mem = _get_memory()
     persisted = mem.get("snapshots", {})
-    for label, snap in persisted.items():
-        _snapshots[label] = snap
+    with _snapshots_lock:
+        for label, snap in persisted.items():
+            _snapshots[label] = snap
     return {"loaded": list(persisted.keys()), "count": len(persisted)}
 
 
@@ -1003,10 +1015,8 @@ def suggest_next_actions() -> dict:
                 "priority": "low",
             })
 
-    except Exception:
-        pass
-
-    # 4. Operation log patterns
+    except Exception as e:
+        logger.warning("Could not fetch session snapshot for suggestions: %s", e)
     if _operation_log:
         recent_cmds = [e["command"] for e in _operation_log[-20:]]
 
@@ -1053,21 +1063,24 @@ def suggest_next_actions() -> dict:
                             "reason": "Your preferences mention a reverb preference but no return track is named for reverb.",
                             "priority": "medium",
                         })
-                except Exception:
-                    pass
-        except Exception:
-            pass
+                except Exception as e:
+                    logger.debug("Could not fetch return tracks for suggestion: %s", e)
+        except Exception as e:
+            logger.debug("Could not read project memory for suggestions: %s", e)
 
     # Reference profile suggestion
-    if "default" in _reference_profiles:
-        ref = _reference_profiles.get("default", {})
-        if ref.get("type") == "clip_feel":
+    with _reference_profiles_lock:
+        ref_profile_default = _reference_profiles.get("default")
+        has_audio_ref = "default_audio" in _reference_profiles
+
+    if ref_profile_default is not None:
+        if ref_profile_default.get("type") == "clip_feel":
             suggestions.append({
                 "action": "compare_clip_feel(track_index, slot_index, reference_label='default')",
                 "reason": "A clip feel reference profile exists. Use compare_clip_feel() to check how your current clips compare.",
                 "priority": "low",
             })
-        elif ref.get("type") == "mix_state":
+        elif ref_profile_default.get("type") == "mix_state":
             suggestions.append({
                 "action": "compare_mix_state(reference_label='default')",
                 "reason": "A mix state reference profile exists. Use compare_mix_state() to check what has changed.",
@@ -1075,7 +1088,7 @@ def suggest_next_actions() -> dict:
             })
 
     # Audio reference suggestion
-    if "default_audio" in _reference_profiles:
+    if has_audio_ref:
         suggestions.append({
             "action": "compare_audio('/path/to/your/bounce.wav', reference_label='default_audio')",
             "reason": "An audio reference profile exists. Export a bounce and compare it against your reference.",
@@ -1182,8 +1195,8 @@ def analyse_mix_state() -> dict:
                         "category": "levels",
                         "severity": "info",
                     })
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug("Could not read project memory for mix analysis: %s", e)
 
     except Exception as e:
         observations.append({
@@ -1530,9 +1543,8 @@ def auto_name_all_tracks(dry_run: bool = False, skip_named: bool = True) -> dict
                 _send("set_track_color", {"track_index": idx, "color": color})
                 applied = True
                 applied_count += 1
-            except RuntimeError:
-                pass
-        elif skipped_reason:
+            except RuntimeError as e:
+                logger.debug("Could not rename/recolor track %s: %s", idx, e)
             skipped_count += 1
 
         results.append({
@@ -1669,10 +1681,8 @@ def auto_name_scene(scene_index: int, dry_run: bool = False) -> dict:
                 clip_name = slot.get("clip_name", slot.get("name", ""))
                 if clip_name:
                     clip_names.append(clip_name.lower())
-        except RuntimeError:
-            pass
-
-    combined = " ".join(clip_names)
+        except RuntimeError as e:
+            logger.debug("Could not get clip slots for track %s: %s", idx, e)
     suggested_name = "Scene {}".format(scene_index + 1)
     inference_basis = "position"
 
@@ -1759,11 +1769,8 @@ def save_device_snapshot(
                 "device_name": device.get("name", ""),
                 "parameters": param_map,
             }
-        except RuntimeError:
-            pass
-
-    saved_at = datetime.datetime.now(datetime.timezone.utc).isoformat()
-    all_snapshots = _load_json_cache(_DEVICE_SNAPSHOTS_PATH, {})
+        except RuntimeError as e:
+            logger.debug("Could not get parameters for device %s on track %s: %s", dev_idx, track_index, e)
     track_key = str(track_index)
     if track_key not in all_snapshots:
         all_snapshots[track_key] = {}
@@ -1815,8 +1822,8 @@ def recall_device_snapshot(
 
     try:
         _send("begin_undo_step", {"name": "recall_snapshot_{}".format(snapshot_name)})
-    except RuntimeError:
-        pass
+    except RuntimeError as e:
+        logger.debug("Could not begin undo step for snapshot recall: %s", e)
 
     parameters_restored = 0
     devices_restored = 0
@@ -1837,15 +1844,14 @@ def recall_device_snapshot(
                 })
                 parameters_restored += 1
                 restored_any = True
-            except RuntimeError:
-                pass
-        if restored_any:
+            except RuntimeError as e:
+                logger.debug("Could not restore parameter %s on device %s: %s", param_idx_str, dev_idx, e)
             devices_restored += 1
 
     try:
         _send("end_undo_step", {})
-    except RuntimeError:
-        pass
+    except RuntimeError as e:
+        logger.debug("Could not end undo step for snapshot recall: %s", e)
 
     return {
         "snapshot_name": snapshot_name,
@@ -2044,8 +2050,8 @@ def save_version_snapshot(version_name: str) -> dict:
     try:
         snap_result = full_session_snapshot(snap_label)
         device_snapshot_captured = snap_result.get("tracks_captured", 0) > 0
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning("Could not capture device snapshot for version '%s': %s", version_name, e)
 
     versions = _load_json_cache(_VERSIONS_PATH, [])
     versions.append({
@@ -2295,14 +2301,14 @@ def build_scene_scaffold(
 
         try:
             _send("set_scene_name", {"scene_index": scene_index, "name": name})
-        except RuntimeError:
-            pass
+        except RuntimeError as e:
+            logger.debug("Could not set scene name for scene %s: %s", scene_index, e)
 
         if color_code:
             try:
                 _send("set_scene_color", {"scene_index": scene_index, "color": color})
-            except RuntimeError:
-                pass
+            except RuntimeError as e:
+                logger.debug("Could not set scene color for scene %s: %s", scene_index, e)
 
         scene_list.append({"scene_index": scene_index, "name": name, "bars": bars, "color": color})
 
@@ -2366,8 +2372,8 @@ def place_clip_in_arrangement(
         clip_info = _send("get_clip_info", {"track_index": track_index, "slot_index": clip_index})
         clip_name = clip_info.get("name", "")
         clip_length_beats = float(clip_info.get("length", 0.0))
-    except RuntimeError:
-        pass
+    except RuntimeError as e:
+        logger.debug("Could not get clip info for track %s slot %s: %s", track_index, clip_index, e)
 
     try:
         _send("duplicate_clip_to_arrangement", {
@@ -2514,9 +2520,8 @@ def arrange_from_scene_scaffold(
                     if clip_len > 0:
                         length_beats = clip_len
                         break
-                except RuntimeError:
-                    pass
-            length_bars = max(1, round(length_beats / time_signature_numerator)) if length_beats > 0 else 8
+                except RuntimeError as e:
+                    logger.debug("Could not get clip length for track %s scene %s: %s", ti, scene_idx, e)
 
         tracks_placed = 0
         for ti in track_indices:
@@ -2537,8 +2542,8 @@ def arrange_from_scene_scaffold(
                         "time": start_time,
                     })
                     tracks_placed += 1
-                except RuntimeError:
-                    pass
+                except RuntimeError as e:
+                    logger.debug("Could not place clip for track %s scene %s: %s", ti, scene_idx, e)
 
         placements.append({
             "scene_name": scene_name,
@@ -2598,8 +2603,8 @@ def setup_resampling_route(
 
     try:
         _send("set_track_name", {"track_index": resample_track_index, "name": track_name})
-    except RuntimeError:
-        pass
+    except RuntimeError as e:
+        logger.debug("Could not set resample track name: %s", e)
 
     source_routing = "Master" if source_track_index is None else "Track {}".format(source_track_index)
     routing_set = False
@@ -2666,20 +2671,20 @@ def teardown_resampling_route(resample_track_index: int) -> dict:
     try:
         _send("set_track_arm", {"track_index": resample_track_index, "arm": False})
         disarmed = True
-    except RuntimeError:
-        pass
+    except RuntimeError as e:
+        logger.debug("Could not disarm resampling track %s: %s", resample_track_index, e)
 
     routing_reset = False
     try:
         _send("set_track_monitor", {"track_index": resample_track_index, "monitor": 0})
         routing_reset = True
-    except RuntimeError:
-        pass
+    except RuntimeError as e:
+        logger.debug("Could not reset monitor mode for resampling track %s: %s", resample_track_index, e)
 
     try:
         _send("set_track_input_routing", {"track_index": resample_track_index, "routing": "default"})
-    except RuntimeError:
-        pass
+    except RuntimeError as e:
+        logger.debug("Could not reset input routing for resampling track %s: %s", resample_track_index, e)
 
     return {
         "resample_track_index": resample_track_index,
@@ -2753,8 +2758,8 @@ def full_session_snapshot(snapshot_name: str) -> dict:
             idx = t.get("index", t.get("track_index"))
             if idx is not None:
                 track_indices.append(idx)
-    except RuntimeError:
-        pass
+    except RuntimeError as e:
+        logger.debug("Could not get tracks for full session snapshot: %s", e)
 
     try:
         return_tracks = _send("get_return_tracks")
@@ -2762,8 +2767,8 @@ def full_session_snapshot(snapshot_name: str) -> dict:
             idx = rt.get("index", rt.get("track_index"))
             if idx is not None:
                 track_indices.append(("return", idx))
-    except RuntimeError:
-        pass
+    except RuntimeError as e:
+        logger.debug("Could not get return tracks for full session snapshot: %s", e)
 
     all_snapshots = _load_json_cache(_DEVICE_SNAPSHOTS_PATH, {})
 
@@ -2798,10 +2803,8 @@ def full_session_snapshot(snapshot_name: str) -> dict:
                     "device_name": device.get("name", ""),
                     "parameters": param_map,
                 }
-            except RuntimeError:
-                pass
-
-        if not all_snapshots.get(track_key):
+            except RuntimeError as e:
+                logger.debug("Could not get parameters for device %s on track %s: %s", dev_idx, ti, e)
             all_snapshots[track_key] = {}
         all_snapshots[track_key][snapshot_name] = {
             "devices": snapshot_data,
@@ -2864,8 +2867,8 @@ def session_audit(fix: bool = False) -> dict:
                     auto_name_track(idx, dry_run=False)
                     fixed = True
                     issues_fixed += 1
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.debug("Could not auto-name track %s during audit fix: %s", idx, e)
             issues.append({
                 "type": "unnamed_track",
                 "severity": "warning",
@@ -2883,8 +2886,8 @@ def session_audit(fix: bool = False) -> dict:
                     _send("set_track_arm", {"track_index": idx, "arm": False})
                     fixed = True
                     issues_fixed += 1
-                except RuntimeError:
-                    pass
+                except RuntimeError as e:
+                    logger.debug("Could not disarm track %s during audit fix: %s", idx, e)
             issues.append({
                 "type": "track_armed",
                 "severity": "warning",
@@ -2906,10 +2909,8 @@ def session_audit(fix: bool = False) -> dict:
                     "auto_fixable": False,
                     "fixed": False,
                 })
-        except RuntimeError:
-            pass
-
-    # Check for no snapshots saved
+        except RuntimeError as e:
+            logger.debug("Could not get devices for track %s during audit: %s", idx, e)
     all_snapshots = _load_json_cache(_DEVICE_SNAPSHOTS_PATH, {})
     if not all_snapshots:
         issues.append({
@@ -2933,9 +2934,8 @@ def session_audit(fix: bool = False) -> dict:
                     if clip_info:
                         has_clip = True
                         break
-                except RuntimeError:
-                    pass
-            if not has_clip:
+                except RuntimeError as e:
+                    logger.debug("Could not get clip info for track %s scene %s during audit: %s", ti, scene_idx, e)
                 issues.append({
                     "type": "empty_scene",
                     "severity": "info",
@@ -2946,10 +2946,8 @@ def session_audit(fix: bool = False) -> dict:
                     "auto_fixable": False,
                     "fixed": False,
                 })
-    except RuntimeError:
-        pass
-
-    has_issue = any(i["severity"] == "issues" for i in issues)
+    except RuntimeError as e:
+        logger.debug("Could not check scenes during session audit: %s", e)
     has_warning = any(i["severity"] == "warning" for i in issues)
     if has_issue:
         session_health = "issues"
@@ -3049,10 +3047,8 @@ def mix_correction_loop(
                 target_parameter_index = p.get("index", p.get("parameter_index", 0))
                 target_param_name = p_name
                 break
-        except RuntimeError:
-            pass
-        if target_device_index is not None:
-            break
+        except RuntimeError as e:
+            logger.debug("Could not get parameters for device %s on track %s: %s", dev_idx, track_index, e)
 
     if target_device_index is None or target_parameter_index is None:
         return {
@@ -3135,8 +3131,8 @@ def mix_correction_loop(
         try:
             save_device_snapshot(track_index, snap_label, device_index=target_device_index)
             snapshot_saved = True
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning("Could not save post-correction snapshot: %s", e)
 
     if steps_taken > 0:
         summary = "Adjusted '{}' on track {} by {} step(s) to {} the '{}' band. Improved: {}.".format(
@@ -3648,8 +3644,8 @@ def render_track_to_audio(
     # Make sure we are not already playing / recording
     try:
         _send("stop_playing")
-    except RuntimeError:
-        pass
+    except RuntimeError as e:
+        logger.debug("Could not stop playing before recording: %s", e)
 
     # --- Step 7: Start Arrangement recording ---
     try:
@@ -3669,32 +3665,34 @@ def render_track_to_audio(
         # Cleanup on failure
         try:
             _send("set_track_arm", {"track_index": new_track_index, "arm": False})
-        except RuntimeError:
-            pass
+        except RuntimeError as e2:
+            logger.debug("Could not disarm track during recording cleanup: %s", e2)
         return {"error": "Could not start playback: {}".format(e), "warnings": warnings}
 
-    # --- Step 8: Wait for the recording duration ---
-    time.sleep(duration_seconds + 0.5)
+    # --- Step 8: Launch background thread to stop recording after duration ---
+    _render_warnings = warnings  # captured by closure
 
-    # --- Step 9: Stop recording ---
-    try:
-        _send("stop_playing")
-    except RuntimeError as e:
-        warnings.append("Could not stop playback: {}".format(e))
+    def _stop_recording_after_delay():
+        time.sleep(duration_seconds + 0.5)
+        try:
+            _send("stop_playing")
+        except RuntimeError as e:
+            logger.warning("Could not stop playback after recording: %s", e)
+        try:
+            _send("set_record_mode", {"record_mode": False})
+        except RuntimeError as e:
+            logger.debug("Could not disable record mode after recording: %s", e)
+        try:
+            _send("set_track_arm", {"track_index": new_track_index, "arm": False})
+        except RuntimeError as e:
+            logger.warning("Could not disarm new track after recording: %s", e)
 
-    try:
-        _send("set_record_mode", {"record_mode": False})
-    except RuntimeError:
-        pass
+    _t = threading.Thread(target=_stop_recording_after_delay, daemon=True)
+    _t.start()
 
-    # --- Step 10: Disarm the new track ---
-    try:
-        _send("set_track_arm", {"track_index": new_track_index, "arm": False})
-    except RuntimeError as e:
-        warnings.append("Could not disarm new track: {}".format(e))
-
-    # --- Step 11: Return result ---
+    # --- Step 9–11: Return immediately; recording will stop automatically ---
     result: dict[str, Any] = {
+        "status": "recording_started",
         "new_track_index": new_track_index,
         "new_track_name": new_track_name,
         "source_track_name": source_track_name,
@@ -3708,6 +3706,7 @@ def render_track_to_audio(
         "routing_channel_name": routing_channel_name,
         "routing_set": routing_set,
         "use_resampling": use_resampling,
+        "note": "Recording will stop automatically after {:.1f} seconds.".format(duration_seconds + 0.5),
     }
     if warnings:
         result["warnings"] = warnings
