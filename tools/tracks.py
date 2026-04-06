@@ -309,3 +309,53 @@ def ungroup_tracks(track_index: int) -> dict:
     """
     return _send("ungroup_tracks", {"track_index": track_index})
 
+
+@mcp.tool()
+def setup_resampling_route(dest_track_index: int, source_track_name: str) -> dict:
+    """
+    Configure a destination track to record resampled audio from a source track.
+
+    Performs the complete resampling setup in a single main-thread call inside Live:
+      1. Selects the destination track in song.view so Live registers routing changes.
+      2. Finds the source track routing type by matching source_track_name in
+         available_input_routing_types.
+      3. Sets input_routing_channel to "Post FX" (falls back to the first available
+         channel if "Post FX" is not present, and reports a warning).
+      4. Sets current_monitoring_state = 1 (Monitor: In).
+      5. Arms the track last (Live requires routing to be committed before arming).
+
+    Returns confirmed values for arm, monitoring_state, input_routing_type, and
+    input_routing_channel so the caller can verify the route stuck. Any routing
+    errors are included in the response keys ending with "_error".
+
+    Args:
+        dest_track_index: Index of the track that will capture the resampled audio.
+        source_track_name: Display name of the source track (e.g. "Sax (Bounce)").
+
+    Returns:
+        confirmed_arm (bool), confirmed_monitoring_state (int),
+        confirmed_input_routing_type (str), confirmed_input_routing_channel (str),
+        plus any _error or _warning keys if a step could not be applied.
+    """
+    return _send("setup_resampling_route", {
+        "dest_track_index": dest_track_index,
+        "source_track_name": source_track_name,
+    })
+
+
+@mcp.tool()
+def teardown_resampling_route(dest_track_index: int) -> dict:
+    """
+    Disarm the destination track and reset its monitoring state after resampling.
+
+    Reverses the changes made by setup_resampling_route:
+      1. Sets arm = False.
+      2. Sets current_monitoring_state = 0 (Monitor: Auto).
+
+    Returns confirmed arm and monitoring_state values.
+
+    Args:
+        dest_track_index: Index of the track that was used for resampling.
+    """
+    return _send("teardown_resampling_route", {"dest_track_index": dest_track_index})
+

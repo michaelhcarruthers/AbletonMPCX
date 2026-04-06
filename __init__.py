@@ -2695,6 +2695,165 @@ class AbletonMPCX(ControlSurface):
                     })
         return {"missing": missing, "total_checked": total_checked}
 
+    # -------------------------------------------------------------------------
+    # Resampling route setup / teardown
+    # -------------------------------------------------------------------------
+
+    def _cmd_setup_resampling_route(self, params):
+        """
+        Configure a destination track for resampling from a source track.
+
+        Sets up the full recording chain in a single main-thread call:
+          1. Selects the destination track in song.view so Live registers the change.
+          2. Finds the source track's routing type by matching its name in
+             available_input_routing_types.
+          3. Sets input_routing_channel to the first channel whose display_name
+             contains "Post FX" (falls back to the first available channel if not
+             found, but still reports which channel was applied).
+          4. Sets current_monitoring_state = 1 (Monitor In).
+          5. Sets arm = True last (Live requires routing to be set first).
+
+        Reads back all confirmed values and returns them so the caller can
+        verify the route stuck.
+
+        Params:
+            dest_track_index  – track that will record the resampled audio.
+            source_track_name – display name of the source track to route from.
+        """
+        dest_track_index = int(params["dest_track_index"])
+        source_track_name = str(params["source_track_name"])
+
+        dest_track = self._get_track(dest_track_index)
+
+        result = {}
+
+        def fn():
+            # 1. Select the destination track so Live is aware of it.
+            self._song.view.selected_track = dest_track
+
+            # 2. Find the routing type matching the source track name.
+            routing_type_set = False
+            try:
+                available_types = list(dest_track.available_input_routing_types)
+                match = next(
+                    (r for r in available_types if r.display_name == source_track_name),
+                    None,
+                )
+                if match is None:
+                    result["routing_type_error"] = (
+                        "No input routing type with display_name '{}'. "
+                        "Available: {}".format(
+                            source_track_name,
+                            [r.display_name for r in available_types],
+                        )
+                    )
+                else:
+                    dest_track.input_routing_type = match
+                    routing_type_set = True
+                    result["input_routing_type_applied"] = match.display_name
+            except AttributeError as e:
+                result["routing_type_error"] = "input_routing_type not settable: {}".format(e)
+
+            # 3. Set input_routing_channel to "Post FX".
+            if routing_type_set:
+                try:
+                    available_channels = list(dest_track.available_input_routing_channels)
+                    post_fx = next(
+                        (c for c in available_channels if "post fx" in c.display_name.lower()),
+                        None,
+                    )
+                    if post_fx is None:
+                        # Fall back to the first channel and report it.
+                        post_fx = available_channels[0] if available_channels else None
+                        result["routing_channel_warning"] = (
+                            "'Post FX' channel not found; applied first available channel."
+                        )
+                    if post_fx is not None:
+                        dest_track.input_routing_channel = post_fx
+                        result["input_routing_channel_applied"] = post_fx.display_name
+                    else:
+                        result["routing_channel_error"] = "No input routing channels available."
+                except AttributeError as e:
+                    result["routing_channel_error"] = "input_routing_channel not settable: {}".format(e)
+
+            # 4. Set monitoring state to 1 (In).
+            try:
+                dest_track.current_monitoring_state = 1
+                result["monitoring_state_applied"] = 1
+            except AttributeError as e:
+                result["monitoring_state_error"] = "current_monitoring_state not settable: {}".format(e)
+
+            # 5. Arm last.
+            try:
+                dest_track.arm = True
+                result["arm_applied"] = True
+            except AttributeError as e:
+                result["arm_error"] = "arm not settable: {}".format(e)
+
+            # 6. Read back confirmed state.
+            try:
+                result["confirmed_arm"] = dest_track.arm
+            except (AttributeError, RuntimeError):
+                result["confirmed_arm"] = False
+            try:
+                result["confirmed_monitoring_state"] = int(dest_track.current_monitoring_state)
+            except (AttributeError, RuntimeError):
+                result["confirmed_monitoring_state"] = None
+            try:
+                result["confirmed_input_routing_type"] = str(dest_track.input_routing_type)
+            except AttributeError:
+                result["confirmed_input_routing_type"] = None
+            try:
+                result["confirmed_input_routing_channel"] = str(dest_track.input_routing_channel)
+            except AttributeError:
+                result["confirmed_input_routing_channel"] = None
+
+        self._run_on_main_thread(fn)
+        result["dest_track_index"] = dest_track_index
+        result["source_track_name"] = source_track_name
+        return result
+
+    def _cmd_teardown_resampling_route(self, params):
+        """
+        Disarm the destination track and reset its monitoring state.
+
+        Params:
+            dest_track_index – track that was configured for resampling.
+        """
+        dest_track_index = int(params["dest_track_index"])
+        dest_track = self._get_track(dest_track_index)
+
+        result = {}
+
+        def fn():
+            # Disarm.
+            try:
+                dest_track.arm = False
+                result["arm_applied"] = False
+            except AttributeError as e:
+                result["arm_error"] = "arm not settable: {}".format(e)
+
+            # Reset monitoring state to Auto (0).
+            try:
+                dest_track.current_monitoring_state = 0
+                result["monitoring_state_applied"] = 0
+            except AttributeError as e:
+                result["monitoring_state_error"] = "current_monitoring_state not settable: {}".format(e)
+
+            # Read back confirmed state.
+            try:
+                result["confirmed_arm"] = dest_track.arm
+            except (AttributeError, RuntimeError):
+                result["confirmed_arm"] = None
+            try:
+                result["confirmed_monitoring_state"] = int(dest_track.current_monitoring_state)
+            except (AttributeError, RuntimeError):
+                result["confirmed_monitoring_state"] = None
+
+        self._run_on_main_thread(fn)
+        result["dest_track_index"] = dest_track_index
+        return result
+
     def _cmd_search_missing_media(self, params):
         """Search folders to relink missing audio samples."""
         search_folders = params.get("search_folders", [])

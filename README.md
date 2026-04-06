@@ -2,7 +2,7 @@
 
 **AbletonMPCX** is an MCP (Model Context Protocol) server that gives an AI assistant full control of Ableton Live via its Live Object Model (LOM). It consists of two parts:
 
-- **`server.py`** — the MCP server, runs outside Live, exposes 263 tools to the AI.
+- **`server.py`** — the MCP server, runs outside Live, exposes 265 tools to the AI.
 - **`__init__.py`** — the Ableton Remote Script, runs *inside* Live, receives commands over a local TCP socket and executes them on Live's main thread.
 
 ---
@@ -87,6 +87,7 @@ Tools are grouped by area of the Live Object Model:
 | **Master Track** | `get_master_track`, `set_master_volume`, `set_master_pan`, `set_crossfader` |
 | **Tracks** | `get_tracks`, `get_track_info`, `create_audio_track`, `create_midi_track`, `create_return_track`, `delete_track`, `delete_return_track`, `duplicate_track`, `set_track_name`, `set_track_color`, `set_track_mute`, `set_track_solo`, `set_track_arm`, `set_track_volume`, `set_track_pan`, `set_track_send`, `set_crossfade_assign`, `stop_track_clips`, `set_track_fold_state`, `get_return_tracks`, `get_track_routing`, `set_track_input_routing_type`, `set_track_input_routing_channel`, `set_track_output_routing_type`, `set_track_output_routing_channel` |
 | **Track Routing** | `get_track_routing`, `get_available_routings`, `set_track_input_routing`, `set_track_output_routing` |
+| **Resampling** | `setup_resampling_route`, `teardown_resampling_route` |
 | **Clip Slots** | `get_clip_slots`, `fire_clip_slot`, `stop_clip_slot`, `create_clip`, `delete_clip`, `duplicate_clip_slot` |
 | **Clips** | `get_clip_info`, `set_clip_name`, `set_clip_color`, `set_clip_loop`, `set_clip_markers`, `set_clip_mute`, `set_clip_pitch`, `set_clip_gain`, `set_clip_warp_mode`, `set_clip_launch_mode`, `set_clip_launch_quantization`, `get_clip_follow_actions`, `set_clip_follow_actions`, `fire_clip`, `stop_clip`, `crop_clip`, `duplicate_clip_loop`, `quantize_clip` |
 | **Clip Automation Envelopes** | `get_clip_envelopes`, `get_clip_envelope`, `clear_clip_envelope`, `insert_clip_envelope_point`, `set_clip_envelope_points` |
@@ -100,6 +101,32 @@ Tools are grouped by area of the Live Object Model:
 | **Feel / Humanization** | `analyze_clip_feel`, `humanize_notes`, `humanize_dilla`, `auto_humanize_if_robotic`, `fix_groove_from_reference`, `batch_auto_humanize` |
 | **Reference Profiles** | `designate_reference_clip`, `compare_clip_feel`, `designate_reference_mix_state`, `compare_mix_state`, `list_reference_profiles`, `delete_reference_profile` |
 | **Tier 2 Audio Analysis** | `designate_reference_audio`, `analyse_audio`, `compare_audio`, `compare_audio_sections` |
+
+---
+
+## Resampling
+
+`setup_resampling_route` and `teardown_resampling_route` configure a destination track for in-session resampling (capturing the processed output of another track).
+
+### How it works
+
+`setup_resampling_route(dest_track_index, source_track_name)` runs a single atomic call on Live's main thread that:
+1. Selects the destination track in `song.view` so Live registers subsequent routing changes.
+2. Searches `available_input_routing_types` on the destination track for the source track by display name and sets `input_routing_type`.
+3. Searches `available_input_routing_channels` for "Post FX" and sets `input_routing_channel` (falls back to the first channel if not found).
+4. Sets `current_monitoring_state = 1` (Monitor: In).
+5. Sets `arm = True` last — arming after routing avoids the Live limitation where arming too early leaves routing uncommitted.
+
+All applied and confirmed values are returned so the caller can verify the route stuck.
+
+`teardown_resampling_route(dest_track_index)` reverses the setup:
+1. Sets `arm = False`.
+2. Sets `current_monitoring_state = 0` (Monitor: Auto).
+
+| Tool | Description |
+|------|-------------|
+| `setup_resampling_route(dest_track_index, source_track_name)` | Route the destination track's input from the named source track (Post FX), set Monitor to In, and arm. Returns confirmed state. |
+| `teardown_resampling_route(dest_track_index)` | Disarm the destination track and reset its monitoring state to Auto. |
 
 ---
 
