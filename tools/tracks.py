@@ -1,40 +1,8 @@
 """Track tools — master track, audio/MIDI tracks, return tracks, routing, volume, pan, mute, solo, arm, sends, and fold state."""
 from __future__ import annotations
 
-import collections
-import copy
-import datetime
-import json
-import math
-import os
-import pathlib
-import plistlib
-import re
-import shutil
-import socket
-import threading
-import time
-from contextlib import contextmanager
-from typing import Any
-
 import helpers
-from helpers import (
-    mcp,
-    _send,
-    _send_logged,
-    _append_operation,
-    _operation_log,
-    _MAX_LOG_ENTRIES,
-    _snapshots,
-    _reference_profiles,
-    _audio_analysis_cache,
-    _get_memory,
-    _save_memory,
-    _load_memory,
-    _memory_path,
-    _save_reference_profile,
-    _load_reference_profiles_from_project,
-)
+from helpers import mcp, _send
 
 # ---------------------------------------------------------------------------
 # Master Track
