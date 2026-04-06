@@ -12,7 +12,6 @@ import tools.tracks       # noqa: F401
 import tools.clips        # noqa: F401
 import tools.devices      # noqa: F401
 import tools.audit        # noqa: F401
-import tools.spectrum     # noqa: F401
 import tools.performance  # noqa: F401
 import tools.diagnostics  # noqa: F401
 import tools.analysis     # noqa: F401

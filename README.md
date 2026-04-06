@@ -101,6 +101,7 @@ Tools are grouped by area of the Live Object Model:
 | **Feel / Humanization** | `analyze_clip_feel`, `humanize_notes`, `humanize_dilla`, `auto_humanize_if_robotic`, `fix_groove_from_reference`, `batch_auto_humanize` |
 | **Reference Profiles** | `designate_reference_clip`, `compare_clip_feel`, `designate_reference_mix_state`, `compare_mix_state`, `list_reference_profiles`, `delete_reference_profile` |
 | **Tier 2 Audio Analysis** | `designate_reference_audio`, `analyse_audio`, `compare_audio`, `compare_audio_sections` |
+| **Audio Analysis** | `get_loudness`, `get_onsets`, `get_spectral_descriptors`, `get_beat_tracking`, `get_envelope` |
 
 ---
 
@@ -211,54 +212,50 @@ The MCP server (`server.py`) communicates with the Remote Script (`__init__.py`)
 
 ---
 
-## Spectrum Telemetry
+## Audio Analysis
 
-AbletonMPCX includes a permanent, generic spectrum analysis layer that works with the [MCPSpectrumTelemetry](https://github.com/michaelhcarruthers/MCPSpectrumTelemetry) AU plugin (or any compatible spectrum analyzer).
+AbletonMPCX includes a file-based audio analysis stack built on industry-standard Python libraries. Pass an exported audio file (WAV, AIFF, FLAC, MP3) to any of the tools below — no plugin required.
 
-### Architecture
+### Dependencies
 
-| Layer | Responsibility |
-|---|---|
-| **Plugin (MCPSpectrumTelemetry AU)** | Source of truth — defines band names with explicit frequency ranges, e.g. `"Punch (120–250 Hz)"` |
-| **MCP Server (`server.py`)** | Discovery, diagnosis, and write path — agents never need to know device or parameter indices |
-| **Claude / Agent** | Interprets band values and issues commands using the tool layer |
+```
+pip install pyloudnorm aubio essentia madmom scipy soundfile
+```
 
 ### Tools
 
-| Tool | Purpose |
-|---|---|
-| `find_spectrum_analyzers()` | Auto-discover any spectrum analyzer across all tracks (heuristic or name-based) |
-| `get_spectrum_telemetry_instances()` | Find all MCPSpectrum devices with their current band values |
-| `diagnose_spectrum_issue(band)` | Compare a band across all instances, rank sources vs. master |
-| `set_device_parameter_by_name(track, device, name, value)` | Write a parameter by name — no index lookup needed |
-| `set_spectrum_band_on_track(track, band, value)` | High-level: set a band on a track without knowing device/parameter indices |
+| Tool | Purpose | Library |
+|---|---|---|
+| `get_loudness(file_path)` | Integrated LUFS, true peak, and loudness range (ITU-R BS.1770-4) | pyloudnorm |
+| `get_onsets(file_path)` | Transient/onset times and inter-onset intervals | aubio |
+| `get_spectral_descriptors(file_path)` | Brightness (spectral centroid), key, spectral rolloff, flatness, timbral MFCC fingerprint | essentia |
+| `get_beat_tracking(file_path)` | BPM, beat positions, downbeat positions | madmom |
+| `get_envelope(file_path)` | Smoothed amplitude envelope, crest factor, dynamic range | scipy |
 
 ### Usage Example
 
 ```python
-# Find all analyzers (generic — works with any plugin)
-find_spectrum_analyzers()
+# Loudness and dynamic range of a bounce
+get_loudness("/path/to/track.wav")
 
-# Find only MCPSpectrum instances
-get_spectrum_telemetry_instances()
+# Onset/transient map — useful for groove analysis
+get_onsets("/path/to/drums.wav")
 
-# Diagnose where the Punch buildup is coming from
-diagnose_spectrum_issue("Punch (120–250 Hz)")
+# Spectral brightness and key
+get_spectral_descriptors("/path/to/pad.wav")
 
-# Write a band value by name — no index needed
-set_device_parameter_by_name(track_index=2, device_index=0, param_name="Punch (120–250 Hz)", value=-24.0)
+# BPM and beat grid
+get_beat_tracking("/path/to/loop.wav")
 
-# High-level: set band on a track
-set_spectrum_band_on_track(track_index=2, band_name="Punch (120–250 Hz)", value=-24.0)
+# Smoothed dynamics and crest factor
+get_envelope("/path/to/bass.wav")
+
+# Compare spectral balance across multiple files
+analyze_mix_balance(
+    file_paths=["/path/to/kick.wav", "/path/to/bass.wav", "/path/to/pad.wav"],
+    reference_file_path="/path/to/master_bounce.wav",
+)
 ```
-
-### Adding a New Analyzer
-
-No code changes needed. Any device that:
-- Has its name in `device_name_patterns` (passed to `get_spectrum_telemetry_instances`), **OR**
-- Has 4+ parameters with `Hz` in the parameter name (heuristic auto-detection via `find_spectrum_analyzers`)
-
-...will be automatically discovered.
 
 ---
 

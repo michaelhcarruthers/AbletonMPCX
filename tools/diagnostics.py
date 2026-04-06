@@ -133,17 +133,6 @@ _FREQ_BANDS = ["sub", "bass", "punch", "body", "mid", "presence", "air"]
 _CHAR_BANDS = ["transient", "sustain", "width", "density"]
 _ALL_BANDS = _FREQ_BANDS + _CHAR_BANDS
 
-# MCPSpectrum band-name → canonical band key mapping
-_SPECTRUM_BAND_MAP: dict[str, str] = {
-    "sub (20–60 hz)":       "sub",
-    "bass (60–120 hz)":     "bass",
-    "punch (120–250 hz)":   "punch",
-    "body (250–500 hz)":    "body",
-    "mid (500–2k hz)":      "mid",
-    "presence (2k–6k hz)":  "presence",
-    "air (6k–20k hz)":      "air",
-}
-
 # Splice librosa frequency bin ranges (at sr=22050)
 _SPLICE_BAND_RANGES: dict[str, tuple[float, float]] = {
     "sub":      (20.0,   60.0),
@@ -312,174 +301,123 @@ def _apply_omnisphere_tags(
 
 @mcp.tool()
 def analyze_mix_balance(
-    reference_track_index: int = -1,
-    crowded_threshold_db: float = 3.0,
-    missing_threshold_db: float = -6.0,
+    file_paths: list,
+    reference_file_path: str | None = None,
+    crowded_threshold_hz: float = 1000.0,
+    missing_threshold_hz: float = -1000.0,
 ) -> dict:
     """
-    Read existing MCPSpectrum analyzer instances across all tracks and
-    identify crowded, missing, and balanced frequency bands compared to
-    the master/reference track.
+    Analyse spectral balance across a set of audio files using file-based analysis.
+
+    Each file is analysed with get_spectral_descriptors() (essentia). The spectral
+    centroid of every source file is compared against the reference file (or the
+    average of all files if no reference is given) to identify which files are
+    spectrally crowded (too bright) or thin (too dark).
 
     Args:
-        reference_track_index: Track index to use as mix reference.
-                                Default -1 = master track.
-        crowded_threshold_db:  A source band is "crowded" if its average
-                                exceeds the reference by this many dB.
-        missing_threshold_db:  A band is "missing" if the average source
-                                level is below the reference by this many dB.
+        file_paths:            List of absolute paths to audio files to compare.
+        reference_file_path:   Optional path to use as the reference. If None,
+                               the average centroid across all files is used.
+        crowded_threshold_hz:  A file is "bright/crowded" if its centroid exceeds
+                               the reference by more than this many Hz (default 1000).
+        missing_threshold_hz:  A file is "dark/thin" if its centroid is below the
+                               reference by more than |missing_threshold_hz| Hz.
+                               Pass a negative value (default -1000).
 
     Returns:
-        crowded, missing, balanced (lists of band names),
-        recommendations (list of natural-language strings),
-        summary (single summary string).
+        results: per-file spectral descriptors and brightness classification,
+        reference_centroid_hz: centroid of the reference,
+        bright: list of file paths whose centroid is above the reference,
+        dark: list of file paths whose centroid is below the reference,
+        balanced: list of file paths within thresholds,
+        recommendations: list of natural-language strings,
+        summary: single summary string.
     """
-    try:
-        telemetry = get_spectrum_telemetry_instances()
-    except Exception as exc:
-        return {"error": "Could not read spectrum telemetry: {}".format(exc)}
+    from tools.analysis import get_spectral_descriptors
 
-    instances = telemetry.get("instances", [])
-    if not instances:
-        return {
-            "error": (
-                "No MCPSpectrum analyzer instances found. "
-                "Add an MCPSpectrum device to the master and source tracks, "
-                "then run analyze_mix_balance() again."
-            )
-        }
+    if not file_paths:
+        return {"error": "file_paths must not be empty."}
 
-    # Find the reference instance
-    reference_instance = None
-    source_instances = []
-    for inst in instances:
-        if inst.get("track_index") == reference_track_index:
-            reference_instance = inst
-        else:
-            source_instances.append(inst)
+    # Analyse all files
+    results = []
+    errors = []
+    for fp in file_paths:
+        try:
+            desc = get_spectral_descriptors(fp)
+            results.append(desc)
+        except Exception as exc:
+            errors.append({"file_path": fp, "error": str(exc)})
 
-    if reference_instance is None:
-        return {
-            "error": (
-                "No MCPSpectrum analyzer found on reference track {} "
-                "(usually the master, index -1). "
-                "Add MCPSpectrum to that track and try again.".format(
-                    reference_track_index
+    if not results:
+        return {"error": "Could not analyse any files.", "details": errors}
+
+    # Analyse reference file (if provided and not already in results)
+    ref_centroid: float
+    ref_desc: dict | None = None
+    if reference_file_path:
+        try:
+            ref_desc = get_spectral_descriptors(reference_file_path)
+            ref_centroid = ref_desc["spectral_centroid"]
+        except Exception as exc:
+            return {"error": "Could not analyse reference file: {}".format(exc)}
+    else:
+        ref_centroid = sum(r["spectral_centroid"] for r in results) / len(results)
+
+    # Classify each file
+    bright: list[str] = []
+    dark: list[str] = []
+    balanced: list[str] = []
+    recommendations: list[str] = []
+
+    for desc in results:
+        fp = desc["file_path"]
+        delta = desc["spectral_centroid"] - ref_centroid
+        desc["centroid_delta_hz"] = round(delta, 1)
+
+        if delta >= crowded_threshold_hz:
+            bright.append(fp)
+            recommendations.append(
+                "{} is spectrally bright ({:+.0f} Hz above reference centroid) — "
+                "consider high-shelf cut or low-passing competing elements.".format(
+                    fp, delta
                 )
             )
-        }
-
-    # Extract reference band values (0–1 linear)
-    ref_bands: dict[str, float] = {}
-    for band_name, band_info in reference_instance.get("bands", {}).items():
-        key = _SPECTRUM_BAND_MAP.get(band_name.lower())
-        if key:
-            ref_bands[key] = float(band_info.get("value", 0.0))
-
-    if not ref_bands:
-        return {
-            "error": (
-                "Reference track analyzer has no recognised band parameters. "
-                "Expected names like 'Sub (20–60 Hz)'. "
-                "Use get_spectrum_telemetry_instances() to inspect band names."
+        elif delta <= missing_threshold_hz:
+            dark.append(fp)
+            recommendations.append(
+                "{} is spectrally dark ({:+.0f} Hz below reference centroid) — "
+                "consider high-shelf boost or presence boost.".format(fp, delta)
             )
-        }
-
-    # Compute average source values per band
-    source_avg: dict[str, float] = {}
-    if source_instances:
-        band_sums: dict[str, list[float]] = {}
-        for inst in source_instances:
-            for band_name, band_info in inst.get("bands", {}).items():
-                key = _SPECTRUM_BAND_MAP.get(band_name.lower())
-                if key:
-                    band_sums.setdefault(key, []).append(
-                        float(band_info.get("value", 0.0))
-                    )
-        for band, vals in band_sums.items():
-            source_avg[band] = sum(vals) / len(vals)
-
-    def _safe_db(linear: float) -> float:
-        """Convert a linear amplitude value to dB; returns -120 dB for silence."""
-        if linear <= 0.0:
-            return -120.0
-        return 20.0 * math.log10(linear)
-
-    crowded: list[str] = []
-    missing: list[str] = []
-    balanced: list[str] = []
-    band_deltas: dict[str, float] = {}
-
-    for band in _FREQ_BANDS:
-        ref_val = ref_bands.get(band, 0.0)
-        src_val = source_avg.get(band, ref_val)  # fall back to ref if no sources
-
-        ref_db = _safe_db(ref_val)
-        src_db = _safe_db(src_val) if source_instances else ref_db
-        delta = src_db - ref_db
-        band_deltas[band] = round(delta, 1)
-
-        if delta >= crowded_threshold_db:
-            crowded.append(band)
-        elif delta <= missing_threshold_db:
-            missing.append(band)
         else:
-            balanced.append(band)
+            balanced.append(fp)
 
-    # Build natural language recommendations
-    _BAND_LABELS = {
-        "sub":      "Sub (20–60 Hz)",
-        "bass":     "Bass (60–120 Hz)",
-        "punch":    "Punch (120–250 Hz)",
-        "body":     "Body (250–500 Hz)",
-        "mid":      "Mid (500–2 kHz)",
-        "presence": "Presence (2–6 kHz)",
-        "air":      "Air (6–20 kHz)",
-    }
-
-    recommendations: list[str] = []
-    for band in crowded:
-        delta = band_deltas[band]
-        label = _BAND_LABELS.get(band, band)
-        recommendations.append(
-            "{} is crowded ({:+.1f} dB above master) — "
-            "consider cutting here on competing tracks or choosing sounds "
-            "with less {} energy.".format(label, delta, label.split(" ")[0].lower())
+    if bright and dark:
+        summary = "{} file(s) bright, {} file(s) dark relative to reference.".format(
+            len(bright), len(dark)
         )
-    for band in missing:
-        delta = band_deltas[band]
-        label = _BAND_LABELS.get(band, band)
-        recommendations.append(
-            "{} is sparse ({:+.1f} dB below master) — "
-            "adding a sound rich in {} content could fill this gap.".format(
-                label, delta, label.split(" ")[0].lower()
-            )
-        )
-
-    crowded_labels = [_BAND_LABELS.get(b, b) for b in crowded]
-    missing_labels = [_BAND_LABELS.get(b, b) for b in missing]
-
-    if crowded_labels and missing_labels:
-        summary = "Mix is crowded in {} and thin in {}.".format(
-            ", ".join(crowded_labels), ", ".join(missing_labels)
-        )
-    elif crowded_labels:
-        summary = "Mix is crowded in {}.".format(", ".join(crowded_labels))
-    elif missing_labels:
-        summary = "Mix is thin in {}.".format(", ".join(missing_labels))
+    elif bright:
+        summary = "{} file(s) spectrally bright relative to reference.".format(len(bright))
+    elif dark:
+        summary = "{} file(s) spectrally dark relative to reference.".format(len(dark))
     else:
-        summary = "Mix balance looks even across all bands."
+        summary = "All files are spectrally balanced relative to reference."
 
-    return {
-        "crowded":         crowded,
-        "missing":         missing,
-        "balanced":        balanced,
-        "band_deltas_db":  band_deltas,
-        "recommendations": recommendations,
-        "summary":         summary,
-        "reference_track": reference_track_index,
-        "source_count":    len(source_instances),
+    output: dict = {
+        "results":              results,
+        "reference_centroid_hz": round(ref_centroid, 2),
+        "bright":               bright,
+        "dark":                 dark,
+        "balanced":             balanced,
+        "recommendations":      recommendations,
+        "summary":              summary,
+        "file_count":           len(results),
     }
+    if ref_desc:
+        output["reference_file"] = reference_file_path
+        output["reference_descriptors"] = ref_desc
+    if errors:
+        output["errors"] = errors
+    return output
 
 
 # ------------------------------------------------------------------
@@ -869,63 +807,40 @@ def recommend_presets(
 
 @mcp.tool()
 def audit_preset(
-    track_index: int,
+    file_path: str,
     preset_name: str,
     plugin_name: str | None = None,
 ) -> dict:
     """
-    Self-learning: read the MCPSpectrum analyzer on a track after a preset is
-    loaded and playing, then store the measured real descriptor back to the
-    sound library cache, marking the entry as measured=True.
+    Self-learning: analyse an exported audio file for a loaded preset and store the
+    measured spectral descriptors back to the sound library cache, marking the
+    entry as measured=True.
 
-    Load and play the preset on the specified track before calling this tool.
+    Export or bounce the preset to an audio file, then pass its path here.
 
     Args:
-        track_index:  Track that has the preset loaded (and an MCPSpectrum device).
+        file_path:    Absolute path to an audio file (WAV/AIFF/FLAC) of the preset.
         preset_name:  Name of the preset to match in the library (substring match).
         plugin_name:  Optional plugin name to narrow the match.
 
     Returns:
         updated entry dict, or error message.
     """
+    from tools.analysis import get_spectral_descriptors
+
     try:
-        telemetry = get_spectrum_telemetry_instances()
+        desc = get_spectral_descriptors(file_path)
     except Exception as exc:
-        return {"error": "Could not read spectrum telemetry: {}".format(exc)}
+        return {"error": "Could not analyse file '{}': {}".format(file_path, exc)}
 
-    instances = telemetry.get("instances", [])
-    track_instance = None
-    for inst in instances:
-        if inst.get("track_index") == track_index:
-            track_instance = inst
-            break
-
-    if track_instance is None:
-        return {
-            "error": (
-                "No MCPSpectrum analyzer found on track {}. "
-                "Add an MCPSpectrum device to that track and try again.".format(
-                    track_index
-                )
-            )
-        }
-
-    # Extract measured band values
-    measured: dict[str, float] = {}
-    for band_name, band_info in track_instance.get("bands", {}).items():
-        key = _SPECTRUM_BAND_MAP.get(band_name.lower())
-        if key:
-            measured[key] = float(band_info.get("value", 0.0))
-
-    if not measured:
-        return {
-            "error": (
-                "Could not extract any band values from track {} analyzer. "
-                "Check that MCPSpectrum is active and audio is playing.".format(
-                    track_index
-                )
-            )
-        }
+    measured: dict = {
+        "spectral_centroid": desc.get("spectral_centroid"),
+        "spectral_rolloff":  desc.get("spectral_rolloff"),
+        "spectral_flatness": desc.get("spectral_flatness"),
+        "key":               desc.get("key"),
+        "key_strength":      desc.get("key_strength"),
+        "mfcc_mean":         desc.get("mfcc_mean"),
+    }
 
     cache = _load_cache()
     entries = cache.get("entries", [])
@@ -958,11 +873,11 @@ def audit_preset(
     _save_cache(cache)
 
     return {
-        "updated": True,
-        "preset_name": target_entry.get("preset_name"),
-        "plugin":      target_entry.get("plugin"),
-        "path":        target_entry.get("path"),
-        "measured_bands": measured,
+        "updated":          True,
+        "preset_name":      target_entry.get("preset_name"),
+        "plugin":           target_entry.get("plugin"),
+        "path":             target_entry.get("path"),
+        "measured_spectral": measured,
     }
 
 
