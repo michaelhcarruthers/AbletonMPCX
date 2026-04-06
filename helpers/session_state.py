@@ -20,16 +20,23 @@ def save_session_state(
     completed: list[str] | None = None,
     in_progress: str | None = None,
     notes: str = "",
+    current_structure: str | None = None,
+    tool_count: int | None = None,
+    next_up: str | None = None,
 ) -> dict[str, Any]:
     """Write current session state to ``session_state.json``.
 
     ``last_updated`` is always set to today's date on every save.
 
     Args:
-        completed:   List of completed PR/milestone strings (appended to any
-                     previously stored list when provided).
-        in_progress: Short description of what is currently being worked on.
-        notes:       Free-form notes to persist across the session boundary.
+        completed:         List of completed PR/milestone strings (appended to any
+                           previously stored list when provided).
+        in_progress:       Short description of what is currently being worked on
+                           (scratchpad field; not shown in ``get_session_summary``).
+        notes:             Free-form notes to persist across the session boundary.
+        current_structure: One-line description of the current module layout.
+        tool_count:        Total number of registered MCP tools.
+        next_up:           Short description of the next planned work item.
 
     Returns:
         The state dict that was written.
@@ -49,6 +56,15 @@ def save_session_state(
 
     if notes:
         state["notes"] = notes
+
+    if current_structure is not None:
+        state["current_structure"] = current_structure
+
+    if tool_count is not None:
+        state["tool_count"] = tool_count
+
+    if next_up is not None:
+        state["next_up"] = next_up
 
     with open(_STATE_PATH, "w", encoding="utf-8") as fh:
         json.dump(state, fh, indent=2)

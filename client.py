@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 AbletonMPCX Polling Client
-A thin interactive client that wraps server.py tool calls and surfaces
+A thin interactive client that wraps MCP tool calls and surfaces
 suggestions automatically after every interaction.
 
 Usage:
@@ -9,6 +9,14 @@ Usage:
 
 Requires server.py to be in the same directory.
 Requires Ableton Live to be running with the AbletonMPCX Remote Script loaded.
+
+Imports:
+    _send              — helpers
+    get_tracks         — tools.tracks
+    get_pending_suggestions, observer_status
+                       — tools.audit
+    All other tool functions
+                       — tools.session
 """
 
 import sys
@@ -23,14 +31,14 @@ SUGGEST_INTERVAL = 5         # commands between auto-suggest calls
 POLL_PENDING_ALWAYS = True   # always check pending suggestions after each command
 
 # ---------------------------------------------------------------------------
-# Imports from server.py
+# Imports
 # ---------------------------------------------------------------------------
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from server import (  # noqa: E402
-    _send,
+from helpers import _send  # noqa: E402
+from tools.tracks import get_tracks  # noqa: E402
+from tools.session import (  # noqa: E402
     get_session_snapshot,
-    get_tracks,
     take_snapshot,
     diff_snapshots,
     diff_snapshot_vs_live,
@@ -39,10 +47,9 @@ from server import (  # noqa: E402
     analyse_mix_state,
     set_project_id,
     add_project_note,
-    get_pending_suggestions,
     create_song_from_brief,
-    observer_status,
 )
+from tools.audit import get_pending_suggestions, observer_status  # noqa: E402
 
 # ---------------------------------------------------------------------------
 # Helpers

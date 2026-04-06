@@ -2,7 +2,7 @@
 
 **AbletonMPCX** is an MCP (Model Context Protocol) server that gives an AI assistant full control of Ableton Live via its Live Object Model (LOM). It consists of two parts:
 
-- **`server.py`** — the MCP server, runs outside Live, exposes ~100 tools to the AI.
+- **`server.py`** — the MCP server, runs outside Live, exposes 263 tools to the AI.
 - **`__init__.py`** — the Ableton Remote Script, runs *inside* Live, receives commands over a local TCP socket and executes them on Live's main thread.
 
 ---

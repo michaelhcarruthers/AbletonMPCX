@@ -1,3 +1,6 @@
 __pycache__/
 *.pyc
 *.pyo
+.env
+*.egg-info/
+session_state.json

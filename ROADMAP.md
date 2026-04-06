@@ -61,38 +61,38 @@ session_state.json         # Persisted AI handoff state (written each significan
 
 | ID | Item | Status |
 |----|------|--------|
-| A | Auto-orient on connect | ⬜ Pending |
-| B | Empty tracks, unused returns, stage + execute cleanup | ⬜ Pending |
-| C | Relative parameter changes (uses R4 vocabulary) | ⬜ Pending |
-| D | Arrangement clips + missing file detection | ⬜ Pending |
+| A | Auto-orient on connect | ✅ Done |
+| B | Empty tracks, unused returns, stage + execute cleanup | ✅ Done |
+| C | Relative parameter changes (uses R4 vocabulary) | ✅ Done |
+| D | Arrangement clips + missing file detection | ✅ Done |
 
 ### Mix intelligence
 
 | ID | Item | Status |
 |----|------|--------|
 | E | `get_mix_levels_overview()` + `watch_for_clipping()` | ⬜ Pending |
-| F | Batch audit — `open_set(path)` + `batch_audit_projects(paths)` | ⬜ Pending |
+| F | Batch audit — `open_set(path)` + `batch_audit_projects(paths)` | ✅ Done |
 | G | Screenshot tool — autonomous, no human in loop | ⬜ Pending |
 
 ### Performance optimisation
 
 | ID | Item | Status |
 |----|------|--------|
-| H | State diff cache | ⬜ Pending |
-| I | Compact summarisers | ⬜ Pending |
-| J | Diagnostic tools per question | ⬜ Pending |
-| K | Threshold engine for spectrum data | ⬜ Pending |
+| H | State diff cache | ✅ Done |
+| I | Compact summarisers | ✅ Done |
+| J | Diagnostic tools per question | ✅ Done |
+| K | Threshold engine for spectrum data | ✅ Done |
 | L | Tool call bundling | ⬜ Pending |
-| M | Per-project cached audit JSON files | ⬜ Pending |
-| N | Device/parameter alias registry | ⬜ Pending |
+| M | Per-project cached audit JSON files | ✅ Done |
+| N | Device/parameter alias registry | ✅ Done |
 
 ### Plugins
 
 | ID | Item | Status |
 |----|------|--------|
-| P1 | Peak hold mod to existing spectrum plugin | ⬜ Pending |
-| P2 | Dynamics telemetry plugin | ⬜ Pending |
-| P3 | Stereo field analyser | ⬜ Pending |
+| P1 | Peak hold mod to existing spectrum plugin | ✅ Done |
+| P2 | Dynamics telemetry plugin | ✅ Done |
+| P3 | Stereo field analyser | ✅ Done |
 
 ---
 

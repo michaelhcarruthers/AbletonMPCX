@@ -37,6 +37,11 @@ from helpers import (
 )
 from helpers.summarizer import summarize_health_report
 
+# Number of distinct issue categories checked by project_health_report().
+# Used as a fixed denominator for the health score so that results are
+# comparable across projects of different sizes.
+_MAX_ISSUE_CATEGORIES = 5
+
 # ---------------------------------------------------------------------------
 # Observer thread (background session watcher)
 # ---------------------------------------------------------------------------
@@ -349,7 +354,8 @@ def duplicate_clip_to_new_scene(track_index: int, slot_index: int) -> dict:
     """
     Duplicate the clip at (track_index, slot_index) into a new scene.
 
-    Creates a new scene at the end, then duplicates the clip slot into it.
+    Creates a new scene at the end, then recreates the clip (notes, name,
+    color, length) in the corresponding slot of the new scene.
 
     Args:
         track_index: Track containing the source clip.
@@ -358,21 +364,38 @@ def duplicate_clip_to_new_scene(track_index: int, slot_index: int) -> dict:
     Returns:
         new_scene_index, new_slot_index
     """
-    # Get current scene count
+    # Get current scene count to know the index of the new scene
     scenes = _send("get_scenes")
     new_scene_index = len(scenes)
 
     # Create new scene at end
     _send("create_scene", {"index": -1})
 
-    # Duplicate the clip slot — this copies to the next empty slot on the same track.
-    # Then move context: duplicate_clip_slot duplicates to slot below.
-    _send("duplicate_clip_slot", {"track_index": track_index, "slot_index": slot_index})
+    # Read source clip properties
+    clip_info = _send("get_clip_info", {"track_index": track_index, "slot_index": slot_index})
+    length = clip_info.get("length", 4.0)
+    clip_name = clip_info.get("name", "")
+    clip_color = clip_info.get("color")
+
+    notes_result = _send("get_notes", {"track_index": track_index, "slot_index": slot_index})
+    notes = notes_result.get("notes", []) if isinstance(notes_result, dict) else notes_result
+
+    # Create a new clip in the correct slot of the new scene
+    _send("create_clip", {"track_index": track_index, "slot_index": new_scene_index, "length": length})
+
+    # Copy name, color, and notes
+    if clip_name:
+        _send("set_clip_name", {"track_index": track_index, "slot_index": new_scene_index, "name": clip_name})
+    if clip_color is not None:
+        _send("set_clip_color", {"track_index": track_index, "slot_index": new_scene_index, "color": clip_color})
+    if notes:
+        _send("replace_all_notes", {"track_index": track_index, "slot_index": new_scene_index, "notes": notes})
 
     return {
         "source_track_index": track_index,
         "source_slot_index": slot_index,
         "new_scene_index": new_scene_index,
+        "new_slot_index": new_scene_index,
     }
 
 
@@ -2257,8 +2280,10 @@ def project_health_report() -> dict:
     if armed_tracks:
         issues.append("{} track(s) currently armed for recording".format(len(armed_tracks)))
 
-    # Health score: 1.0 - (issues / max(1, track_count))
-    health_score = max(0.0, 1.0 - (len(issues) / max(1, track_count)))
+    # Health score: 1.0 - (issues / _MAX_ISSUE_CATEGORIES)
+    # Using a fixed denominator (5 possible issue categories) makes the score
+    # consistent across projects regardless of track count.
+    health_score = max(0.0, 1.0 - (len(issues) / _MAX_ISSUE_CATEGORIES))
 
     # Recommendations
     recommendations = []
