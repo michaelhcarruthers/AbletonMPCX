@@ -1371,7 +1371,7 @@ class AbletonMPCX(ControlSurface):
             is_arrangement_clip = False
             for t_idx, track in enumerate(self._song.tracks):
                 # Check session slots
-                for s_idx, slot in enumerate(track.clip_slots):
+                for slot in track.clip_slots:
                     if slot.has_clip and slot.clip == clip:
                         track_index = t_idx
                         track_name = track.name
@@ -1381,7 +1381,7 @@ class AbletonMPCX(ControlSurface):
                     break
                 # Check arrangement clips (if available in this Live version)
                 try:
-                    for c_idx, arr_clip in enumerate(track.arrangement_clips):
+                    for arr_clip in track.arrangement_clips:
                         if arr_clip == clip:
                             track_index = t_idx
                             track_name = track.name
