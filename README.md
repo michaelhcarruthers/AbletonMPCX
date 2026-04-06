@@ -259,6 +259,66 @@ analyze_mix_balance(
 
 ---
 
+## Audio Analysis Stack
+
+AMCPX includes a five-library file-based analysis stack for deep offline and near-real-time audio analysis.
+
+### Libraries
+
+| Library | Best for | Mode |
+|---|---|---|
+| **scipy** | Smoothing, filters, envelopes, peak logic, utility DSP | Core always-on |
+| **aubio** | Onset detection, pitch, tempo, transient finding, drum hit detection | Core always-on |
+| **essentia** | Spectral features, tonal descriptors, brightness/density hints | Analysis core |
+| **pyloudnorm** | LUFS loudness, true peak, gain staging, before/after checks, reference normalization | Loudness/reference |
+| **madmom** | Beat tracking, downbeat detection, groove-aware rhythm analysis | Rhythm specialist |
+
+### Real-time vs Offline split
+
+**Real-time / near-real-time**
+- aubio
+- scipy
+- Selected essentia features
+
+**Offline / batch / decision support**
+- pyloudnorm
+- madmom
+- Heavier essentia features
+
+### Recommended usage by task
+
+| Task | Libraries |
+|---|---|
+| Telemetry / mix decisions | essentia + scipy + pyloudnorm |
+| Chopping / transients | aubio + scipy |
+| Rhythm / groove analysis | madmom + aubio |
+| Reference compare | pyloudnorm + essentia |
+
+### Tools
+
+| Tool | Library | Purpose |
+|---|---|---|
+| `get_loudness(file_path)` | pyloudnorm | LUFS, true peak, loudness baseline |
+| `get_onsets(file_path)` | aubio | Transient/onset detection |
+| `get_spectral_descriptors(file_path)` | essentia | Brightness, key, timbral fingerprint |
+| `get_beat_tracking(file_path)` | madmom | BPM, beats, downbeats |
+| `get_envelope(file_path)` | scipy | Smoothed dynamics, crest factor |
+
+### Architecture
+
+The spectrum plugin and analysis stack are complementary, not competing:
+
+| Layer | Role |
+|---|---|
+| **MCPSpectrumTelemetry plugin** | Sensors — continuous low-latency per-track band energy from inside Live |
+| **Analysis stack (aubio, essentia, etc.)** | Brain — deeper decisions, chopping, loudness, reference comparison |
+
+**Plugin = sensors. Python stack = brain.**
+
+The plugin gives continuous, low-latency data from inside Live at audio rate — something the Python libraries cannot do cleanly without exporting audio first. Use the plugin for live telemetry and the analysis stack for decisions.
+
+---
+
 ## Performance Macros
 
 Performance macros let you trigger multi-parameter musical gestures with a single command.
