@@ -2306,3 +2306,156 @@ def project_health_report() -> dict:
         "health_score": health_score,
         "recommendations": recommendations,
     }
+
+
+# ---------------------------------------------------------------------------
+# Cleanup tools
+# ---------------------------------------------------------------------------
+
+@mcp.tool()
+def find_empty_tracks() -> dict:
+    """
+    Find all tracks with no clips and no devices.
+
+    Returns:
+        empty_tracks: list of {track_index, track_name, type}
+        total_empty: int
+        suggestion: str
+    """
+    tracks = _send("get_tracks", {})
+    empty_tracks = []
+    for track in tracks:
+        if track.get("clip_count", 0) == 0 and track.get("device_count", 0) == 0:
+            is_midi = track.get("is_midi_track", False)
+            empty_tracks.append({
+                "track_index": track.get("index", track.get("track_index", 0)),
+                "track_name": track.get("name", ""),
+                "type": "midi" if is_midi else "audio",
+            })
+
+    suggestion = (
+        "Run cleanup_session(dry_run=False) to remove {} empty track(s).".format(len(empty_tracks))
+        if empty_tracks
+        else "No empty tracks found."
+    )
+
+    return {
+        "empty_tracks": empty_tracks,
+        "total_empty": len(empty_tracks),
+        "suggestion": suggestion,
+    }
+
+
+@mcp.tool()
+def find_unused_returns() -> dict:
+    """
+    Find return tracks that no track is sending to (all sends at zero or minimum).
+
+    Returns:
+        unused_returns: list of {track_index, track_name}
+        total_unused: int
+        suggestion: str
+    """
+    try:
+        return_tracks = _send("get_return_tracks", {})
+    except Exception:
+        return_tracks = []
+
+    try:
+        tracks = _send("get_tracks", {})
+    except Exception:
+        tracks = []
+
+    # For each return track determine if any regular track has a non-zero send to it
+    return_count = len(return_tracks)
+    send_totals = [0.0] * return_count
+
+    for track in tracks:
+        sends = track.get("sends", [])
+        for send_idx, send_value in enumerate(sends):
+            if send_idx < return_count:
+                send_totals[send_idx] += float(send_value or 0.0)
+
+    unused_returns = []
+    for idx, rt in enumerate(return_tracks):
+        if send_totals[idx] <= 0.0:
+            unused_returns.append({
+                "track_index": rt.get("index", rt.get("track_index", idx)),
+                "track_name": rt.get("name", "Return {}".format(idx + 1)),
+            })
+
+    suggestion = (
+        "Run cleanup_session(dry_run=False) to remove {} unused return track(s).".format(len(unused_returns))
+        if unused_returns
+        else "No unused return tracks found."
+    )
+
+    return {
+        "unused_returns": unused_returns,
+        "total_unused": len(unused_returns),
+        "suggestion": suggestion,
+    }
+
+
+@mcp.tool()
+def cleanup_session(dry_run: bool = True) -> dict:
+    """
+    Remove empty tracks and unused return tracks.
+
+    Args:
+        dry_run: If True (default), report what would be removed. Set False to execute.
+
+    Returns:
+        would_remove / removed: list of {track_index, track_name, reason}
+        dry_run: bool
+        total_affected: int
+    """
+    empty_result = find_empty_tracks()
+    unused_result = find_unused_returns()
+
+    candidates = []
+    for t in empty_result["empty_tracks"]:
+        candidates.append({
+            "track_index": t["track_index"],
+            "track_name": t["track_name"],
+            "reason": "empty track (no clips, no devices)",
+        })
+    for r in unused_result["unused_returns"]:
+        candidates.append({
+            "track_index": r["track_index"],
+            "track_name": r["track_name"],
+            "reason": "unused return track (all sends at zero)",
+        })
+
+    removed = []
+    if not dry_run and candidates:
+        # Separate regular tracks from return tracks, delete returns first by name
+        empty_track_indices = {t["track_index"] for t in empty_result["empty_tracks"]}
+        unused_return_indices = {r["track_index"] for r in unused_result["unused_returns"]}
+
+        _send("begin_undo_step", {"name": "cleanup_session"})
+        try:
+            # Delete return tracks in reverse index order
+            # Note: delete_return_track uses 'index', while delete_track uses 'track_index' — both match the existing MCP API
+            for idx in sorted(unused_return_indices, reverse=True):
+                try:
+                    _send("delete_return_track", {"index": idx})
+                    removed.append(next(c for c in candidates if c["track_index"] == idx))
+                except Exception:
+                    pass
+            # Delete empty regular tracks in reverse index order
+            for idx in sorted(empty_track_indices, reverse=True):
+                try:
+                    _send("delete_track", {"track_index": idx})
+                    removed.append(next(c for c in candidates if c["track_index"] == idx))
+                except Exception:
+                    pass
+        finally:
+            _send("end_undo_step", {})
+
+    key = "removed" if not dry_run else "would_remove"
+    return {
+        key: removed if not dry_run else candidates,
+        "dry_run": dry_run,
+        "total_affected": len(candidates),
+    }

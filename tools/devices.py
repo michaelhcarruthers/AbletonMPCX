@@ -35,6 +35,7 @@ from helpers import (
     _save_reference_profile,
     _load_reference_profiles_from_project,
 )
+from helpers.vocabulary import resolve_intensity
 
 # ---------------------------------------------------------------------------
 # Scene
@@ -270,3 +271,110 @@ def end_undo_step() -> dict:
     """
     return _send("end_undo_step", {})
 
+
+# ---------------------------------------------------------------------------
+# Relative parameter adjustment
+# ---------------------------------------------------------------------------
+
+_DIRECTION_ALIASES: dict[str, int] = {
+    "up": 1,
+    "increase": 1,
+    "more": 1,
+    "boost": 1,
+    "raise": 1,
+    "down": -1,
+    "decrease": -1,
+    "less": -1,
+    "reduce": -1,
+    "lower": -1,
+}
+
+
+@mcp.tool()
+def adjust_device_parameter(
+    track_index: int,
+    device_index: int,
+    parameter_name: str,
+    direction: str,
+    amount: str = "a little",
+) -> dict:
+    """
+    Adjust a device parameter using natural language magnitude descriptions.
+
+    Uses the vocabulary system (helpers/vocabulary.py) to resolve amount to
+    an exact normalised delta, then applies it in the given direction.
+
+    Args:
+        track_index: Track index (0-based)
+        device_index: Device index on the track (0-based)
+        parameter_name: Parameter name (case-insensitive partial match)
+        direction: "up", "down", "increase", "decrease", "more", "less"
+        amount: Natural language amount — "a little", "a lot", "a touch",
+                "slightly", "significantly", "halfway", etc.
+                Defaults to "a little" (0.05 delta)
+
+    Returns:
+        parameter_name: str (resolved)
+        previous_value: float
+        new_value: float
+        delta_applied: float
+        amount_resolved: str
+        direction: str
+        clamped: bool  # True if value was clamped to 0.0 or 1.0
+    """
+    direction_lower = direction.strip().lower()
+    direction_sign = _DIRECTION_ALIASES.get(direction_lower)
+    if direction_sign is None:
+        raise ValueError(
+            "Unknown direction '{}'. Use one of: {}".format(
+                direction, ", ".join(_DIRECTION_ALIASES)
+            )
+        )
+
+    delta = resolve_intensity(amount)
+
+    # Retrieve all parameters for this device and find the matching one
+    params_result = _send("get_device_parameters", {
+        "track_index": track_index,
+        "device_index": device_index,
+    })
+    parameters = params_result if isinstance(params_result, list) else params_result.get("parameters", [])
+
+    search = parameter_name.strip().lower()
+    match = None
+    for p in parameters:
+        if search in p.get("name", "").lower():
+            match = p
+            break
+
+    if match is None:
+        raise ValueError(
+            "No parameter matching '{}' found on device {} of track {}.".format(
+                parameter_name, device_index, track_index
+            )
+        )
+
+    resolved_name = match.get("name", parameter_name)
+    param_index = match.get("index", match.get("parameter_index", 0))
+    previous_value = float(match.get("value", 0.0))
+
+    raw_new = previous_value + direction_sign * delta
+    new_value = max(0.0, min(1.0, raw_new))
+    clamped = new_value != raw_new
+
+    _send("set_device_parameter", {
+        "track_index": track_index,
+        "device_index": device_index,
+        "parameter_index": param_index,
+        "value": new_value,
+    })
+
+    return {
+        "parameter_name": resolved_name,
+        "previous_value": previous_value,
+        "new_value": new_value,
+        "delta_applied": direction_sign * delta,
+        "amount_resolved": amount,
+        "direction": direction,
+        "clamped": clamped,
+    }
