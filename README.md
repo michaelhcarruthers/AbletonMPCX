@@ -259,6 +259,83 @@ analyze_mix_balance(
 
 ---
 
+## Spectrum Telemetry
+
+The **MCPSpectrumTelemetry** Max for Live plugin provides continuous, low-latency per-track band energy telemetry from inside Ableton Live. It is a pure measurement device — it reports RMS, peak, crest factor, and eight frequency band levels over a local socket, and writes a per-track JSON file to `/tmp/amcpx/` for the MCP server to read.
+
+### JSON payload schema (v1)
+
+```json
+{
+  "track": "Sax Bounce",
+  "device": "MCP Spectrum Telemetry",
+  "time": 123.45,
+  "bands": {
+    "sub": -22.1,
+    "bass": -18.7,
+    "punch": -24.2,
+    "body": -27.0,
+    "mid": -29.3,
+    "upmid": -31.1,
+    "presence": -33.4,
+    "air": -36.2
+  },
+  "rms": -17.2,
+  "peak": -6.3,
+  "crest": 15.9,
+  "clipping": false
+}
+```
+
+The plugin is deliberately dumb — no smart logic, no host-gesture calls. All intelligence lives in the MCP server and the Python analysis stack.
+
+---
+
+## Audio Analysis Stack
+
+AMCPX includes a five-library file-based analysis stack for deep offline and near-real-time audio analysis.
+
+### Libraries
+
+| Library | Best for | Mode |
+|---------|----------|------|
+| `scipy` | Smoothing, filters, envelopes, peak logic, utility DSP | Core always-on |
+| `aubio` | Onset detection, pitch, tempo, transient finding | Core always-on |
+| `essentia` | Spectral features, tonal descriptors, brightness/density hints | Analysis core |
+| `pyloudnorm` | LUFS loudness, true peak, gain staging, reference normalization | Loudness/reference |
+| `madmom` | Beat tracking, downbeat detection, groove-aware rhythm analysis | Rhythm specialist |
+
+### Real-time vs Offline
+
+**Real-time / near-real-time:** `aubio`, `scipy`, selected `essentia` features
+
+**Offline / batch / decision support:** `pyloudnorm`, `madmom`, heavier `essentia` features
+
+### Recommended usage
+
+| Use case | Libraries |
+|----------|-----------|
+| Telemetry / mix decisions | `essentia` + `scipy` + `pyloudnorm` |
+| Chopping / transients | `aubio` + `scipy` |
+| Rhythm / groove analysis | `madmom` + `aubio` |
+| Reference compare | `pyloudnorm` + `essentia` |
+
+### Tools
+
+| Tool | Library | Description |
+|------|---------|-------------|
+| `get_loudness(file_path)` | pyloudnorm | LUFS, true peak, loudness baseline |
+| `get_onsets(file_path)` | aubio | Transient/onset detection |
+| `get_spectral_descriptors(file_path)` | essentia | Brightness, key, timbral fingerprint |
+| `get_beat_tracking(file_path)` | madmom | BPM, beats, downbeats |
+| `get_envelope(file_path)` | scipy | Smoothed dynamics, crest factor |
+
+### Architecture
+
+Plugin = sensors. Python stack = brain. The MCPSpectrumTelemetry plugin provides continuous low-latency per-track band energy from inside Live. The Python analysis stack handles deeper decisions, chopping, loudness, and reference comparison.
+
+---
+
 ## Performance Macros
 
 Performance macros let you trigger multi-parameter musical gestures with a single command.
