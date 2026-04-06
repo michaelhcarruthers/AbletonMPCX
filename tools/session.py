@@ -3575,7 +3575,9 @@ def render_track_to_audio(
                     "slot_index": source_slot_index,
                 })
                 clip_length = float(clip_info.get("length", 0))
-                # Double the loop until the clip length covers what we need
+                # Double the loop until the clip length covers what we need.
+                # Cap at 10 doublings (2^10 = 1024× original length) to prevent
+                # runaway loops for extremely long requested ranges.
                 max_doublings = 10
                 doublings = 0
                 while clip_length < length_beats and doublings < max_doublings:
