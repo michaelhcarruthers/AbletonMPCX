@@ -426,7 +426,7 @@ def get_capabilities() -> dict:
         "session": [
             "add_project_note", "analyse_mix_state", "arrange_from_scene_scaffold",
             "auto_color_track", "auto_name_all_tracks", "auto_name_clip",
-            "auto_name_scene", "auto_name_track", "available_main_views",
+            "auto_name_scene", "auto_name_track", "auto_orient", "available_main_views",
             "build_scene_scaffold", "capture_and_insert_scene", "capture_midi",
             "continue_playing", "create_audio_track", "create_midi_track",
             "create_return_track", "create_scene", "create_song_from_brief",
@@ -437,9 +437,10 @@ def get_capabilities() -> dict:
             "flush_operation_log", "focus_view", "full_session_snapshot",
             "get_app_version", "get_appointed_device", "get_capabilities",
             "get_cue_points", "get_draw_mode", "get_follow_song",
-            "get_operation_log", "get_preferences", "get_project_memory",
-            "get_protocol_version", "get_resampling_status", "get_selected_context",
-            "get_selected_scene", "get_selected_track", "get_session_snapshot",
+            "get_full_session_state", "get_operation_log", "get_preferences",
+            "get_project_memory", "get_protocol_version", "get_resampling_status",
+            "get_selected_context", "get_selected_scene", "get_selected_track",
+            "get_session_diff", "get_session_snapshot",
             "get_song_info", "get_stored_operation_log", "get_track_roles",
             "hide_view", "is_view_visible", "jump_by", "jump_to_cue_point",
             "jump_to_next_cue", "jump_to_prev_cue", "list_device_snapshots",
@@ -502,7 +503,7 @@ def get_capabilities() -> dict:
         ],
         "audit": [
             "analyse_audio", "analyze_clip_feel", "apply_device_macro_snapshot",
-            "auto_humanize_if_robotic", "batch_auto_humanize",
+            "auto_humanize_if_robotic", "batch_audit_projects", "batch_auto_humanize",
             "capture_device_macro_snapshot", "compare_audio",
             "compare_audio_sections", "compare_clip_feel", "compare_mix_state",
             "create_arrangement_scaffold", "create_midi_track_with_drum_rack",
@@ -511,7 +512,7 @@ def get_capabilities() -> dict:
             "duplicate_clip_to_new_scene", "find_missing_plugins",
             "fix_groove_from_reference", "get_missing_media_status",
             "get_pending_suggestions", "humanize_dilla", "humanize_notes",
-            "list_reference_profiles", "observer_status",
+            "list_reference_profiles", "observer_status", "open_set",
             "prep_track_for_resampling", "project_health_report",
             "search_missing_media",
         ],
@@ -2555,12 +2556,24 @@ def duplicate_clip_to_scenes(
     copies_made = 0
     skipped = []
 
+    # Read source clip properties once before the loop
+    clip_info = _send("get_clip_info", {"track_index": track_index, "slot_index": source_clip_index})
+    length = clip_info.get("length", 4.0)
+    clip_name = clip_info.get("name", "")
+    clip_color = clip_info.get("color")
+
+    notes_result = _send("get_notes", {"track_index": track_index, "slot_index": source_clip_index})
+    notes = notes_result.get("notes", []) if isinstance(notes_result, dict) else notes_result
+
     for target_idx in target_scene_indices:
         try:
-            _send("duplicate_clip_slot", {
-                "track_index": track_index,
-                "slot_index": source_clip_index,
-            })
+            _send("create_clip", {"track_index": track_index, "slot_index": target_idx, "length": length})
+            if clip_name:
+                _send("set_clip_name", {"track_index": track_index, "slot_index": target_idx, "name": clip_name})
+            if clip_color is not None:
+                _send("set_clip_color", {"track_index": track_index, "slot_index": target_idx, "color": clip_color})
+            if notes:
+                _send("replace_all_notes", {"track_index": track_index, "slot_index": target_idx, "notes": notes})
             copies_made += 1
         except RuntimeError:
             skipped.append(target_idx)

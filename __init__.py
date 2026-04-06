@@ -244,6 +244,21 @@ class AbletonMPCX(ControlSurface):
         app = self.application()
         return {"version": app.get_version_string()}
 
+    def _cmd_open_set(self, params):
+        """Open an Ableton Live set file by path."""
+        set_path = str(params["set_path"])
+        def fn():
+            app = self.application()
+            if hasattr(app, "open_project"):
+                app.open_project(set_path)
+            else:
+                raise RuntimeError(
+                    "open_project() not available in this version of Ableton Live. "
+                    "Open the set manually."
+                )
+        self._run_on_main_thread(fn)
+        return {"set_path": set_path}
+
     # -------------------------------------------------------------------------
     # Song (read)
     # -------------------------------------------------------------------------
