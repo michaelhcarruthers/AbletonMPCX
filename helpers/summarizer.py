@@ -46,25 +46,6 @@ def summarize_track(track: dict) -> str:
     return "[{}] {}{}{}{}{}{}".format(idx, name, type_str, vol_str, arm_str, dev_str, clip_str)
 
 
-def summarize_device(device: dict) -> str:
-    """Convert a full device dict to a compact string.
-
-    Example output::
-
-        Compressor | Threshold:-18dB Ratio:4:1 Attack:10ms
-    """
-    name = device.get("name", "Unknown")
-    params = device.get("parameters", [])
-    param_parts: list[str] = []
-    for p in params[:5]:
-        pname = p.get("name", "")
-        pval = p.get("value")
-        if pname and pval is not None:
-            param_parts.append("{}:{}".format(pname, pval))
-    param_str = " | " + " ".join(param_parts) if param_parts else ""
-    return "{}{}".format(name, param_str)
-
-
 def summarize_session(session: dict) -> str:
     """Convert full session state to a compact multi-line summary.
 

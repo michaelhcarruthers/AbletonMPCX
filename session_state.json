@@ -10,7 +10,7 @@
     "#48 (repo infrastructure)"
   ],
   "current_structure": "tools/ + helpers/ module layout, server.py = 24 lines",
-  "tool_count": 263,
+  "tool_count": "dynamic (see get_capabilities)",
   "next_up": "A-N build queue (core tools, mix intelligence, performance optimisation)",
   "notes": ""
 }

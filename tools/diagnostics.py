@@ -23,7 +23,6 @@ import helpers
 from helpers import (
     mcp,
     _send,
-    _send_logged,
     _append_operation,
     _operation_log,
     _MAX_LOG_ENTRIES,

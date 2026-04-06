@@ -86,17 +86,3 @@ def cache_state(key: str, state: dict) -> dict:
 
     return compute_diff(previous, state)
 
-
-def get_cached_state(key: str) -> dict | None:
-    """Return the last cached state for *key*, or ``None`` if not present."""
-    return _state_cache.get(key)
-
-
-def clear_cache(key: str | None = None):
-    """Clear cache for *key*, or all caches if *key* is ``None``."""
-    if key is None:
-        _state_cache.clear()
-        _cache_timestamps.clear()
-    else:
-        _state_cache.pop(key, None)
-        _cache_timestamps.pop(key, None)

@@ -2,26 +2,20 @@
 from __future__ import annotations
 
 import collections
-import copy
 import datetime
 import json
 import math
 import os
 import pathlib
-import plistlib
 import re
-import shutil
-import socket
 import threading
 import time
-from contextlib import contextmanager
 from typing import Any
 
 import helpers
 from helpers import (
     mcp,
     _send,
-    _send_logged,
     _append_operation,
     _operation_log,
     _MAX_LOG_ENTRIES,
@@ -1944,7 +1938,7 @@ def fix_groove_from_reference(
         )
 
     ref = _reference_profiles[reference_label]
-    if ref.get("type") != "feel_profile":
+    if ref.get("type") != "clip_feel":
         raise ValueError(
             "Reference '{}' is not a feel profile (type={}). "
             "Use designate_reference_clip() to create one.".format(reference_label, ref.get("type"))
