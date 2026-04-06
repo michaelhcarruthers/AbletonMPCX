@@ -164,6 +164,7 @@ def _load_cache() -> dict:
                 return json.load(fh)
         except Exception as e:
             logger.warning("Failed to load sound library cache: %s", e)
+    return {"entries": []}
 
 
 def _save_cache(cache: dict) -> None:
@@ -282,6 +283,7 @@ def _parse_prt_omni(path: pathlib.Path) -> tuple[str, list[str]]:
         tags = re.findall(r"<string>([\w]+)</string>", text)
     except Exception as e:
         logger.debug("Failed to read text for '%s': %s", path, e)
+    return name, tags
 
 
 def _apply_omnisphere_tags(

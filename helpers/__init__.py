@@ -77,10 +77,40 @@ def _append_operation(command: str, params: dict, result: Any):
 
 
 # ---------------------------------------------------------------------------
+# Transport abstraction (mockable for unit tests)
+# ---------------------------------------------------------------------------
+
+# The active transport — None means use the default socket-based Ableton transport.
+_active_transport: Any = None
+
+
+def set_transport(transport: Any) -> None:
+    """Replace the internal transport used by ``_send``.
+
+    Pass a :class:`helpers.transport.MockTransport` instance (or any object
+    with a compatible ``send(command, params)`` method) to run tools without
+    a live Ableton connection.
+
+    Pass ``None`` to restore the default socket transport.
+
+    Args:
+        transport: An object implementing ``send(command, params) -> Any``,
+            or ``None`` to restore the socket transport.
+    """
+    global _active_transport
+    _active_transport = transport
+
+
+# ---------------------------------------------------------------------------
 # High-level send helpers
 # ---------------------------------------------------------------------------
 
 def _send(command: str, params: dict[str, Any] | None = None, _log: bool = True, _silent: bool = False) -> Any:
+    if _active_transport is not None:
+        result = _active_transport.send(command, params or {})
+        if _log:
+            _append_operation(command, params or {}, result)
+        return result
     payload = json.dumps({"command": command, "params": params or {}, "silent": _silent}).encode("utf-8")
     with _ableton_socket() as sock:
         sock.sendall(len(payload).to_bytes(4, "big") + payload)

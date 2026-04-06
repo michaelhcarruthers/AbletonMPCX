@@ -1135,6 +1135,7 @@ def delete_reference_profile(label: str) -> dict:
                 removed_memory = True
         except Exception as e:
             logger.warning("Failed to delete memory reference profile '%s': %s", label, e)
+    return {"deleted": label, "removed_from_disk": removed_memory}
 
 
 # ---------------------------------------------------------------------------

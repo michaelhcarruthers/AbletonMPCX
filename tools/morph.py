@@ -72,6 +72,8 @@ def morph_scene_volumes(
                     to_clips.add(ti)
         except Exception as e:
             logger.debug("Could not get clip slots for track %s: %s", ti, e)
+
+    relevant_tracks = from_clips | to_clips
     plan = []
     for t in tracks:
         ti = t.get("track_index")
@@ -215,6 +217,7 @@ def morph_device_parameter(
             p_max = float(p.get("max", 1.0))
     except Exception as e:
         logger.debug("Could not get device parameters for morph validation: %s", e)
+    clamped_from = max(p_min, min(p_max, from_value))
     clamped_to = max(p_min, min(p_max, to_value))
 
     steps_applied = 0
