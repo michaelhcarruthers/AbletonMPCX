@@ -13,6 +13,9 @@ from helpers import (
 )
 import helpers
 
+# Live's mixer scalar that corresponds to 0 dBFS (unity gain).
+_UNITY_VOLUME: float = 0.85
+
 
 # ---------------------------------------------------------------------------
 # Track role management
@@ -31,7 +34,8 @@ def set_track_role(track_index: int, role: str, persist: bool = True) -> dict:
         dict with track_index, role, and persisted flag.
     """
     mem = _get_memory()
-    mem.setdefault("track_roles", {})[str(track_index)] = role
+    roles = mem.setdefault("track_roles", {})
+    roles[str(track_index)] = role
     if persist:
         _save_memory(helpers._current_project_id, mem)
     return {"track_index": track_index, "role": role, "persisted": persist}
@@ -125,7 +129,7 @@ def validate_track_roles() -> dict:
 
 def _vol_to_db(vol: float) -> float:
     """Convert Live's 0-1 volume to an approximate dBFS relative to unity (0.85)."""
-    return 20.0 * math.log10(max(vol, 1e-9) / 0.85)
+    return 20.0 * math.log10(max(vol, 1e-9) / _UNITY_VOLUME)
 
 
 @mcp.tool()
@@ -146,7 +150,7 @@ def suggest_gain_staging(headroom_db: float = 6.0) -> dict:
     threshold_db = -headroom_db
     suggestions = []
     for t in tracks:
-        vol = float(t.get("volume", 0.85))
+        vol = float(t.get("volume", _UNITY_VOLUME))
         estimated_db = _vol_to_db(vol)
         flag: str | None = None
         if vol == 0.0:
@@ -186,7 +190,7 @@ def apply_gain_staging(
     """
     snapshot = _send("get_session_snapshot")
     tracks = snapshot.get("tracks", []) if isinstance(snapshot, dict) else []
-    target_scalar = (10 ** (target_db / 20.0)) * 0.85
+    target_scalar = (10 ** (target_db / 20.0)) * _UNITY_VOLUME
     target_scalar = max(0.0, min(1.0, target_scalar))
 
     selected = set(track_indices) if track_indices else None
@@ -195,7 +199,7 @@ def apply_gain_staging(
         ti = t.get("track_index")
         if selected is not None and ti not in selected:
             continue
-        old_vol = float(t.get("volume", 0.85))
+        old_vol = float(t.get("volume", _UNITY_VOLUME))
         changes.append({
             "track_index": ti,
             "track_name": t.get("name", ""),

@@ -9,6 +9,9 @@ from helpers import (
     _send,
 )
 
+# Live's mixer scalar that corresponds to 0 dBFS (unity gain).
+_UNITY_VOLUME: float = 0.85
+
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -16,13 +19,13 @@ from helpers import (
 
 def _db_to_scalar(db: float) -> float:
     """Convert dBFS (relative to Live's unity at 0.85) to a 0–1 scalar, clamped."""
-    scalar = (10 ** (db / 20.0)) * 0.85
+    scalar = (10 ** (db / 20.0)) * _UNITY_VOLUME
     return max(0.0, min(1.0, scalar))
 
 
 def _scalar_to_db(scalar: float) -> float:
     """Convert Live's 0–1 scalar to dBFS relative to unity (0.85)."""
-    return 20.0 * math.log10(max(scalar, 1e-9) / 0.85)
+    return 20.0 * math.log10(max(scalar, 1e-9) / _UNITY_VOLUME)
 
 
 # ---------------------------------------------------------------------------
@@ -148,14 +151,14 @@ def compare_mix_to_reference(
     }
 
     ref_track = tracks_by_index.get(reference_track_index, {})
-    reference_volume = float(ref_track.get("volume", 0.85))
+    reference_volume = float(ref_track.get("volume", _UNITY_VOLUME))
     ref_db = _scalar_to_db(reference_volume)
 
     per_track = []
     mix_volumes = []
     for ti in mix_track_indices:
         t = tracks_by_index.get(ti, {})
-        vol = float(t.get("volume", 0.85))
+        vol = float(t.get("volume", _UNITY_VOLUME))
         mix_volumes.append(vol)
         track_db = _scalar_to_db(vol)
         per_track.append({

@@ -77,9 +77,17 @@ def morph_scene_volumes(
         if ti not in relevant_tracks:
             continue
         vol = float(t.get("volume", 0.85))
-        # Use current volume as both from and to if only in one scene
-        from_vol = vol
-        to_vol = vol
+        # Tracks only in from_scene fade out; tracks only in to_scene fade in;
+        # tracks in both scenes stay at their current volume.
+        if ti in from_clips and ti not in to_clips:
+            from_vol = vol
+            to_vol = 0.0
+        elif ti in to_clips and ti not in from_clips:
+            from_vol = 0.0
+            to_vol = vol
+        else:
+            from_vol = vol
+            to_vol = vol
         plan.append({
             "track_index": ti,
             "track_name": t.get("name", ""),
