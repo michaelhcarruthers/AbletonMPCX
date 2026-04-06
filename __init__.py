@@ -40,6 +40,10 @@ class AbletonMPCX(ControlSurface):
     THREAD_TIMEOUT = 10.0  # seconds to wait for scheduled mutations
     PROTOCOL_VERSION = "1.0.0"
 
+    # Thread-local storage: used to propagate per-request flags (e.g. silent)
+    # from _dispatch into _cmd_* handlers without changing their signatures.
+    _thread_local = threading.local()
+
     # -------------------------------------------------------------------------
     # Lifecycle
     # -------------------------------------------------------------------------
@@ -141,6 +145,10 @@ class AbletonMPCX(ControlSurface):
         try:
             command = request.get("command", "")
             params = request.get("params", {})
+            silent = bool(request.get("silent", False))
+            # Store the silent flag in thread-local so _cmd_* handlers can
+            # access it without signature changes.
+            self._thread_local.silent = silent
             handler = getattr(self, "_cmd_{}".format(command), None)
             if handler is None:
                 return {"status": "error", "error": "Unknown command: {}".format(command)}
@@ -1266,19 +1274,26 @@ class AbletonMPCX(ControlSurface):
 
     def _cmd_get_notes(self, params):
         clip = self._get_clip(int(params["track_index"]), int(params["slot_index"]))
+        silent = getattr(self._thread_local, "silent", False)
         def fn():
             if not clip.is_midi_clip:
                 raise RuntimeError("Clip is not a MIDI clip")
-            notes = []
-            for note in clip.get_notes(0, 0, clip.length, 128):
-                notes.append({
-                    "pitch": note[0],
-                    "start_time": note[1],
-                    "duration": note[2],
-                    "velocity": note[3],
-                    "mute": note[4],
-                })
-            return {"notes": notes}
+            if silent:
+                self._song.begin_undo_step("silent_read")
+            try:
+                notes = []
+                for note in clip.get_notes(0, 0, clip.length, 128):
+                    notes.append({
+                        "pitch": note[0],
+                        "start_time": note[1],
+                        "duration": note[2],
+                        "velocity": note[3],
+                        "mute": note[4],
+                    })
+                return {"notes": notes}
+            finally:
+                if silent:
+                    self._song.end_undo_step()
         return self._run_on_main_thread(fn)
 
     # -------------------------------------------------------------------------

@@ -77,8 +77,8 @@ def _append_operation(command: str, params: dict, result: Any):
 # High-level send helpers
 # ---------------------------------------------------------------------------
 
-def _send(command: str, params: dict[str, Any] | None = None, _log: bool = True) -> Any:
-    payload = json.dumps({"command": command, "params": params or {}}).encode("utf-8")
+def _send(command: str, params: dict[str, Any] | None = None, _log: bool = True, _silent: bool = False) -> Any:
+    payload = json.dumps({"command": command, "params": params or {}, "silent": _silent}).encode("utf-8")
     with _ableton_socket() as sock:
         sock.sendall(len(payload).to_bytes(4, "big") + payload)
         header = _recv_exactly(sock, 4)
@@ -97,6 +97,18 @@ def _send(command: str, params: dict[str, Any] | None = None, _log: bool = True)
     if _log:
         _append_operation(command, params or {}, result)
     return result
+
+
+def _send_silent(command: str, params: dict[str, Any] | None = None) -> Any:
+    """Send a read-only command that must not create Ableton undo entries.
+
+    Sets ``silent=True`` in the JSON payload so the Remote Script wraps the
+    dispatched call in ``song.begin_undo_step`` / ``song.end_undo_step``.
+    Live silently drops undo steps that contain no mutations, so read-only
+    calls (including ``clip.get_notes`` which Live internally marks as
+    mutating) produce zero net undo entries.
+    """
+    return _send(command, params, _log=False, _silent=True)
 
 
 # ---------------------------------------------------------------------------
