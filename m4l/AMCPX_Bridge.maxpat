@@ -29,7 +29,12 @@
 					"patching_rect" : [ 30.0, 80.0, 260.0, 22.0 ],
 					"numinlets" : 1,
 					"numoutlets" : 1,
-					"outlettype" : [ "" ]
+					"outlettype" : [ "" ],
+					"saved_object_attributes" : {
+						"autostart" : 1,
+						"defer" : 0,
+						"watch" : 1
+					}
 				}
 			},
 			{
