@@ -35,6 +35,7 @@ from helpers import (
     _save_reference_profile,
     _load_reference_profiles_from_project,
 )
+from helpers.cache import cache_state
 
 # ---------------------------------------------------------------------------
 # Application
@@ -3221,3 +3222,161 @@ def mix_correction_loop(
     }
 
 
+# ---------------------------------------------------------------------------
+# H — State diff cache
+# ---------------------------------------------------------------------------
+
+@mcp.tool()
+def get_session_diff() -> dict:
+    """Return only what has changed in the session since the last call.
+
+    On the first call returns the full state snapshot.  On subsequent calls
+    returns only the fields that differ from the previous snapshot.
+    Dramatically reduces token usage when monitoring a session over time.
+
+    Returns:
+        changed_tracks: list of {track_index, track_name, changed_fields}
+        changed_devices: list of {track_index, device_index, changed_parameters}
+        tempo_changed: bool
+        new_tempo: float or None
+        is_first_snapshot: bool
+        total_changes: int
+    """
+    snapshot = _send("get_session_snapshot")
+    diff = cache_state("session_diff", snapshot)
+
+    if diff.get("first_snapshot"):
+        tracks = snapshot.get("tracks", [])
+        return {
+            "is_first_snapshot": True,
+            "changed_tracks": [],
+            "changed_devices": [],
+            "tempo_changed": False,
+            "new_tempo": snapshot.get("tempo"),
+            "total_changes": 0,
+            "snapshot": snapshot,
+        }
+
+    changed_tracks: list[dict] = []
+    changed_devices: list[dict] = []
+    tempo_changed = False
+    new_tempo = None
+
+    top_changed = diff.get("changed", {})
+
+    # Detect tempo change
+    if "tempo" in top_changed:
+        tempo_changed = True
+        new_tempo = top_changed["tempo"].get("to")
+
+    # Detect per-track changes
+    tracks_diff = top_changed.get("tracks", {})
+    if isinstance(tracks_diff, dict):
+        nested = tracks_diff.get("changed", {})
+        for idx_str, track_change in nested.items():
+            if not isinstance(track_change, dict):
+                continue
+            track_idx = int(idx_str) if str(idx_str).isdigit() else idx_str
+            changed_fields = list(track_change.get("changed", {}).keys())
+            # Try to get the track name from the current snapshot
+            tracks_list = snapshot.get("tracks", [])
+            track_name = ""
+            if isinstance(tracks_list, list) and isinstance(track_idx, int) and track_idx < len(tracks_list):
+                track_name = tracks_list[track_idx].get("name", "")
+            changed_tracks.append({
+                "track_index": track_idx,
+                "track_name": track_name,
+                "changed_fields": changed_fields,
+            })
+            # Device changes within the track
+            devices_diff = track_change.get("changed", {}).get("devices", {})
+            if isinstance(devices_diff, dict):
+                for dev_idx_str, dev_change in devices_diff.get("changed", {}).items():
+                    changed_devices.append({
+                        "track_index": track_idx,
+                        "device_index": int(dev_idx_str) if str(dev_idx_str).isdigit() else dev_idx_str,
+                        "changed_parameters": list(dev_change.get("changed", {}).keys()) if isinstance(dev_change, dict) else [],
+                    })
+
+    total_changes = (
+        len(top_changed)
+        + len(diff.get("added", {}))
+        + len(diff.get("removed", []))
+    )
+
+    return {
+        "is_first_snapshot": False,
+        "changed_tracks": changed_tracks,
+        "changed_devices": changed_devices,
+        "tempo_changed": tempo_changed,
+        "new_tempo": new_tempo,
+        "total_changes": total_changes,
+    }
+
+
+# ---------------------------------------------------------------------------
+# L — Tool call bundling
+# ---------------------------------------------------------------------------
+
+@mcp.tool()
+def get_full_session_state() -> dict:
+    """Return complete session state in a single tool call.
+
+    Bundles session info + all tracks + all devices + all clips + a levels
+    overview derived from mixer device data.  Use this instead of calling
+    each tool separately when you need a full picture.
+
+    Returns:
+        session: dict (song info)
+        tracks: list (all tracks with devices and clips)
+        devices_by_track: dict mapping track_index (str) to list of devices
+        arrangement_clips: list (arrangement clips)
+        levels: dict (per-track volume/pan summary)
+        fetched_at: float (Unix timestamp)
+        total_tracks: int
+        total_devices: int
+        total_clips: int
+    """
+    snapshot = _send("get_session_snapshot")
+    tracks = snapshot.get("tracks", []) if isinstance(snapshot, dict) else []
+
+    devices_by_track: dict[str, list] = {}
+    total_devices = 0
+    for t in tracks:
+        idx = t.get("index", t.get("track_index"))
+        devs = t.get("devices", [])
+        if devs:
+            devices_by_track[str(idx)] = devs
+            total_devices += len(devs)
+
+    # Build a lightweight levels overview from the track data already fetched
+    levels: dict[str, dict] = {}
+    for t in tracks:
+        idx = t.get("index", t.get("track_index"))
+        mixer = t.get("mixer_device", {}) or {}
+        levels[str(idx)] = {
+            "name": t.get("name", ""),
+            "volume": mixer.get("volume"),
+            "pan": mixer.get("panning"),
+            "mute": t.get("mute", False),
+        }
+
+    arrangement_clips = _send("get_arrangement_clips") if hasattr(_send, "__call__") else []
+    try:
+        arrangement_clips = _send("get_arrangement_clips")
+    except Exception:
+        arrangement_clips = []
+
+    total_clips = len(arrangement_clips) if isinstance(arrangement_clips, list) else 0
+
+    return {
+        "session": snapshot,
+        "tracks": tracks,
+        "devices_by_track": devices_by_track,
+        "arrangement_clips": arrangement_clips,
+        "levels": levels,
+        "fetched_at": time.time(),
+        "total_tracks": len(tracks),
+        "total_devices": total_devices,
+        "total_clips": total_clips,
+    }

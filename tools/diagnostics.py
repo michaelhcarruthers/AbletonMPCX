@@ -35,6 +35,7 @@ from helpers import (
     _save_reference_profile,
     _load_reference_profiles_from_project,
 )
+from helpers.summarizer import summarize_session, summarize_health_report
 
 # ---------------------------------------------------------------------------
 # Mix Analysis and Sound Recommendation
@@ -1018,4 +1019,223 @@ def get_sound_library_stats() -> dict:
         "cache_file":     str(_CACHE_FILE),
     }
 
+
+# ---------------------------------------------------------------------------
+# I — Compact session summary
+# ---------------------------------------------------------------------------
+
+@mcp.tool()
+def get_compact_session_summary() -> str:
+    """Return the entire session state as a compact human-readable summary.
+
+    Uses summarizers to reduce a full session dump to ~10 lines.
+    Ideal for giving Claude a quick orientation without burning tokens.
+
+    Returns: str (multi-line compact summary)
+    """
+    snapshot = _send("get_session_snapshot")
+    return summarize_session(snapshot)
+
+
+# ---------------------------------------------------------------------------
+# J — Diagnostic tools per question
+# ---------------------------------------------------------------------------
+
+def _db_from_linear(linear: float) -> float:
+    """Convert linear gain (0.0–1.0 nominal) to dB."""
+    if linear <= 0:
+        return -math.inf
+    return 20.0 * math.log10(max(linear, 1e-10))
+
+
+@mcp.tool()
+def diagnose_track(track_index: int) -> dict:
+    """Run a full diagnostic on a single track and return structured findings.
+
+    Checks:
+    - Volume and pan position (is it extreme?)
+    - Device chain (any disabled, any missing?)
+    - Sends (any unusually high?)
+    - Clips (any overlapping, any very short?)
+    - Routing (unusual input/output routing?)
+
+    Returns:
+        track_name: str
+        track_index: int
+        warnings: list of str
+        info: list of str
+        recommendations: list of str
+        health_score: int  (0–100)
+    """
+    tracks = _send("get_tracks")
+    if not isinstance(tracks, list) or track_index >= len(tracks):
+        return {
+            "track_name": "",
+            "track_index": track_index,
+            "warnings": ["Track index {} not found".format(track_index)],
+            "info": [],
+            "recommendations": [],
+            "health_score": 0,
+        }
+
+    track = tracks[track_index]
+    track_name = track.get("name", "Unnamed")
+    warnings: list[str] = []
+    info: list[str] = []
+    recommendations: list[str] = []
+    penalty = 0
+
+    # Volume check
+    mixer = track.get("mixer_device", {}) or {}
+    volume = mixer.get("volume")
+    if volume is not None:
+        db = _db_from_linear(volume)
+        if db > 0:
+            warnings.append("Volume is above 0 dBFS ({:+.1f} dB) — may clip".format(db))
+            penalty += 15
+        elif db < -40:
+            warnings.append("Volume is very low ({:+.1f} dB)".format(db))
+            penalty += 5
+        else:
+            info.append("Volume: {:+.1f} dB".format(db))
+
+    # Pan check
+    pan = mixer.get("panning")
+    if pan is not None:
+        if abs(pan) > 0.9:
+            warnings.append("Pan is hard {'left' if pan < 0 else 'right'} ({:.2f})".format(pan))
+            penalty += 5
+        else:
+            info.append("Pan: {:.2f}".format(pan))
+
+    # Device chain
+    devices = track.get("devices", [])
+    disabled_devices: list[str] = []
+    for d in devices:
+        if not d.get("is_active", True):
+            disabled_devices.append(d.get("name", "?"))
+    if disabled_devices:
+        warnings.append("Disabled device(s): {}".format(", ".join(disabled_devices)))
+        penalty += 10
+    if not devices:
+        info.append("No devices on this track")
+
+    # Sends check
+    sends = mixer.get("sends", [])
+    for i, s in enumerate(sends):
+        send_val = s if isinstance(s, (int, float)) else s.get("value", 0) if isinstance(s, dict) else 0
+        if send_val > 0.9:
+            warnings.append("Send {} is very high ({:.2f})".format(i, send_val))
+            penalty += 5
+
+    # Clips
+    clip_slots = track.get("clip_slots", [])
+    short_clips: list[int] = []
+    for i, slot in enumerate(clip_slots):
+        if isinstance(slot, dict) and slot.get("has_clip"):
+            length = slot.get("clip", {}).get("length", slot.get("length"))
+            if length is not None and length < 0.25:
+                short_clips.append(i)
+    if short_clips:
+        warnings.append("Very short clip(s) at slot(s): {}".format(short_clips))
+        penalty += 5
+
+    if not warnings:
+        info.append("No issues found")
+    else:
+        recommendations.append("Review the flagged warnings above")
+
+    health_score = max(0, 100 - penalty)
+    return {
+        "track_name": track_name,
+        "track_index": track_index,
+        "warnings": warnings,
+        "info": info,
+        "recommendations": recommendations,
+        "health_score": health_score,
+    }
+
+
+@mcp.tool()
+def diagnose_mix() -> dict:
+    """Run a diagnostic across the entire mix and return structured findings.
+
+    Checks all tracks for common mix problems:
+    - Clipping or near-clipping levels
+    - Tracks with no devices
+    - Tracks with all sends at zero
+    - Mono/stereo routing issues
+    - Master bus level
+
+    Returns:
+        warnings: list of {track_index, track_name, warning}
+        info: list of str
+        recommendations: list of str
+        overall_health: int  (0–100)
+        tracks_checked: int
+    """
+    tracks = _send("get_tracks")
+    if not isinstance(tracks, list):
+        return {
+            "warnings": [],
+            "info": ["Could not retrieve tracks"],
+            "recommendations": [],
+            "overall_health": 0,
+            "tracks_checked": 0,
+        }
+
+    warnings: list[dict] = []
+    info: list[str] = []
+    recommendations: list[str] = []
+    penalty = 0
+
+    for t in tracks:
+        idx = t.get("index", t.get("track_index", "?"))
+        name = t.get("name", "Unnamed")
+        mixer = t.get("mixer_device", {}) or {}
+        volume = mixer.get("volume")
+
+        # Clipping/near-clipping
+        if volume is not None:
+            db = _db_from_linear(volume)
+            if db > 0:
+                warnings.append({"track_index": idx, "track_name": name, "warning": "Volume above 0 dBFS ({:+.1f} dB)".format(db)})
+                penalty += 10
+            elif db > -1.0:
+                warnings.append({"track_index": idx, "track_name": name, "warning": "Near-clipping ({:+.1f} dB)".format(db)})
+                penalty += 5
+
+        # No devices
+        devices = t.get("devices", [])
+        if not devices:
+            warnings.append({"track_index": idx, "track_name": name, "warning": "No devices on track"})
+            penalty += 3
+
+    # Master bus
+    try:
+        master = _send("get_mixer_device", {"track_index": -1})
+        master_vol = master.get("volume") if isinstance(master, dict) else None
+        if master_vol is not None:
+            db = _db_from_linear(master_vol)
+            if db > 0:
+                warnings.append({"track_index": -1, "track_name": "Master", "warning": "Master bus above 0 dBFS ({:+.1f} dB)".format(db)})
+                penalty += 20
+            else:
+                info.append("Master bus: {:+.1f} dB".format(db))
+    except Exception:
+        pass
+
+    if not warnings:
+        info.append("Mix looks healthy — no major issues found")
+    else:
+        recommendations.append("Address clipping tracks first, then review devices and routing")
+
+    overall_health = max(0, 100 - penalty)
+    return {
+        "warnings": warnings,
+        "info": info,
+        "recommendations": recommendations,
+        "overall_health": overall_health,
+        "tracks_checked": len(tracks),
+    }
 
