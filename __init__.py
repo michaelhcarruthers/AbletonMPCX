@@ -1106,6 +1106,42 @@ class AbletonMPCX(ControlSurface):
         self._run_on_main_thread(fn)
         return {}
 
+    def _cmd_group_tracks(self, params):
+        """Group the specified track indices into a group track."""
+        track_indices = params["track_indices"]  # list of ints
+        result = {}
+        def fn():
+            tracks = self._song.tracks
+            tracks_to_group = tuple(tracks[i] for i in track_indices)
+            if hasattr(self._song, "_do_group_tracks"):
+                self._song._do_group_tracks(tracks_to_group)
+                result["status"] = "ok"
+                result["grouped_count"] = len(tracks_to_group)
+            else:
+                result["status"] = "error"
+                result["error"] = "_do_group_tracks not available in this version of Live"
+        self._run_on_main_thread(fn)
+        if result.get("status") == "error":
+            raise RuntimeError(result["error"])
+        return result
+
+    def _cmd_ungroup_tracks(self, params):
+        """Ungroup the group track at the specified index."""
+        track_index = int(params["track_index"])
+        result = {}
+        def fn():
+            track = self._song.tracks[track_index]
+            if hasattr(self._song, "_do_ungroup_tracks"):
+                self._song._do_ungroup_tracks((track,))
+                result["status"] = "ok"
+            else:
+                result["status"] = "error"
+                result["error"] = "_do_ungroup_tracks not available in this version of Live"
+        self._run_on_main_thread(fn)
+        if result.get("status") == "error":
+            raise RuntimeError(result["error"])
+        return result
+
     def _cmd_set_mixer_snapshot(self, params):
         """
         Apply volume, pan, and/or sends to multiple tracks in a single main-thread call.

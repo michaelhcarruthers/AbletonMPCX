@@ -274,3 +274,38 @@ def set_track_output_routing(
         "routing_channel_name": routing_channel_name,
     })
 
+
+@mcp.tool()
+def group_tracks(track_indices: list[int]) -> dict:
+    """
+    Group the specified tracks into a new group track.
+
+    Uses Live's internal _do_group_tracks method (available in Live 10-12).
+    Track indices must be contiguous and in ascending order — Live requires
+    tracks to be adjacent to group them.
+
+    Args:
+        track_indices: List of track indices to group (must be contiguous).
+
+    Returns:
+        status: "ok" on success
+        grouped_count: number of tracks grouped
+    """
+    return _send("group_tracks", {"track_indices": track_indices})
+
+
+@mcp.tool()
+def ungroup_tracks(track_index: int) -> dict:
+    """
+    Ungroup the group track at track_index.
+
+    Uses Live's internal _do_ungroup_tracks method (available in Live 10-12).
+
+    Args:
+        track_index: Index of the group track to ungroup.
+
+    Returns:
+        status: "ok" on success
+    """
+    return _send("ungroup_tracks", {"track_index": track_index})
+
