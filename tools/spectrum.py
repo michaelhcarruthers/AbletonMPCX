@@ -35,6 +35,7 @@ from helpers import (
     _save_reference_profile,
     _load_reference_profiles_from_project,
 )
+from helpers.threshold import set_threshold, check_thresholds, clear_threshold
 
 # ---------------------------------------------------------------------------
 # Spectrum Telemetry
@@ -834,4 +835,46 @@ def watch_for_clipping(duration_seconds: float = 5.0, poll_interval: float = 0.5
         "recommendation": recommendation,
     }
 
+
+
+
+# ---------------------------------------------------------------------------
+# K — Threshold engine for spectrum/level data
+# ---------------------------------------------------------------------------
+
+@mcp.tool()
+def set_level_threshold(track_index: int, max_db: float = -1.0) -> dict:
+    """Set a clipping/level threshold for a track.
+
+    Subsequent calls to get_mix_levels_overview will flag violations.
+
+    Args:
+        track_index: Track to monitor.
+        max_db: Maximum allowed dB level (default -1.0 dBFS).
+
+    Returns:
+        track_name: str
+        threshold_set: float
+        status: str
+    """
+    tracks = _send("get_tracks")
+    track_name = ""
+    if isinstance(tracks, list) and 0 <= track_index < len(tracks):
+        track_name = tracks[track_index].get("name", "")
+
+    key = "track_{}_level".format(track_index)
+    set_threshold(key, max_val=max_db, callback_label="{} level".format(track_name or "track {}".format(track_index)))
+
+    return {
+        "track_name": track_name,
+        "threshold_set": max_db,
+        "status": "Threshold set: track {} max {:.1f} dBFS".format(track_index, max_db),
+    }
+
+
+@mcp.tool()
+def clear_level_thresholds() -> dict:
+    """Remove all registered level thresholds."""
+    clear_threshold()
+    return {"status": "All level thresholds cleared"}
 

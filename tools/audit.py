@@ -35,6 +35,7 @@ from helpers import (
     _save_reference_profile,
     _load_reference_profiles_from_project,
 )
+from helpers.summarizer import summarize_health_report
 
 # ---------------------------------------------------------------------------
 # Observer thread (background session watcher)
@@ -2593,3 +2594,113 @@ def batch_audit_projects(set_paths: list, save_reports: bool = True) -> dict:
         "failed": failed,
         "summary": summary,
     }
+
+# ---------------------------------------------------------------------------
+# M — Per-project cached audit JSON files
+# ---------------------------------------------------------------------------
+
+@mcp.tool()
+def save_project_audit(save_path: str | None = None) -> dict:
+    """Run project_health_report() and save the result as a JSON file.
+
+    Args:
+        save_path: Where to save.  If None, saves next to the current .als file
+                   as ``{project_name}_audit_{date}.json``.
+
+    Returns:
+        saved_to: str
+        health_score: int or float
+        summary: str
+        timestamp: str
+    """
+    report = project_health_report()
+    timestamp = datetime.datetime.now(datetime.timezone.utc).isoformat()
+
+    if save_path is None:
+        set_name = report.get("set_name") or "project"
+        safe_name = re.sub(r"[^\w\-]", "_", set_name)
+        date_str = datetime.datetime.now().strftime("%Y%m%d")
+        filename = "{}_audit_{}.json".format(safe_name, date_str)
+        save_path = os.path.join(os.path.expanduser("~/.ableton_mpcx/audits"), filename)
+
+    os.makedirs(os.path.dirname(save_path), exist_ok=True)
+    report["_saved_at"] = timestamp
+    with open(save_path, "w", encoding="utf-8") as f:
+        json.dump(report, f, indent=2)
+
+    summary = summarize_health_report(report)
+    return {
+        "saved_to": save_path,
+        "health_score": report.get("health_score"),
+        "summary": summary,
+        "timestamp": timestamp,
+    }
+
+
+@mcp.tool()
+def load_project_audit(audit_path: str) -> dict:
+    """Load a previously saved project audit JSON and return its contents.
+
+    Args:
+        audit_path: Path to the ``_audit.json`` file.
+
+    Returns:
+        The audit data dict, or an error dict if the file is not found.
+    """
+    if not os.path.exists(audit_path):
+        return {"error": "Audit file not found: {}".format(audit_path)}
+    try:
+        with open(audit_path, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception as exc:
+        return {"error": "Failed to read audit file: {}".format(str(exc))}
+
+
+@mcp.tool()
+def compare_project_audits(audit_path_a: str, audit_path_b: str) -> dict:
+    """Compare two saved project audits and return what changed.
+
+    Useful for tracking project health over time or comparing two versions.
+
+    Returns:
+        health_score_change: int
+        new_issues: list of str
+        resolved_issues: list of str
+        unchanged_issues: list of str
+        summary: str
+    """
+    a = load_project_audit(audit_path_a)
+    if "error" in a:
+        return {"error": "Audit A: {}".format(a["error"])}
+    b = load_project_audit(audit_path_b)
+    if "error" in b:
+        return {"error": "Audit B: {}".format(b["error"])}
+
+    score_a = a.get("health_score", 0)
+    score_b = b.get("health_score", 0)
+    health_score_change = int(score_b) - int(score_a)
+
+    issues_a = set(str(i) for i in a.get("issues", []))
+    issues_b = set(str(i) for i in b.get("issues", []))
+
+    new_issues = sorted(issues_b - issues_a)
+    resolved_issues = sorted(issues_a - issues_b)
+    unchanged_issues = sorted(issues_a & issues_b)
+
+    direction = "improved" if health_score_change > 0 else ("worsened" if health_score_change < 0 else "unchanged")
+    summary = (
+        "Health score {} from {} to {} ({:+d}). "
+        "{} new issue(s), {} resolved, {} unchanged.".format(
+            direction, score_a, score_b, health_score_change,
+            len(new_issues), len(resolved_issues), len(unchanged_issues),
+        )
+    )
+
+    return {
+        "health_score_change": health_score_change,
+        "new_issues": new_issues,
+        "resolved_issues": resolved_issues,
+        "unchanged_issues": unchanged_issues,
+        "summary": summary,
+    }
+
