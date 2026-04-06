@@ -35,7 +35,7 @@ from helpers import (
     _save_reference_profile,
     _load_reference_profiles_from_project,
 )
-from helpers.vocabulary import resolve_intensity
+from helpers.vocabulary import resolve_intensity, resolve_device_name, DEVICE_ALIASES
 
 # ---------------------------------------------------------------------------
 # Scene
@@ -378,3 +378,69 @@ def adjust_device_parameter(
         "direction": direction,
         "clamped": clamped,
     }
+
+
+# ---------------------------------------------------------------------------
+# N — Device/parameter alias registry
+# ---------------------------------------------------------------------------
+
+@mcp.tool()
+def find_device_by_name(track_index: int, device_name: str) -> dict:
+    """Find a device on a track by name, supporting natural language aliases.
+
+    Uses the device alias registry (helpers/vocabulary.py) to resolve
+    common names like "eq", "comp", "reverb" to Ableton device names.
+
+    Args:
+        track_index: Track to search.
+        device_name: Device name or alias (e.g. "eq", "compressor", "EQ Eight").
+
+    Returns:
+        found: bool
+        device_index: int or None
+        device_name: str (resolved name)
+        alias_used: str or None
+        parameters: list of {name, value, min, max}
+    """
+    resolved = resolve_device_name(device_name)
+    alias_used: str | None = device_name if resolved != device_name else None
+
+    tracks = _send("get_tracks")
+    if not isinstance(tracks, list) or track_index >= len(tracks):
+        return {
+            "found": False,
+            "device_index": None,
+            "device_name": resolved,
+            "alias_used": alias_used,
+            "parameters": [],
+        }
+
+    devices = tracks[track_index].get("devices", [])
+    for i, d in enumerate(devices):
+        dname = d.get("name", "")
+        if dname.lower() == resolved.lower() or resolved.lower() in dname.lower():
+            params = d.get("parameters", [])
+            return {
+                "found": True,
+                "device_index": i,
+                "device_name": dname,
+                "alias_used": alias_used,
+                "parameters": [
+                    {
+                        "name": p.get("name"),
+                        "value": p.get("value"),
+                        "min": p.get("min"),
+                        "max": p.get("max"),
+                    }
+                    for p in params
+                ],
+            }
+
+    return {
+        "found": False,
+        "device_index": None,
+        "device_name": resolved,
+        "alias_used": alias_used,
+        "parameters": [],
+    }
+
