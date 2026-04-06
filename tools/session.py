@@ -3221,3 +3221,131 @@ def mix_correction_loop(
     }
 
 
+# ---------------------------------------------------------------------------
+# Auto-orient
+# ---------------------------------------------------------------------------
+
+_DEFAULT_TRACK_NAME_PATTERN = re.compile(
+    r"^(Audio|MIDI|1-Audio|1-MIDI)\s*\d*$|^\d+$", re.IGNORECASE
+)
+
+
+@mcp.tool()
+def auto_orient() -> dict:
+    """
+    Call this immediately on connecting to a Live session.
+
+    Surveys the current session and returns a structured orientation summary:
+    - Session name and tempo
+    - Track list with types (audio/midi/return/master), names, armed state, mute/solo state
+    - Active clip count in arrangement vs session view
+    - Any immediately obvious issues (unnamed tracks, armed tracks, missing media)
+    - Recommended first actions based on session state
+
+    This is the entry point for every AI session. Call it before any other tool.
+
+    Returns:
+        session_name: str
+        tempo: float
+        track_summary: list of {index, name, type, armed, muted, soloed, device_count}
+        arrangement_clip_count: int
+        session_clip_count: int
+        unnamed_tracks: list of {index, name}
+        armed_tracks: list of {index, name}
+        issues: list of str
+        recommended_actions: list of str
+        orientation_complete: bool
+    """
+    # Session info (name + tempo)
+    try:
+        song_info = _send("get_song_info", {})
+        session_name = song_info.get("name", "")
+        tempo = song_info.get("tempo", 0.0)
+    except Exception:
+        session_name = ""
+        tempo = 0.0
+
+    # Full track list
+    try:
+        tracks = _send("get_tracks", {})
+    except Exception:
+        tracks = []
+
+    track_summary = []
+    unnamed_tracks = []
+    armed_tracks = []
+    session_clip_count = 0
+
+    for track in tracks:
+        index = track.get("index", track.get("track_index", 0))
+        name = track.get("name", "")
+        is_midi = track.get("is_midi_track", False)
+        track_type = "midi" if is_midi else "audio"
+        armed = bool(track.get("arm", False))
+        muted = bool(track.get("mute", False))
+        soloed = bool(track.get("solo", False))
+        device_count = track.get("device_count", 0)
+        clip_count = track.get("clip_count", 0)
+        session_clip_count += clip_count
+
+        track_summary.append({
+            "index": index,
+            "name": name,
+            "type": track_type,
+            "armed": armed,
+            "muted": muted,
+            "soloed": soloed,
+            "device_count": device_count,
+        })
+
+        if not name or _DEFAULT_TRACK_NAME_PATTERN.match(name.strip()):
+            unnamed_tracks.append({"index": index, "name": name})
+
+        if armed:
+            armed_tracks.append({"index": index, "name": name})
+
+    # Arrangement clip count
+    try:
+        arrangement_data = _send("get_arrangement_clips", {})
+        if isinstance(arrangement_data, list):
+            arrangement_clip_count = len(arrangement_data)
+        elif isinstance(arrangement_data, dict):
+            arrangement_clip_count = len(arrangement_data.get("clips", []))
+        else:
+            arrangement_clip_count = 0
+    except Exception:
+        arrangement_clip_count = 0
+
+    # Build issues list
+    issues: list[str] = []
+    if unnamed_tracks:
+        issues.append("{} track(s) have default names".format(len(unnamed_tracks)))
+    if armed_tracks:
+        issues.append("{} track(s) are currently armed for recording".format(len(armed_tracks)))
+
+    # Build recommended actions
+    recommended_actions: list[str] = []
+    if unnamed_tracks:
+        recommended_actions.append(
+            "{} tracks are unnamed — consider running auto_name_track".format(len(unnamed_tracks))
+        )
+    if armed_tracks:
+        recommended_actions.append(
+            "{} track(s) are armed — disarm before saving if not intentional".format(len(armed_tracks))
+        )
+    if not issues:
+        recommended_actions.append("Session looks clean — ready to work")
+
+    return {
+        "session_name": session_name,
+        "tempo": tempo,
+        "track_summary": track_summary,
+        "arrangement_clip_count": arrangement_clip_count,
+        "session_clip_count": session_clip_count,
+        "unnamed_tracks": unnamed_tracks,
+        "armed_tracks": armed_tracks,
+        "issues": issues,
+        "recommended_actions": recommended_actions,
+        "orientation_complete": True,
+    }
+
