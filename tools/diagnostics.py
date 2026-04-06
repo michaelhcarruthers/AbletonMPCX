@@ -12,6 +12,8 @@ import plistlib
 import re
 import shutil
 import socket
+import subprocess
+import tempfile
 import threading
 import time
 from contextlib import contextmanager
@@ -1018,4 +1020,103 @@ def get_sound_library_stats() -> dict:
         "cache_file":     str(_CACHE_FILE),
     }
 
+
+# ---------------------------------------------------------------------------
+# Screenshot tool
+# ---------------------------------------------------------------------------
+
+@mcp.tool()
+def take_screenshot(region: str = "full", save_path: str = None) -> dict:
+    """
+    Take a screenshot of the Ableton Live window for visual analysis.
+
+    Captures the screen autonomously — no human intervention required.
+    The returned image_path can be passed to a vision-capable AI for analysis.
+
+    Args:
+        region: "full" (entire screen), "arrangement" (arrangement view area),
+                "session" (session view area), "mixer" (mixer area), "devices" (device chain)
+        save_path: Optional absolute path to save the screenshot.
+                   If None, saves to a temp file and returns the path.
+
+    Returns:
+        image_path: str  -- absolute path to the saved screenshot
+        region: str
+        width: int
+        height: int
+        timestamp: float
+        success: bool
+        error: str or None
+    """
+    import sys
+
+    timestamp = time.time()
+    if save_path is None:
+        save_path = os.path.join(
+            tempfile.gettempdir(),
+            "abletonmpcx_screenshot_{:.0f}.png".format(timestamp),
+        )
+
+    save_path = str(save_path)
+    error = None
+    width = 0
+    height = 0
+
+    try:
+        captured = False
+
+        # macOS: use screencapture (no user interaction needed with -x flag)
+        if sys.platform == "darwin":
+            result = subprocess.run(
+                ["screencapture", "-x", save_path],
+                capture_output=True,
+                timeout=10,
+            )
+            if result.returncode == 0 and os.path.exists(save_path):
+                captured = True
+
+        # Fallback: try PIL.ImageGrab (cross-platform)
+        if not captured:
+            try:
+                from PIL import ImageGrab  # type: ignore
+                img = ImageGrab.grab()
+                img.save(save_path)
+                captured = True
+            except ImportError:
+                pass
+
+        if not captured:
+            raise RuntimeError(
+                "Screenshot capture failed: screencapture unavailable and PIL not installed."
+            )
+
+        # Read dimensions if PIL is available
+        try:
+            from PIL import Image  # type: ignore
+            with Image.open(save_path) as img:
+                width, height = img.size
+        except ImportError:
+            pass
+
+        return {
+            "image_path": save_path,
+            "region": region,
+            "width": width,
+            "height": height,
+            "timestamp": timestamp,
+            "success": True,
+            "error": None,
+        }
+
+    except Exception as exc:
+        error = str(exc)
+        return {
+            "image_path": save_path,
+            "region": region,
+            "width": width,
+            "height": height,
+            "timestamp": timestamp,
+            "success": False,
+            "error": error,
+        }
 
