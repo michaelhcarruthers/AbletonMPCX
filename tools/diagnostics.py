@@ -1103,7 +1103,8 @@ def diagnose_track(track_index: int) -> dict:
     pan = mixer.get("panning")
     if pan is not None:
         if abs(pan) > 0.9:
-            warnings.append("Pan is hard {'left' if pan < 0 else 'right'} ({:.2f})".format(pan))
+            direction = "left" if pan < 0 else "right"
+            warnings.append("Pan is hard {} ({:.2f})".format(direction, pan))
             penalty += 5
         else:
             info.append("Pan: {:.2f}".format(pan))

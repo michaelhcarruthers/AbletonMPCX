@@ -294,11 +294,8 @@ def find_device_by_name(track_index: int, device_name: str) -> dict:
         alias_used: str or None
         parameters: list of {name, value, min, max}
     """
-    alias_used: str | None = None
-    lower_input = device_name.lower().strip()
     resolved = resolve_device_name(device_name)
-    if resolved != device_name:
-        alias_used = device_name
+    alias_used: str | None = device_name if resolved != device_name else None
 
     tracks = _send("get_tracks")
     if not isinstance(tracks, list) or track_index >= len(tracks):

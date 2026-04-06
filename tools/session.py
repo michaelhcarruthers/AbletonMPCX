@@ -3361,7 +3361,6 @@ def get_full_session_state() -> dict:
             "mute": t.get("mute", False),
         }
 
-    arrangement_clips = _send("get_arrangement_clips") if hasattr(_send, "__call__") else []
     try:
         arrangement_clips = _send("get_arrangement_clips")
     except Exception:
