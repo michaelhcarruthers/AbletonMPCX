@@ -103,6 +103,21 @@ def set_loop(enabled: bool | None = None, loop_start: float | None = None, loop_
     return _send("set_loop", params)
 
 @mcp.tool()
+def set_arrangement_position(position_beats: float) -> dict:
+    """
+    Set the arrangement playhead position in beats (absolute song time).
+
+    Use bars_beats_to_song_time() to convert bar/beat to absolute beats first.
+
+    Args:
+        position_beats: Absolute song time in beats (0.0 = start of song).
+
+    Returns:
+        dict with key 'position': the position that was set (in beats).
+    """
+    return _send("set_arrangement_position", {"position": position_beats})
+
+@mcp.tool()
 def set_swing_amount(value: float) -> dict:
     """Set the global swing amount (0.0-1.0)."""
     if not 0.0 <= value <= 1.0:
@@ -3692,6 +3707,12 @@ def render_track_to_audio(
         _send("set_record_mode", {"record_mode": True})
     except RuntimeError as e:
         warnings.append("Could not enable record mode: {}".format(e))
+
+    # Jump playhead to start of render range
+    try:
+        _send("set_arrangement_position", {"position": float(start_beat)})
+    except RuntimeError as e:
+        warnings.append("Could not set arrangement position: {}".format(e))
 
     try:
         _send("start_playing")
