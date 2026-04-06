@@ -301,7 +301,7 @@ def _apply_omnisphere_tags(
 
 @mcp.tool()
 def analyze_mix_balance(
-    file_paths: list,
+    file_paths: list[str],
     reference_file_path: str | None = None,
     crowded_threshold_hz: float = 1000.0,
     missing_threshold_hz: float = -1000.0,

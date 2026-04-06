@@ -3006,7 +3006,7 @@ def mix_correction_loop(
     if direction not in ("reduce", "boost"):
         return {"error": "direction must be 'reduce' or 'boost'"}
 
-    # Band value reading is not supported without an external spectrum analyser.
+    # Band value reading is not supported without an external spectrum analyzer.
     def _read_band_value():
         return None
 

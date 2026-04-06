@@ -214,7 +214,7 @@ The MCP server (`server.py`) communicates with the Remote Script (`__init__.py`)
 
 ## Audio Analysis
 
-AbletonMPCX includes a file-based audio analysis stack built on industry-standard Python libraries. Pass an exported audio file (WAV, AIFF, FLAC, MP3) to any of the tools below — no plugin required.
+AbletonMPCX includes a file-based audio analysis stack built on industry-standard Python libraries. Pass an exported audio file (WAV, AIFF, or FLAC) to any of the tools below — no plugin required.
 
 ### Dependencies
 
