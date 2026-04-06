@@ -58,24 +58,24 @@ def set_crossfade_assign(track_index: int, value: int) -> dict:
 # ---------------------------------------------------------------------------
 
 @mcp.tool()
-def get_rack_chains(track_index: int, device_index: int) -> list:
-    """Return the chains of a Rack device at (track_index, device_index)."""
-    return _send("get_rack_chains", {"track_index": track_index, "device_index": device_index})
+def get_rack_chains(track_index: int, device_index: int, is_return_track: bool = False) -> list:
+    """Return the chains of a Rack device at (track_index, device_index). Set is_return_track=True to target a return track."""
+    return _send("get_rack_chains", {"track_index": track_index, "device_index": device_index, "is_return_track": is_return_track})
 
 @mcp.tool()
-def get_rack_drum_pads(track_index: int, device_index: int) -> list:
-    """Return the drum pads of a Drum Rack device at (track_index, device_index)."""
-    return _send("get_rack_drum_pads", {"track_index": track_index, "device_index": device_index})
+def get_rack_drum_pads(track_index: int, device_index: int, is_return_track: bool = False) -> list:
+    """Return the drum pads of a Drum Rack device at (track_index, device_index). Set is_return_track=True to target a return track."""
+    return _send("get_rack_drum_pads", {"track_index": track_index, "device_index": device_index, "is_return_track": is_return_track})
 
 @mcp.tool()
-def randomize_rack_macros(track_index: int, device_index: int) -> dict:
-    """Randomize the macro controls of a Rack device."""
-    return _send("randomize_rack_macros", {"track_index": track_index, "device_index": device_index})
+def randomize_rack_macros(track_index: int, device_index: int, is_return_track: bool = False) -> dict:
+    """Randomize the macro controls of a Rack device. Set is_return_track=True to target a return track."""
+    return _send("randomize_rack_macros", {"track_index": track_index, "device_index": device_index, "is_return_track": is_return_track})
 
 @mcp.tool()
-def store_rack_variation(track_index: int, device_index: int) -> dict:
-    """Store the current macro state as a new variation in a Rack device."""
-    return _send("store_rack_variation", {"track_index": track_index, "device_index": device_index})
+def store_rack_variation(track_index: int, device_index: int, is_return_track: bool = False) -> dict:
+    """Store the current macro state as a new variation in a Rack device. Set is_return_track=True to target a return track."""
+    return _send("store_rack_variation", {"track_index": track_index, "device_index": device_index, "is_return_track": is_return_track})
 
 # ---------------------------------------------------------------------------
 # GroovePool
@@ -133,17 +133,21 @@ def get_browser_items_at_path(path: str) -> dict:
     return _send("get_browser_items_at_path", {"path": path})
 
 @mcp.tool()
-def load_browser_item(uri: str, track_index: int = 0) -> dict:
+def load_browser_item(uri: str, track_index: int = 0, is_return_track: bool = False) -> dict:
     """
     Load a browser item by URI onto the track at track_index.
     Use get_browser_items_at_path to discover URIs.
+    Set is_return_track=True to target a return track.
     """
-    return _send("load_browser_item", {"uri": uri, "track_index": track_index})
+    return _send("load_browser_item", {"uri": uri, "track_index": track_index, "is_return_track": is_return_track})
 
 @mcp.tool()
-def add_native_device(track_index: int, device_name: str) -> dict:
+def add_native_device(track_index: int, device_name: str, is_return_track: bool = False) -> dict:
     """
     Add a native Ableton device to a track by name.
+
+    Set is_return_track=True to target a return track (A, B, C...) by its
+    zero-based index instead of a regular track.
 
     Searches the browser by display name (case-insensitive substring match).
     The device is loaded onto the currently selected track position.
@@ -160,11 +164,16 @@ def add_native_device(track_index: int, device_name: str) -> dict:
     Args:
         track_index: Zero-based index of the track to add the device to.
         device_name: Display name of the device (case-insensitive substring).
+        is_return_track: If True, track_index refers to a return track (default False).
 
     Returns:
         dict with 'device_name' key confirming the matched device name.
     """
-    return _send("add_native_device", {"track_index": track_index, "device_name": device_name})
+    return _send("add_native_device", {
+        "track_index": track_index,
+        "device_name": device_name,
+        "is_return_track": is_return_track,
+    })
 
 @mcp.tool()
 def set_mixer_snapshot(states: list[dict]) -> dict:

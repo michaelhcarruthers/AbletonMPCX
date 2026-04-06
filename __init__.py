@@ -196,6 +196,12 @@ class AbletonMPCX(ControlSurface):
             raise IndexError("return track index {} out of range (0-{})".format(index, len(tracks) - 1))
         return tracks[index]
 
+    def _resolve_track(self, track_index: int, is_return: bool = False):
+        """Resolve a track by index from either regular or return tracks."""
+        if is_return:
+            return self._get_return_track(track_index)
+        return self._get_track(track_index)
+
     def _get_scene(self, scene_index):
         scenes = list(self._song.scenes)
         if scene_index < 0 or scene_index >= len(scenes):
@@ -215,8 +221,8 @@ class AbletonMPCX(ControlSurface):
             raise RuntimeError("No clip at track={}, slot={}".format(track_index, slot_index))
         return slot.clip
 
-    def _get_device(self, track_index, device_index):
-        track = self._get_track(track_index)
+    def _get_device(self, track_index, device_index, is_return=False):
+        track = self._resolve_track(track_index, is_return)
         devices = list(track.devices)
         if device_index < 0 or device_index >= len(devices):
             raise IndexError("device_index {} out of range".format(device_index))
@@ -1696,7 +1702,7 @@ class AbletonMPCX(ControlSurface):
     # -------------------------------------------------------------------------
 
     def _cmd_get_devices(self, params):
-        track = self._get_track(int(params["track_index"]))
+        track = self._resolve_track(int(params["track_index"]), bool(params.get("is_return_track", False)))
         result = []
         for i, device in enumerate(track.devices):
             result.append({
@@ -1709,7 +1715,7 @@ class AbletonMPCX(ControlSurface):
         return result
 
     def _cmd_get_device_parameters(self, params):
-        device = self._get_device(int(params["track_index"]), int(params["device_index"]))
+        device = self._get_device(int(params["track_index"]), int(params["device_index"]), bool(params.get("is_return_track", False)))
         result = []
         for i, p in enumerate(device.parameters):
             result.append({
@@ -1730,7 +1736,7 @@ class AbletonMPCX(ControlSurface):
     # -------------------------------------------------------------------------
 
     def _cmd_set_device_parameter(self, params):
-        device = self._get_device(int(params["track_index"]), int(params["device_index"]))
+        device = self._get_device(int(params["track_index"]), int(params["device_index"]), bool(params.get("is_return_track", False)))
         param_index = int(params["parameter_index"])
         parameters = list(device.parameters)
         if param_index < 0 or param_index >= len(parameters):
@@ -1750,7 +1756,7 @@ class AbletonMPCX(ControlSurface):
         'db' is NOT supported — use 'normalized' instead.
         Raises ValueError for unsupported units.
         """
-        device = self._get_device(int(params["track_index"]), int(params["device_index"]))
+        device = self._get_device(int(params["track_index"]), int(params["device_index"]), bool(params.get("is_return_track", False)))
         param_index = int(params["parameter_index"])
         parameters = list(device.parameters)
         if param_index < 0 or param_index >= len(parameters):
@@ -1791,7 +1797,7 @@ class AbletonMPCX(ControlSurface):
         return {"value_set": val, "param_min": p_min, "param_max": p_max}
 
     def _cmd_set_device_on_off(self, params):
-        device = self._get_device(int(params["track_index"]), int(params["device_index"]))
+        device = self._get_device(int(params["track_index"]), int(params["device_index"]), bool(params.get("is_return_track", False)))
         enabled = bool(params["enabled"])
         def fn():
             device.parameters[0].value = float(enabled)
@@ -1799,7 +1805,7 @@ class AbletonMPCX(ControlSurface):
         return {}
 
     def _cmd_delete_device(self, params):
-        track = self._get_track(int(params["track_index"]))
+        track = self._resolve_track(int(params["track_index"]), bool(params.get("is_return_track", False)))
         device_index = int(params["device_index"])
         def fn():
             track.delete_device(device_index)
@@ -1813,6 +1819,7 @@ class AbletonMPCX(ControlSurface):
         """
         track_index = int(params["track_index"])
         device_index = int(params["device_index"])
+        is_return = bool(params.get("is_return_track", False))
         target_track_index = int(params.get("target_track_index", track_index))
 
         if target_track_index != track_index:
@@ -1822,7 +1829,7 @@ class AbletonMPCX(ControlSurface):
             )
 
         def fn():
-            track = self._get_track(track_index)
+            track = self._resolve_track(track_index, is_return)
             if device_index >= len(list(track.devices)):
                 raise IndexError("device_index {} out of range".format(device_index))
             track.duplicate_device(device_index)
@@ -2008,7 +2015,7 @@ class AbletonMPCX(ControlSurface):
         return self._cmd_set_device_on_off(params)
 
     def _cmd_duplicate_device(self, params):
-        track = self._get_track(int(params["track_index"]))
+        track = self._resolve_track(int(params["track_index"]), bool(params.get("is_return_track", False)))
         device_index = int(params["device_index"])
         def fn():
             track.duplicate_device(device_index)
@@ -2041,7 +2048,7 @@ class AbletonMPCX(ControlSurface):
     # -------------------------------------------------------------------------
 
     def _cmd_get_rack_chains(self, params):
-        device = self._get_device(int(params["track_index"]), int(params["device_index"]))
+        device = self._get_device(int(params["track_index"]), int(params["device_index"]), bool(params.get("is_return_track", False)))
         try:
             chains = device.chains
         except AttributeError:
@@ -2057,7 +2064,7 @@ class AbletonMPCX(ControlSurface):
         return result
 
     def _cmd_get_rack_drum_pads(self, params):
-        device = self._get_device(int(params["track_index"]), int(params["device_index"]))
+        device = self._get_device(int(params["track_index"]), int(params["device_index"]), bool(params.get("is_return_track", False)))
         try:
             drum_pads = device.drum_pads
         except AttributeError:
@@ -2078,7 +2085,7 @@ class AbletonMPCX(ControlSurface):
         return result
 
     def _cmd_randomize_rack_macros(self, params):
-        device = self._get_device(int(params["track_index"]), int(params["device_index"]))
+        device = self._get_device(int(params["track_index"]), int(params["device_index"]), bool(params.get("is_return_track", False)))
         def fn():
             try:
                 device.randomize_macros()
@@ -2088,7 +2095,7 @@ class AbletonMPCX(ControlSurface):
         return {}
 
     def _cmd_store_rack_variation(self, params):
-        device = self._get_device(int(params["track_index"]), int(params["device_index"]))
+        device = self._get_device(int(params["track_index"]), int(params["device_index"]), bool(params.get("is_return_track", False)))
         def fn():
             try:
                 device.store_variation()
@@ -2259,7 +2266,8 @@ class AbletonMPCX(ControlSurface):
             raise RuntimeError("Browser not supported in this version of Ableton Live")
         uri = str(params["uri"])
         track_index = int(params.get("track_index", 0))
-        track = self._get_track(track_index)
+        is_return = bool(params.get("is_return_track", False))
+        track = self._resolve_track(track_index, is_return)
 
         def _find_item(node, target_uri):
             try:
@@ -2303,7 +2311,8 @@ class AbletonMPCX(ControlSurface):
         """Insert a native Ableton device onto a track by searching the browser by name or URI fragment."""
         track_index = int(params["track_index"])
         device_name = str(params["device_name"]).lower()
-        track = self._get_track(track_index)
+        is_return = bool(params.get("is_return_track", False))
+        track = self._resolve_track(track_index, is_return)
         try:
             browser = self.application().browser
         except AttributeError:
