@@ -1340,6 +1340,109 @@ class AbletonMPCX(ControlSurface):
                     self._song.end_undo_step()
         return self._run_on_main_thread(fn)
 
+    def _cmd_get_detail_clip(self, params):
+        """Return info and notes for the clip currently open in the Detail View.
+
+        This is the only reliable way to read arrangement clips from the Python API.
+        The user must click the clip in Live first to open it in the Detail View.
+        """
+        include_notes = bool(params.get("include_notes", True))
+        silent = getattr(self._thread_local, "silent", False)
+
+        def fn():
+            try:
+                clip = self._song.view.detail_clip
+            except AttributeError:
+                raise RuntimeError("song.view.detail_clip is not available in this version of Live")
+
+            if clip is None:
+                return {
+                    "clip": None,
+                    "prompt": (
+                        "No clip is open in the Detail View. "
+                        "Click the clip you want to inspect in Live (double-click in Arrangement View, "
+                        "or single-click in Session View) to open it, then try again."
+                    ),
+                }
+
+            # Find which track this clip belongs to
+            track_index = None
+            track_name = None
+            is_arrangement_clip = False
+            for t_idx, track in enumerate(self._song.tracks):
+                # Check session slots
+                for slot in track.clip_slots:
+                    if slot.has_clip and slot.clip == clip:
+                        track_index = t_idx
+                        track_name = track.name
+                        is_arrangement_clip = False
+                        break
+                if track_index is not None:
+                    break
+                # Check arrangement clips (if available in this Live version)
+                try:
+                    for arr_clip in track.arrangement_clips:
+                        if arr_clip == clip:
+                            track_index = t_idx
+                            track_name = track.name
+                            is_arrangement_clip = True
+                            break
+                except AttributeError:
+                    pass
+                if track_index is not None:
+                    break
+
+            info = {
+                "clip_name": clip.name,
+                "is_midi_clip": clip.is_midi_clip,
+                "length": clip.length,
+                "looping": clip.looping,
+                "loop_start": clip.loop_start,
+                "loop_end": clip.loop_end,
+                "color": self._color(clip),
+                "muted": clip.muted,
+                "track_index": track_index,
+                "track_name": track_name,
+                "is_arrangement_clip": is_arrangement_clip,
+            }
+
+            # Add start_time for arrangement clips
+            try:
+                info["start_time"] = clip.start_time
+            except AttributeError:
+                info["start_time"] = None
+
+            if not clip.is_midi_clip:
+                for attr in ("gain", "warping", "warp_mode", "pitch_coarse", "pitch_fine"):
+                    try:
+                        val = getattr(clip, attr)
+                        info[attr] = int(val) if attr == "warp_mode" else val
+                    except AttributeError:
+                        pass
+
+            if not include_notes or not clip.is_midi_clip:
+                return {"clip": info, "notes": None}
+
+            # Read notes (use silent undo step to avoid polluting undo history)
+            if silent:
+                self._song.begin_undo_step("silent_read")
+            try:
+                notes = []
+                for note in clip.get_notes(0, 0, clip.length, 128):
+                    notes.append({
+                        "pitch": note[0],
+                        "start_time": note[1],
+                        "duration": note[2],
+                        "velocity": note[3],
+                        "mute": note[4],
+                    })
+                return {"clip": info, "notes": notes, "note_count": len(notes)}
+            finally:
+                if silent:
+                    self._song.end_undo_step()
+
+        return self._run_on_main_thread(fn)
+
     def _cmd_get_arrangement_clips(self, params):
         """Return all clips placed in the Arrangement View across all tracks."""
         track_index_filter = params.get("track_index")  # optional int filter

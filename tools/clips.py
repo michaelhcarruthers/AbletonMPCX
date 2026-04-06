@@ -573,6 +573,43 @@ def move_device(
 # ---------------------------------------------------------------------------
 
 @mcp.tool()
+def get_detail_clip(include_notes: bool = True) -> dict:
+    """
+    Return info and MIDI notes for the clip currently open in Live's Detail View
+    (the clip editor at the bottom of the screen).
+
+    This is the ONLY reliable way to read arrangement clips via the Python API,
+    because Ableton does not expose arrangement clips directly.
+
+    HOW TO USE:
+      1. In Live, click the clip you want to inspect:
+         - Arrangement View: double-click the clip to open it in the Detail View
+         - Session View: single-click the clip
+      2. Call this tool — it reads whatever is currently open at the bottom.
+
+    If this returns {"clip": null, "prompt": "..."}, Live is telling you no clip
+    is open in the Detail View. Follow the prompt: click the clip in Live first,
+    then call this tool again.
+
+    Args:
+        include_notes: If True (default), also returns MIDI notes for MIDI clips.
+                       Set to False for a faster info-only call.
+
+    Returns:
+        clip: {
+            clip_name, is_midi_clip, length, looping, loop_start, loop_end,
+            color, muted, track_index, track_name, is_arrangement_clip,
+            start_time (arrangement position in beats, or null for session clips)
+        }
+        notes: list of {pitch, start_time, duration, velocity, mute}  -- null if audio clip or include_notes=False
+        note_count: int  -- null if audio clip or include_notes=False
+        prompt: str  -- only present when no clip is open; contains instructions for the user
+    """
+    result = _send_silent("get_detail_clip", {"include_notes": include_notes})
+    return result
+
+
+@mcp.tool()
 def list_arrangement_clips(
     track_index: int = None,
     start_bar: int = None,
@@ -595,12 +632,26 @@ def list_arrangement_clips(
                         is_audio, is_midi, color, muted}
         total_clips: int
         filtered_by: dict
+
+    Note:
+        If this returns 0 clips due to a Live API limitation, use get_detail_clip()
+        instead: click the clip in Live first, then call get_detail_clip().
     """
     try:
         raw = _send("get_arrangement_clips", {})
         all_clips = raw if isinstance(raw, list) else raw.get("clips", [])
     except Exception as e:
-        return {"clips": [], "total_clips": 0, "filtered_by": {}, "error": str(e)}
+        return {
+            "clips": [],
+            "total_clips": 0,
+            "filtered_by": {},
+            "error": str(e),
+            "prompt": (
+                "Could not read arrangement clips directly (Live API limitation). "
+                "To read a specific arrangement clip: click it in Live's Arrangement View "
+                "to open it in the Detail View, then call get_detail_clip()."
+            ),
+        }
 
     clips = []
     for clip in all_clips:
@@ -680,6 +731,12 @@ def get_arrangement_clip_notes(
         clip_start_time: float  -- position in the arrangement (beats)
         clip_length: float      -- length in beats
         note_count: int
+
+    Note:
+        If this raises an error or returns empty, the Live API cannot read arrangement
+        clips directly. Use get_detail_clip() instead:
+          1. Click the arrangement clip in Live to open it in the Detail View
+          2. Call get_detail_clip() to read its notes
     """
     result = _send_silent("get_arrangement_clip_notes", {
         "track_index": track_index,
