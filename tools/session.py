@@ -3481,3 +3481,262 @@ def get_full_session_state() -> dict:
         "total_devices": total_devices,
         "total_clips": total_clips,
     }
+
+
+# ---------------------------------------------------------------------------
+# Render / Print to audio
+# ---------------------------------------------------------------------------
+
+@mcp.tool()
+def render_track_to_audio(
+    source_track_index: int,
+    start_bar: int = 1,
+    end_bar: int = 9,
+    use_resampling: bool = False,
+    post_fx: bool = True,
+    ensure_full_length: bool = True,
+    new_track_name: str | None = None,
+    target_track_index: int | None = None,
+) -> dict:
+    """
+    Print a track's audio output to a new audio track for a given bar range.
+
+    Automates the "resample" workflow:
+    1. Optionally duplicates the source clip until it fills the requested range.
+    2. Creates a new audio track routed to the source track (Post FX) or Resampling.
+    3. Arms the new track and starts Arrangement recording for exactly the bar range.
+    4. Stops, disarms, and returns the new track details.
+
+    Useful for printing third-party plugin edits (e.g. Melodyne) to audio.
+
+    Args:
+        source_track_index: Track to capture audio from.
+        start_bar: First bar of the range to record (1-based, default 1).
+        end_bar: Bar after the last bar to record (default 9 = 8 bars).
+        use_resampling: If True, route from master Resampling instead of the source track directly.
+        post_fx: If True (default), capture post-effects signal.
+        ensure_full_length: If True (default), try to extend the source clip to fill the range.
+        new_track_name: Name for the new audio track (default: "{source_track_name} [Rendered]").
+        target_track_index: Position to insert the new track (default: right after source track).
+
+    Returns:
+        new_track_index, new_track_name, source_track_name, bars_recorded, duration_seconds
+    """
+    warnings: list[str] = []
+
+    # --- Gather song info (tempo + time signature) ---
+    try:
+        song_info = _send("get_song_info")
+    except RuntimeError as e:
+        return {"error": "Could not get song info: {}".format(e)}
+
+    tempo = float(song_info.get("tempo", 120.0))
+    time_sig_num = int(song_info.get("time_signature_numerator", song_info.get("numerator", 4)))
+
+    bars_to_record = end_bar - start_bar
+    if bars_to_record <= 0:
+        return {"error": "end_bar must be greater than start_bar"}
+
+    beats_per_bar = time_sig_num
+    start_beat = (start_bar - 1) * beats_per_bar
+    length_beats = bars_to_record * beats_per_bar
+    seconds_per_beat = 60.0 / tempo
+    duration_seconds = length_beats * seconds_per_beat
+
+    # --- Get source track info ---
+    try:
+        tracks = _send("get_tracks")
+    except RuntimeError as e:
+        return {"error": "Could not get tracks: {}".format(e)}
+
+    if source_track_index < 0 or source_track_index >= len(tracks):
+        return {"error": "source_track_index {} is out of range (0-{})".format(
+            source_track_index, len(tracks) - 1)}
+
+    source_track = tracks[source_track_index]
+    source_track_name = source_track.get("name", "Track {}".format(source_track_index + 1))
+
+    # --- Step 1: Optionally extend source clip to cover the requested range ---
+    clip_length_warning = None
+    if ensure_full_length:
+        try:
+            track_info = _send("get_track_info", {"track_index": source_track_index})
+            clip_slots = track_info.get("clip_slots", [])
+            # Find the first populated clip slot
+            source_slot_index = None
+            for slot_idx, slot in enumerate(clip_slots):
+                if slot and slot.get("has_clip"):
+                    source_slot_index = slot_idx
+                    break
+
+            if source_slot_index is not None:
+                clip_info = _send("get_clip_info", {
+                    "track_index": source_track_index,
+                    "slot_index": source_slot_index,
+                })
+                clip_length = float(clip_info.get("length", 0))
+                # Double the loop until the clip length covers what we need
+                max_doublings = 10
+                doublings = 0
+                while clip_length < length_beats and doublings < max_doublings:
+                    try:
+                        _send("duplicate_clip_loop", {
+                            "track_index": source_track_index,
+                            "slot_index": source_slot_index,
+                        })
+                        doublings += 1
+                        # Refresh clip length
+                        clip_info = _send("get_clip_info", {
+                            "track_index": source_track_index,
+                            "slot_index": source_slot_index,
+                        })
+                        clip_length = float(clip_info.get("length", 0))
+                    except RuntimeError:
+                        break
+                if clip_length < length_beats:
+                    clip_length_warning = (
+                        "Source clip (length={} beats) may be shorter than requested range "
+                        "({} beats); recorded clip may be shorter than expected.".format(
+                            clip_length, length_beats)
+                    )
+                    warnings.append(clip_length_warning)
+            else:
+                warnings.append(
+                    "No clip found in source track slot; skipping ensure_full_length."
+                )
+        except RuntimeError as e:
+            warnings.append("ensure_full_length skipped: {}".format(e))
+
+    # --- Step 2: Create new audio track ---
+    insert_index = target_track_index if target_track_index is not None else source_track_index + 1
+    try:
+        _send("create_audio_track", {"index": insert_index})
+    except RuntimeError as e:
+        return {"error": "Could not create audio track: {}".format(e)}
+
+    # After insertion, fetch fresh track list to get the new track's actual index
+    try:
+        tracks_after = _send("get_tracks")
+        new_track_index = insert_index if insert_index < len(tracks_after) else len(tracks_after) - 1
+    except RuntimeError:
+        new_track_index = insert_index
+
+    # Determine the name for the new track
+    if new_track_name is None:
+        new_track_name = "{} [Rendered]".format(source_track_name)
+
+    try:
+        _send("set_track_name", {"track_index": new_track_index, "name": new_track_name})
+    except RuntimeError as e:
+        warnings.append("Could not rename new track: {}".format(e))
+
+    # --- Step 3: Set input routing ---
+    routing_set = False
+    if use_resampling:
+        routing_type_name = "Resampling"
+        routing_channel_name = None
+    else:
+        # Live's display name for track routing is typically "{index+1}-{track_name}"
+        routing_type_name = "{}-{}".format(source_track_index + 1, source_track_name)
+        routing_channel_name = "Post FX" if post_fx else "Pre FX"
+
+    try:
+        _send("set_track_input_routing", {
+            "track_index": new_track_index,
+            "routing_type_name": routing_type_name,
+            "routing_channel_name": routing_channel_name,
+        })
+        routing_set = True
+    except RuntimeError as e:
+        warnings.append(
+            "Could not set input routing to '{}' (channel '{}'): {}. "
+            "Please set routing manually in Live.".format(
+                routing_type_name, routing_channel_name, e)
+        )
+
+    # --- Step 4: Arm the new track ---
+    try:
+        _send("set_track_arm", {"track_index": new_track_index, "arm": True})
+    except RuntimeError as e:
+        warnings.append("Could not arm new track: {}".format(e))
+
+    # --- Step 5: Set Arrangement loop ---
+    try:
+        _send("set_loop", {
+            "enabled": True,
+            "loop_start": float(start_beat),
+            "loop_length": float(length_beats),
+        })
+    except RuntimeError as e:
+        warnings.append("Could not set loop: {}".format(e))
+
+    # --- Step 6: Move playhead to start_bar ---
+    try:
+        _send("set_current_song_time", {"song_time": float(start_beat)})
+    except RuntimeError:
+        try:
+            _send("jump_to_position", {"position": float(start_beat)})
+        except RuntimeError as e:
+            warnings.append("Could not move playhead to start: {}".format(e))
+
+    # Make sure we are not already playing / recording
+    try:
+        _send("stop_playing")
+    except RuntimeError:
+        pass
+
+    # --- Step 7: Start Arrangement recording ---
+    try:
+        _send("set_record_mode", {"record_mode": True})
+    except RuntimeError as e:
+        warnings.append("Could not enable record mode: {}".format(e))
+
+    try:
+        _send("start_playing")
+    except RuntimeError as e:
+        # Cleanup on failure
+        try:
+            _send("set_track_arm", {"track_index": new_track_index, "arm": False})
+        except RuntimeError:
+            pass
+        return {"error": "Could not start playback: {}".format(e), "warnings": warnings}
+
+    # --- Step 8: Wait for the recording duration ---
+    time.sleep(duration_seconds + 0.5)
+
+    # --- Step 9: Stop recording ---
+    try:
+        _send("stop_playing")
+    except RuntimeError as e:
+        warnings.append("Could not stop playback: {}".format(e))
+
+    try:
+        _send("set_record_mode", {"record_mode": False})
+    except RuntimeError:
+        pass
+
+    # --- Step 10: Disarm the new track ---
+    try:
+        _send("set_track_arm", {"track_index": new_track_index, "arm": False})
+    except RuntimeError as e:
+        warnings.append("Could not disarm new track: {}".format(e))
+
+    # --- Step 11: Return result ---
+    result: dict[str, Any] = {
+        "new_track_index": new_track_index,
+        "new_track_name": new_track_name,
+        "source_track_name": source_track_name,
+        "source_track_index": source_track_index,
+        "bars_recorded": bars_to_record,
+        "duration_seconds": round(duration_seconds, 3),
+        "start_bar": start_bar,
+        "end_bar": end_bar,
+        "tempo": tempo,
+        "routing_type_name": routing_type_name,
+        "routing_channel_name": routing_channel_name,
+        "routing_set": routing_set,
+        "use_resampling": use_resampling,
+    }
+    if warnings:
+        result["warnings"] = warnings
+    return result
