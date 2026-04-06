@@ -43,6 +43,11 @@ session_state.json         # Persisted AI handoff state (written each significan
 | #45 | DJ blend/transition macros |
 | #47 | Refactor — split 9 103-line server.py into focused domain modules |
 | #48 | Repo infrastructure (ROADMAP, session state, get_capabilities, vocabulary) |
+| #49 | Core tools A–D: auto_orient, cleanup, relative parameter adjustment, arrangement clips |
+| #50 | Mix intelligence E–G: levels overview, clipping watch, batch audit, screenshot |
+| #51 | Performance optimisation H–N: state diff, summarisers, diagnostics, bundling, alias registry |
+| #52 | Plugins P1–P3: spectrum peak hold, dynamics telemetry, stereo field analyser |
+| #53 | Fix 8 bundled code review issues: broken imports, clip duplication bug, schema drift, dead imports, stale docs |
 
 ---
 
@@ -82,7 +87,7 @@ session_state.json         # Persisted AI handoff state (written each significan
 | I | Compact summarisers | ✅ Done |
 | J | Diagnostic tools per question | ✅ Done |
 | K | Threshold engine for spectrum data | ✅ Done |
-| L | Tool call bundling | ⬜ Pending |
+| L | Tool call bundling | ✅ Done (`get_full_session_state`) |
 | M | Per-project cached audit JSON files | ✅ Done |
 | N | Device/parameter alias registry | ✅ Done |
 
