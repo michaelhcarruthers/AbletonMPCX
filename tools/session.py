@@ -113,7 +113,7 @@ def set_arrangement_position(position_beats: float) -> dict:
         position_beats: Absolute song time in beats (0.0 = start of song).
 
     Returns:
-        dict with key 'position': the position that was set (in beats).
+        position: the position that was set
     """
     return _send("set_arrangement_position", {"position": position_beats})
 
@@ -3689,12 +3689,9 @@ def render_track_to_audio(
 
     # --- Step 6: Move playhead to start_bar ---
     try:
-        _send("set_current_song_time", {"song_time": float(start_beat)})
-    except RuntimeError:
-        try:
-            _send("jump_to_position", {"position": float(start_beat)})
-        except RuntimeError as e:
-            warnings.append("Could not move playhead to start: {}".format(e))
+        _send("set_arrangement_position", {"position": float(start_beat)})
+    except RuntimeError as e:
+        warnings.append("Could not move playhead to start: {}".format(e))
 
     # Make sure we are not already playing / recording
     try:
@@ -3708,11 +3705,11 @@ def render_track_to_audio(
     except RuntimeError as e:
         warnings.append("Could not enable record mode: {}".format(e))
 
-    # Jump playhead to start of render range
+    # Re-position playhead after enabling record mode to ensure correct start position
     try:
         _send("set_arrangement_position", {"position": float(start_beat)})
     except RuntimeError as e:
-        warnings.append("Could not set arrangement position: {}".format(e))
+        warnings.append("Could not set playhead after record mode: {}".format(e))
 
     try:
         _send("start_playing")

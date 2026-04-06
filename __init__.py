@@ -432,6 +432,14 @@ class AbletonMPCX(ControlSurface):
         self._run_on_main_thread(fn)
         return {}
 
+    def _cmd_set_arrangement_position(self, params):
+        """Set the arrangement playhead position in beats."""
+        position = float(params["position"])
+        def fn():
+            self._song.current_song_time = position
+        self._run_on_main_thread(fn)
+        return {"position": position}
+
     def _cmd_stop_playing(self, params):
         def fn():
             self._song.stop_playing()
