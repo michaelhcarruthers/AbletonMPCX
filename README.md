@@ -259,6 +259,51 @@ analyze_mix_balance(
 
 ---
 
+## Audio Analysis Stack
+
+AbletonMPCX includes a five-library file-based analysis stack for deep offline and near-real-time audio analysis.
+
+### Libraries
+
+| Library | Best for | Mode |
+|---|---|---|
+| **scipy** | Smoothing, filters, envelopes, peak logic, utility DSP | Core always-on |
+| **aubio** | Onset detection, pitch, tempo, transient finding | Core always-on |
+| **essentia** | Spectral features, tonal descriptors, brightness/density hints | Analysis core |
+| **pyloudnorm** | LUFS loudness, true peak, gain staging, reference normalization | Loudness/reference |
+| **madmom** | Beat tracking, downbeat detection, groove-aware rhythm analysis | Rhythm specialist |
+
+### Real-time vs Offline
+
+**Real-time / near-real-time:** aubio, scipy, selected essentia features
+
+**Offline / batch / decision support:** pyloudnorm, madmom, heavier essentia features
+
+### Recommended usage
+
+| Task | Libraries |
+|---|---|
+| Telemetry / mix decisions | essentia + scipy + pyloudnorm |
+| Chopping / transients | aubio + scipy |
+| Rhythm / groove analysis | madmom + aubio |
+| Reference compare | pyloudnorm + essentia |
+
+### Tools
+
+| Tool | Library | Purpose |
+|---|---|---|
+| `get_loudness(file_path)` | pyloudnorm | LUFS, true peak, loudness baseline |
+| `get_onsets(file_path)` | aubio | Transient/onset detection |
+| `get_spectral_descriptors(file_path)` | essentia | Brightness, key, timbral fingerprint |
+| `get_beat_tracking(file_path)` | madmom | BPM, beats, downbeats |
+| `get_envelope(file_path)` | scipy | Smoothed dynamics, crest factor |
+
+### Architecture
+
+Plugin = sensors. Python stack = brain. The MCPSpectrumTelemetry plugin provides continuous low-latency per-track band energy from inside Live. The Python analysis stack handles deeper decisions, chopping, loudness, and reference comparison. They are complementary.
+
+---
+
 ## Performance Macros
 
 Performance macros let you trigger multi-parameter musical gestures with a single command.
