@@ -419,7 +419,7 @@ def create_midi_track_with_drum_rack(index: int = -1, track_name: str | None = N
         track_name = tracks[new_track_index]["name"] if new_track_index < len(tracks) else "MIDI"
 
     # Load Drum Rack
-    _send("add_native_device", {"track_index": new_track_index, "device_name": "Drum Rack"})
+    _send("add_native_device", {"track_index": new_track_index, "device_name": "Drum Rack", "is_return_track": False})
 
     return {
         "track_index": new_track_index,
@@ -446,6 +446,7 @@ def capture_device_macro_snapshot(track_index: int, device_index: int, label: st
     result = _send("get_device_parameters", {
         "track_index": track_index,
         "device_index": device_index,
+        "is_return_track": False,
     })
     device_name = result.get("name", "unknown")
     parameters = result.get("parameters", [])
@@ -499,6 +500,7 @@ def apply_device_macro_snapshot(label: str, track_index: int | None = None, devi
                 "device_index": di,
                 "parameter_index": param["index"],
                 "value": param["value"],
+                "is_return_track": False,
             })
             set_count += 1
         except Exception:
@@ -2110,7 +2112,7 @@ def find_missing_plugins(dry_run: bool = True) -> dict:
     for track in tracks:
         track_index = track["index"]
         track_name = track["name"]
-        devices = _send("get_devices", {"track_index": track_index})
+        devices = _send("get_devices", {"track_index": track_index, "is_return_track": False})
         for device in devices:
             device_index = device["index"]
             device_name = device.get("name", "")
@@ -2142,6 +2144,7 @@ def find_missing_plugins(dry_run: bool = True) -> dict:
                 _send("delete_device", {
                     "track_index": entry["track_index"],
                     "device_index": entry["device_index"],
+                    "is_return_track": False,
                 })
                 deleted.append(entry)
         finally:

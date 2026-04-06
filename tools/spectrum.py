@@ -539,7 +539,7 @@ def _find_device_parameter_by_name(
     )
 
 
-def _find_or_add_device(track_index: int, device_name: str) -> int:
+def _find_or_add_device(track_index: int, device_name: str, is_return_track: bool = False) -> int:
     """
     Find or add a device on a track by name.
 
@@ -548,15 +548,15 @@ def _find_or_add_device(track_index: int, device_name: str) -> int:
     3. If not found, calls add_native_device(track_index, device_name)
     4. Returns the device index.
     """
-    devices = _send("get_devices", {"track_index": track_index}, _log=False)
+    devices = _send("get_devices", {"track_index": track_index, "is_return_track": is_return_track}, _log=False)
     name_lower = device_name.lower()
     for d in devices:
         if name_lower in d["name"].lower():
             return d["index"]
     # Not found — add it
-    _send("add_native_device", {"track_index": track_index, "device_name": device_name})
+    _send("add_native_device", {"track_index": track_index, "device_name": device_name, "is_return_track": is_return_track})
     # Re-fetch to get the new index
-    devices = _send("get_devices", {"track_index": track_index}, _log=False)
+    devices = _send("get_devices", {"track_index": track_index, "is_return_track": is_return_track}, _log=False)
     for d in devices:
         if name_lower in d["name"].lower():
             return d["index"]

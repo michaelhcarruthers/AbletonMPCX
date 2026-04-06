@@ -445,28 +445,29 @@ def deselect_all_notes(track_index: int, slot_index: int) -> dict:
 # ---------------------------------------------------------------------------
 
 @mcp.tool()
-def get_devices(track_index: int) -> list:
-    """Return all devices on the track at track_index. Use track_index=-1 to target the master track."""
-    return _send("get_devices", {"track_index": track_index})
+def get_devices(track_index: int, is_return_track: bool = False) -> list:
+    """Return all devices on the track at track_index. Use track_index=-1 to target the master track. Set is_return_track=True to target a return track."""
+    return _send("get_devices", {"track_index": track_index, "is_return_track": is_return_track})
 
 @mcp.tool()
-def get_device_info(track_index: int, device_index: int) -> dict:
-    """Return details for the device at (track_index, device_index)."""
-    return _send("get_device_info", {"track_index": track_index, "device_index": device_index})
+def get_device_info(track_index: int, device_index: int, is_return_track: bool = False) -> dict:
+    """Return details for the device at (track_index, device_index). Set is_return_track=True to target a return track."""
+    return _send("get_device_info", {"track_index": track_index, "device_index": device_index, "is_return_track": is_return_track})
 
 @mcp.tool()
-def get_device_parameters(track_index: int, device_index: int) -> dict:
-    """Return all automatable parameters for the device at (track_index, device_index). Use track_index=-1 to target the master track."""
-    return _send("get_device_parameters", {"track_index": track_index, "device_index": device_index})
+def get_device_parameters(track_index: int, device_index: int, is_return_track: bool = False) -> dict:
+    """Return all automatable parameters for the device at (track_index, device_index). Use track_index=-1 to target the master track. Set is_return_track=True to target a return track."""
+    return _send("get_device_parameters", {"track_index": track_index, "device_index": device_index, "is_return_track": is_return_track})
 
 @mcp.tool()
-def set_device_parameter(track_index: int, device_index: int, parameter_index: int, value: float) -> dict:
-    """Set a device parameter by index. Value is clamped to min/max automatically. Use track_index=-1 to target the master track."""
+def set_device_parameter(track_index: int, device_index: int, parameter_index: int, value: float, is_return_track: bool = False) -> dict:
+    """Set a device parameter by index. Value is clamped to min/max automatically. Use track_index=-1 to target the master track. Set is_return_track=True to target a return track."""
     return _send("set_device_parameter", {
         "track_index": track_index,
         "device_index": device_index,
         "parameter_index": parameter_index,
         "value": value,
+        "is_return_track": is_return_track,
     })
 
 @mcp.tool()
@@ -510,19 +511,19 @@ def set_device_parameter_human(
     })
 
 @mcp.tool()
-def set_device_enabled(track_index: int, device_index: int, enabled: bool) -> dict:
-    """Enable or disable the device at (track_index, device_index). Use track_index=-1 to target the master track."""
-    return _send("set_device_enabled", {"track_index": track_index, "device_index": device_index, "enabled": enabled})
+def set_device_enabled(track_index: int, device_index: int, enabled: bool, is_return_track: bool = False) -> dict:
+    """Enable or disable the device at (track_index, device_index). Use track_index=-1 to target the master track. Set is_return_track=True to target a return track."""
+    return _send("set_device_enabled", {"track_index": track_index, "device_index": device_index, "enabled": enabled, "is_return_track": is_return_track})
 
 @mcp.tool()
-def delete_device(track_index: int, device_index: int) -> dict:
-    """Delete the device at (track_index, device_index). Use track_index=-1 to target the master track."""
-    return _send("delete_device", {"track_index": track_index, "device_index": device_index})
+def delete_device(track_index: int, device_index: int, is_return_track: bool = False) -> dict:
+    """Delete the device at (track_index, device_index). Use track_index=-1 to target the master track. Set is_return_track=True to target a return track."""
+    return _send("delete_device", {"track_index": track_index, "device_index": device_index, "is_return_track": is_return_track})
 
 @mcp.tool()
-def duplicate_device(track_index: int, device_index: int) -> dict:
-    """Duplicate the device at (track_index, device_index). Use track_index=-1 to target the master track."""
-    return _send("duplicate_device", {"track_index": track_index, "device_index": device_index})
+def duplicate_device(track_index: int, device_index: int, is_return_track: bool = False) -> dict:
+    """Duplicate the device at (track_index, device_index). Use track_index=-1 to target the master track. Set is_return_track=True to target a return track."""
+    return _send("duplicate_device", {"track_index": track_index, "device_index": device_index, "is_return_track": is_return_track})
 
 @mcp.tool()
 def move_device(
@@ -530,6 +531,7 @@ def move_device(
     device_index: int,
     target_device_index: int,
     target_track_index: int | None = None,
+    is_return_track: bool = False,
 ) -> dict:
     """
     Move a device to a new position within the same track.
@@ -546,6 +548,7 @@ def move_device(
         device_index: Current index of the device.
         target_device_index: Desired position after the move (best-effort).
         target_track_index: Must equal track_index or be None.
+        is_return_track: If True, track_index refers to a return track.
 
     Returns:
         track_index, device_index
@@ -561,6 +564,7 @@ def move_device(
         "device_index": device_index,
         "target_track_index": track_index,
         "target_device_index": target_device_index,
+        "is_return_track": is_return_track,
     })
 
 

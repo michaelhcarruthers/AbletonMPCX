@@ -45,7 +45,7 @@ def reverb_throw(
         if device_index is None:
             device_index = _find_or_add_device(track_index, "Reverb")
 
-        devices = _send("get_devices", {"track_index": track_index}, _log=False)
+        devices = _send("get_devices", {"track_index": track_index, "is_return_track": False}, _log=False)
         device_name = next(
             (d["name"] for d in devices if d["index"] == device_index),
             "Reverb",
@@ -193,7 +193,7 @@ def delay_echo_out(
     try:
         if device_index is None:
             # Try to find an existing delay or echo device
-            devices = _send("get_devices", {"track_index": track_index}, _log=False)
+            devices = _send("get_devices", {"track_index": track_index, "is_return_track": False}, _log=False)
             device_index = None
             for d in devices:
                 name_lower = d["name"].lower()
@@ -203,7 +203,7 @@ def delay_echo_out(
             if device_index is None:
                 device_index = _find_or_add_device(track_index, "Delay")
 
-        devices = _send("get_devices", {"track_index": track_index}, _log=False)
+        devices = _send("get_devices", {"track_index": track_index, "is_return_track": False}, _log=False)
         device_name = next(
             (d["name"] for d in devices if d["index"] == device_index),
             "Delay",
@@ -569,7 +569,7 @@ def check_macro_readiness(track_index: int, macro_name: str) -> dict:
     steps = _MACRO_DEFINITIONS[macro_name]
 
     try:
-        devices_result = _send("get_devices", {"track_index": track_index})
+        devices_result = _send("get_devices", {"track_index": track_index, "is_return_track": False})
     except Exception as e:
         raise RuntimeError("Could not get devices for track {}: {}".format(track_index, e))
 
@@ -602,6 +602,7 @@ def check_macro_readiness(track_index: int, macro_name: str) -> dict:
             params_result = _send("get_device_parameters", {
                 "track_index": track_index,
                 "device_index": matched_device["index"],
+                "is_return_track": False,
             })
         except Exception:
             steps_missing.append({
@@ -730,7 +731,7 @@ def perform_macro(
     end_time = start_time + length_beats
 
     try:
-        devices_result = _send("get_devices", {"track_index": track_index})
+        devices_result = _send("get_devices", {"track_index": track_index, "is_return_track": False})
     except Exception as e:
         raise RuntimeError("Could not get devices for track {}: {}".format(track_index, e))
 
@@ -764,6 +765,7 @@ def perform_macro(
                 params_result = _send("get_device_parameters", {
                     "track_index": track_index,
                     "device_index": matched_device["index"],
+                    "is_return_track": False,
                 })
             except Exception as e:
                 skipped.append({
@@ -882,6 +884,7 @@ def setup_fx_chain(
                 _send("add_native_device", {
                     "track_index": track_index,
                     "device_name": device_name,
+                    "is_return_track": False,
                 })
                 devices_added.append(device_name)
             except Exception as e:
@@ -941,7 +944,7 @@ def set_macro_intensity(
     steps = _MACRO_DEFINITIONS[macro_name]
 
     try:
-        devices_result = _send("get_devices", {"track_index": track_index})
+        devices_result = _send("get_devices", {"track_index": track_index, "is_return_track": False})
     except Exception as e:
         raise RuntimeError("Could not get devices for track {}: {}".format(track_index, e))
 
@@ -967,6 +970,7 @@ def set_macro_intensity(
             params_result = _send("get_device_parameters", {
                 "track_index": track_index,
                 "device_index": matched_device["index"],
+                "is_return_track": False,
             })
         except Exception:
             skipped.append({"device": step["device"], "param": step["param"],
@@ -997,6 +1001,7 @@ def set_macro_intensity(
                 "device_index": matched_device["index"],
                 "parameter_index": matched_param["index"],
                 "value": value,
+                "is_return_track": False,
             })
             applied.append({
                 "device_name": matched_device["name"],
