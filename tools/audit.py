@@ -2459,3 +2459,137 @@ def cleanup_session(dry_run: bool = True) -> dict:
         "dry_run": dry_run,
         "total_affected": len(candidates),
     }
+
+
+# ---------------------------------------------------------------------------
+# Batch project audit tools
+# ---------------------------------------------------------------------------
+
+_PROJECT_LOAD_DELAY_SECONDS: float = 2.0  # seconds to wait after opening a set before auditing
+
+@mcp.tool()
+def open_set(set_path: str) -> dict:
+    """
+    Open an Ableton Live set file (.als) on the currently running Live instance.
+
+    Args:
+        set_path: Absolute path to the .als file
+
+    Returns:
+        success: bool
+        set_name: str
+        set_path: str
+        error: str or None
+    """
+    set_path = str(set_path)
+    set_name = os.path.splitext(os.path.basename(set_path))[0]
+
+    try:
+        _send("open_set", {"set_path": set_path})
+        return {
+            "success": True,
+            "set_name": set_name,
+            "set_path": set_path,
+            "error": None,
+        }
+    except Exception as exc:
+        return {
+            "success": False,
+            "set_name": set_name,
+            "set_path": set_path,
+            "error": str(exc),
+        }
+
+
+@mcp.tool()
+def batch_audit_projects(set_paths: list, save_reports: bool = True) -> dict:
+    """
+    Run project_health_report() on multiple Live sets in sequence.
+
+    Opens each set, runs the health report, optionally saves a JSON report
+    next to each .als file, then moves to the next.
+
+    Args:
+        set_paths: List of absolute paths to .als files
+        save_reports: If True, save a {set_name}_audit.json next to each .als file
+
+    Returns:
+        results: list of {set_path, set_name, health_score, missing_plugins,
+                          missing_media, issues, report_saved_to}
+        total_sets: int
+        completed: int
+        failed: list of {set_path, error}
+        summary: str  -- human readable e.g. "8/10 sets healthy, 2 have missing plugins"
+    """
+    results = []
+    failed = []
+    healthy_count = 0
+    sets_with_missing_plugins = 0
+
+    for path in set_paths:
+        path = str(path)
+        set_name = os.path.splitext(os.path.basename(path))[0]
+
+        try:
+            open_result = open_set(path)
+            if not open_result["success"]:
+                raise RuntimeError(open_result["error"] or "open_set returned failure")
+
+            # Give Live a moment to finish loading
+            time.sleep(_PROJECT_LOAD_DELAY_SECONDS)
+
+            report = project_health_report()
+            report_saved_to = None
+
+            if save_reports:
+                report_path = os.path.join(
+                    os.path.dirname(path),
+                    "{}_audit.json".format(set_name),
+                )
+                try:
+                    with open(report_path, "w", encoding="utf-8") as f:
+                        json.dump(report, f, indent=2)
+                    report_saved_to = report_path
+                except Exception:
+                    pass
+
+            entry = {
+                "set_path": path,
+                "set_name": set_name,
+                "health_score": report.get("health_score", 0.0),
+                "missing_plugins": report.get("missing_plugins", []),
+                "missing_media": report.get("missing_media", []),
+                "issues": report.get("issues", []),
+                "report_saved_to": report_saved_to,
+            }
+            results.append(entry)
+
+            if report.get("health_score", 0.0) >= 1.0:
+                healthy_count += 1
+            if report.get("missing_plugins"):
+                sets_with_missing_plugins += 1
+
+        except Exception as exc:
+            failed.append({"set_path": path, "error": str(exc)})
+
+    total = len(set_paths)
+    completed = len(results)
+
+    if sets_with_missing_plugins:
+        summary = "{}/{} sets healthy, {} have missing plugins".format(
+            healthy_count, total, sets_with_missing_plugins
+        )
+    elif failed:
+        summary = "{}/{} sets audited successfully, {} failed to open".format(
+            completed, total, len(failed)
+        )
+    else:
+        summary = "{}/{} sets healthy".format(healthy_count, total)
+
+    return {
+        "results": results,
+        "total_sets": total,
+        "completed": completed,
+        "failed": failed,
+        "summary": summary,
+    }
