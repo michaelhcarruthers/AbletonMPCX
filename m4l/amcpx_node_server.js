@@ -56,20 +56,6 @@ async function liveCall(path, method, ...args) {
 }
 
 // ---------------------------------------------------------------------------
-// Max handlers — these are called by the patch via message boxes
-// ---------------------------------------------------------------------------
-
-maxApi.addHandler("start", () => {
-    maxApi.post("AMCPX Bridge: start message received");
-    startServer();
-});
-
-maxApi.addHandler("stop", () => {
-    maxApi.post("AMCPX Bridge: stop message received");
-    if (server) server.close();
-});
-
-// ---------------------------------------------------------------------------
 // Command handlers
 // ---------------------------------------------------------------------------
 
