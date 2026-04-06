@@ -324,88 +324,92 @@ async function getArrangementOverview(params) {
 }
 
 // ---------------------------------------------------------------------------
-// TCP Server
+// TCP Server — stream buffering approach (replaces broken recvExactly)
 // ---------------------------------------------------------------------------
 
 let server = null;
 
-function recvExactly(socket, n) {
-    return new Promise((resolve, reject) => {
-        let buf = Buffer.alloc(0);
-        const onData = (chunk) => {
-            buf = Buffer.concat([buf, chunk]);
-            if (buf.length >= n) {
-                socket.removeListener("data", onData);
-                socket.removeListener("error", onError);
-                resolve(buf.slice(0, n));
-            }
-        };
-        const onError = (err) => {
-            socket.removeListener("data", onData);
-            reject(err);
-        };
-        socket.on("data", onData);
-        socket.once("error", onError);
-    });
-}
-
-async function handleConnection(socket) {
+function handleConnection(socket) {
     socket.setNoDelay(true);
     maxApi.post(`AMCPX Bridge: client connected from ${socket.remoteAddress}`);
 
-    try {
-        while (true) {
-            // Read 4-byte length prefix
-            const header = await recvExactly(socket, 4);
-            const msgLen = header.readUInt32BE(0);
+    let buf = Buffer.alloc(0);
+    let processing = false;
 
-            if (msgLen === 0 || msgLen > MAX_MESSAGE_SIZE_BYTES) {
-                maxApi.post(`AMCPX Bridge: invalid message length ${msgLen}, closing`);
-                break;
+    async function processBuffer() {
+        if (processing) return;
+        processing = true;
+
+        try {
+            while (true) {
+                // Need at least 4 bytes for the length prefix
+                if (buf.length < 4) break;
+
+                const msgLen = buf.readUInt32BE(0);
+
+                if (msgLen === 0 || msgLen > MAX_MESSAGE_SIZE_BYTES) {
+                    maxApi.post(`AMCPX Bridge: invalid message length ${msgLen}, closing`);
+                    socket.destroy();
+                    break;
+                }
+
+                // Need 4 header bytes + msgLen body bytes
+                if (buf.length < 4 + msgLen) break;
+
+                // Extract the message
+                const body = buf.slice(4, 4 + msgLen);
+                buf = buf.slice(4 + msgLen);
+
+                const jsonStr = body.toString("utf8");
+                let request;
+                try {
+                    request = JSON.parse(jsonStr);
+                } catch (e) {
+                    const errResp = JSON.stringify({ status: "error", error: `Invalid JSON: ${e.message}` });
+                    sendResponse(socket, errResp);
+                    continue;
+                }
+
+                const command = request.command || "";
+                const params = request.params || {};
+
+                let response;
+                try {
+                    const result = await handleCommand(command, params);
+                    response = JSON.stringify({ status: "ok", result });
+                } catch (e) {
+                    maxApi.post(`AMCPX Bridge error [${command}]: ${e.message}`);
+                    response = JSON.stringify({ status: "error", error: e.message });
+                }
+
+                sendResponse(socket, response);
             }
-
-            // Read body
-            const body = await recvExactly(socket, msgLen);
-            const jsonStr = body.toString("utf8");
-
-            let request;
-            try {
-                request = JSON.parse(jsonStr);
-            } catch (e) {
-                const errResp = JSON.stringify({ status: "error", error: `Invalid JSON: ${e.message}` });
-                const errBuf = Buffer.from(errResp, "utf8");
-                const lenBuf = Buffer.alloc(4);
-                lenBuf.writeUInt32BE(errBuf.length, 0);
-                socket.write(Buffer.concat([lenBuf, errBuf]));
-                continue;
-            }
-
-            const command = request.command || "";
-            const params = request.params || {};
-
-            let response;
-            try {
-                const result = await handleCommand(command, params);
-                response = { status: "ok", result };
-            } catch (e) {
-                maxApi.post(`AMCPX Bridge error [${command}]: ${e.message}`);
-                response = { status: "error", error: e.message };
-            }
-
-            const respStr = JSON.stringify(response);
-            const respBuf = Buffer.from(respStr, "utf8");
-            const lenBuf = Buffer.alloc(4);
-            lenBuf.writeUInt32BE(respBuf.length, 0);
-            socket.write(Buffer.concat([lenBuf, respBuf]));
-        }
-    } catch (e) {
-        if (e.code !== "ECONNRESET" && e.message !== "read ECONNRESET") {
-            maxApi.post(`AMCPX Bridge: connection error: ${e.message}`);
+        } finally {
+            processing = false;
         }
     }
 
-    socket.destroy();
-    maxApi.post("AMCPX Bridge: client disconnected");
+    socket.on("data", (chunk) => {
+        buf = Buffer.concat([buf, chunk]);
+        processBuffer().catch(err => maxApi.post(`AMCPX Bridge: processBuffer error: ${err.message}`));
+    });
+
+    socket.on("error", (err) => {
+        if (err.code !== "ECONNRESET") {
+            maxApi.post(`AMCPX Bridge: socket error: ${err.message}`);
+        }
+    });
+
+    socket.on("close", () => {
+        maxApi.post("AMCPX Bridge: client disconnected");
+    });
+}
+
+function sendResponse(socket, jsonStr) {
+    const respBuf = Buffer.from(jsonStr, "utf8");
+    const lenBuf = Buffer.alloc(4);
+    lenBuf.writeUInt32BE(respBuf.length, 0);
+    socket.write(Buffer.concat([lenBuf, respBuf]));
 }
 
 function startServer() {
