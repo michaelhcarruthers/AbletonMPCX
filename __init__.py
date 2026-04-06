@@ -1273,7 +1273,7 @@ class AbletonMPCX(ControlSurface):
             if not clip.is_midi_clip:
                 raise RuntimeError("Clip is not a MIDI clip")
             if silent:
-                self._song.begin_undo_step("__silent_read__")
+                self._song.begin_undo_step("silent_read")
             try:
                 notes = []
                 for note in clip.get_notes(0, 0, clip.length, 128):
