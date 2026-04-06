@@ -309,20 +309,23 @@ def get_envelope(file_path: str, smoothing_ms: float = 10.0, num_points: int = 2
         file_path: Path of the analysed file
     """
     try:
-        import librosa
+        import soundfile as sf
         import numpy as np
         from scipy.signal import butter, filtfilt
     except ImportError as exc:
         raise ImportError(
-            "librosa, numpy, and scipy are required for envelope extraction. "
-            "Install with: pip install librosa numpy scipy"
+            "soundfile, numpy, and scipy are required for envelope extraction. "
+            "Install with: pip install soundfile numpy scipy"
         ) from exc
 
     path = os.path.expanduser(file_path)
     if not os.path.exists(path):
         raise FileNotFoundError("Audio file not found: {}".format(path))
 
-    y, sr = librosa.load(path, sr=None, mono=True)
+    data, sr = sf.read(path)
+    if data.ndim > 1:
+        data = data.mean(axis=1)
+    y = data.astype(float)
 
     rectified = np.abs(y)
     smoothing_samples = max(int(sr * smoothing_ms / 1000), 3)
