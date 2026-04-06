@@ -669,3 +669,169 @@ def write_arrangement_automation(
     return result
 
 
+# ---------------------------------------------------------------------------
+# Mix levels overview and clipping watch
+# ---------------------------------------------------------------------------
+
+@mcp.tool()
+def get_mix_levels_overview() -> dict:
+    """
+    Return current output levels for all tracks in a single call.
+
+    Returns:
+        tracks: list of {track_index, track_name, output_meter_left, output_meter_right,
+                         peak_left, peak_right, is_clipping, muted, soloed}
+        master: {output_meter_left, output_meter_right, peak_left, peak_right, is_clipping}
+        clipping_tracks: list of {track_index, track_name}
+        total_tracks: int
+        any_clipping: bool
+        timestamp: float
+    """
+    tracks_raw = _send("get_tracks", {})
+    master_raw = _send("get_master_track", {})
+
+    tracks = []
+    clipping_tracks = []
+
+    for t in tracks_raw:
+        left = float(t.get("output_meter_left", 0.0))
+        right = float(t.get("output_meter_right", 0.0))
+        peak_l = float(t.get("peak_left", left))
+        peak_r = float(t.get("peak_right", right))
+        # Ableton meter values are 0.0–1.0; >=1.0 indicates clipping
+        clipping = bool(t.get("is_clipping", False) or (peak_l >= 1.0 or peak_r >= 1.0))
+        entry = {
+            "track_index": t.get("index", t.get("track_index", 0)),
+            "track_name": t.get("name", ""),
+            "output_meter_left": left,
+            "output_meter_right": right,
+            "peak_left": peak_l,
+            "peak_right": peak_r,
+            "is_clipping": clipping,
+            "muted": bool(t.get("mute", False)),
+            "soloed": bool(t.get("solo", False)),
+        }
+        tracks.append(entry)
+        if clipping:
+            clipping_tracks.append({
+                "track_index": entry["track_index"],
+                "track_name": entry["track_name"],
+            })
+
+    m_left = float(master_raw.get("output_meter_left", 0.0))
+    m_right = float(master_raw.get("output_meter_right", 0.0))
+    m_peak_l = float(master_raw.get("peak_left", m_left))
+    m_peak_r = float(master_raw.get("peak_right", m_right))
+    m_clipping = bool(master_raw.get("is_clipping", False) or (m_peak_l >= 1.0 or m_peak_r >= 1.0))
+
+    master = {
+        "output_meter_left": m_left,
+        "output_meter_right": m_right,
+        "peak_left": m_peak_l,
+        "peak_right": m_peak_r,
+        "is_clipping": m_clipping,
+    }
+
+    return {
+        "tracks": tracks,
+        "master": master,
+        "clipping_tracks": clipping_tracks,
+        "total_tracks": len(tracks),
+        "any_clipping": bool(clipping_tracks) or m_clipping,
+        "timestamp": time.time(),
+    }
+
+
+@mcp.tool()
+def watch_for_clipping(duration_seconds: float = 5.0, poll_interval: float = 0.5) -> dict:
+    """
+    Monitor all tracks for clipping over a specified duration.
+
+    Polls meter levels at poll_interval and records any tracks that clip.
+
+    Args:
+        duration_seconds: How long to monitor (default 5s, max 30s)
+        poll_interval: How often to sample in seconds (default 0.5s, min 0.1s)
+
+    Returns:
+        clipped_tracks: list of {track_index, track_name, clip_count, first_clip_at, last_clip_at}
+        total_samples: int
+        duration_monitored: float
+        any_clipping: bool
+        recommendation: str
+    """
+    duration_seconds = min(float(duration_seconds), 30.0)
+    poll_interval = max(float(poll_interval), 0.1)
+
+    # {track_index: {track_name, clip_count, first_clip_at, last_clip_at}}
+    clip_data: dict = {}
+    total_samples = 0
+    start_time = time.time()
+    deadline = start_time + duration_seconds
+
+    while time.time() < deadline:
+        try:
+            snapshot = get_mix_levels_overview()
+        except Exception:
+            time.sleep(poll_interval)
+            continue
+
+        total_samples += 1
+        now = time.time()
+
+        # Check master
+        if snapshot["master"]["is_clipping"]:
+            key = "master"
+            if key not in clip_data:
+                clip_data[key] = {
+                    "track_index": -1,
+                    "track_name": "Master",
+                    "clip_count": 0,
+                    "first_clip_at": now - start_time,
+                    "last_clip_at": now - start_time,
+                }
+            clip_data[key]["clip_count"] += 1
+            clip_data[key]["last_clip_at"] = now - start_time
+
+        for t in snapshot["tracks"]:
+            if t["is_clipping"]:
+                key = t["track_index"]
+                if key not in clip_data:
+                    clip_data[key] = {
+                        "track_index": t["track_index"],
+                        "track_name": t["track_name"],
+                        "clip_count": 0,
+                        "first_clip_at": now - start_time,
+                        "last_clip_at": now - start_time,
+                    }
+                clip_data[key]["clip_count"] += 1
+                clip_data[key]["last_clip_at"] = now - start_time
+
+        remaining = deadline - time.time()
+        time.sleep(min(poll_interval, max(0.0, remaining)))
+
+    duration_monitored = time.time() - start_time
+    clipped_tracks = list(clip_data.values())
+
+    if clipped_tracks:
+        names = ", ".join(e["track_name"] for e in clipped_tracks[:5])
+        recommendation = (
+            "Clipping detected on {} track(s) ({}). "
+            "Reduce gain or add a limiter on the affected tracks.".format(
+                len(clipped_tracks), names
+            )
+        )
+    else:
+        recommendation = "No clipping detected over {:.1f}s — levels look safe.".format(
+            duration_monitored
+        )
+
+    return {
+        "clipped_tracks": clipped_tracks,
+        "total_samples": total_samples,
+        "duration_monitored": round(duration_monitored, 2),
+        "any_clipping": bool(clipped_tracks),
+        "recommendation": recommendation,
+    }
+
+
