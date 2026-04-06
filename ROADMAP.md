@@ -25,10 +25,15 @@ tools/
   spectrum.py              # Spectrum analyser telemetry, automation writing (8 tools)
   performance.py           # DJ/live performance macros (10 tools)
   diagnostics.py           # Mix balance, preset audit, library scanning (6 tools)
+  arrangement_bridge.py    # M4L bridge tools — arrangement clips via port 9878 (6 tools)
+m4l/
+  AMCPX_Bridge.maxpat      # Max for Live patch — TCP server on port 9878
+  amcpx_bridge.js          # JS handler — LiveAPI access to arrangement_clips
+  README.md                # Setup instructions
 session_state.json         # Persisted AI handoff state (written each significant session)
 ```
 
-**Total registered MCP tools: 263**
+**Total registered MCP tools: 269**
 
 ---
 
@@ -48,6 +53,7 @@ session_state.json         # Persisted AI handoff state (written each significan
 | #51 | Performance optimisation H–N: state diff, summarisers, diagnostics, bundling, alias registry |
 | #52 | Plugins P1–P3: spectrum peak hold, dynamics telemetry, stereo field analyser |
 | #53 | Fix 8 bundled code review issues: broken imports, clip duplication bug, schema drift, dead imports, stale docs |
+| #54 | M4L bridge: `AMCPX_Bridge.amxd` + `tools/arrangement_bridge.py` — full Arrangement View access via port 9878 |
 
 ---
 
@@ -99,11 +105,20 @@ session_state.json         # Persisted AI handoff state (written each significan
 | P2 | Dynamics telemetry plugin | ✅ Done |
 | P3 | Stereo field analyser | ✅ Done |
 
+### M4L Bridge
+
+| ID | Item | Status |
+|----|------|--------|
+| M1 | `m4l/AMCPX_Bridge.maxpat` — Max patch with TCP server on port 9878 | ✅ Done |
+| M2 | `m4l/amcpx_bridge.js` — LiveAPI JS handler for arrangement clips | ✅ Done |
+| M3 | `tools/arrangement_bridge.py` — 6 MCP tools connecting to port 9878 | ✅ Done |
+
 ---
 
 ## Key Design Decisions
 
 - **Transport**: JSON over TCP on `localhost:9877`. Each message is length-prefixed (4-byte big-endian header + UTF-8 JSON body). Ableton-side plugin listens; MCP server is the client.
+- **M4L Bridge**: The `AMCPX_Bridge.amxd` Max for Live device exposes a second TCP server on `localhost:9878` using the same length-prefixed JSON protocol. It provides full Arrangement View access via `LiveAPI` — something the Python Remote Script API cannot do. Tools in `tools/arrangement_bridge.py` connect to port 9878 independently.
 - **MCP pattern**: FastMCP (`mcp.server.fastmcp`). Every public action is a `@mcp.tool()` function. The server runs over stdio (Claude connects via `mcp` CLI or MCP config JSON).
 - **Vocabulary system**: Natural-language magnitude words ("a little", "a lot", "drenched") map to normalised deltas (0.0–1.0) via `helpers/vocabulary.py`. Time words ("fast", "gradually") map to seconds.
 - **Module layout**: One concern per file. `helpers/__init__.py` owns the shared FastMCP instance and TCP primitives; `tools/*.py` own the business logic. No circular imports.
