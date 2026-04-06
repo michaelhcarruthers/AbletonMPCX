@@ -35,6 +35,14 @@ def compute_diff(previous: dict, current: dict) -> dict:
     removed: list = []
     unchanged_count = 0
 
+    if previous == current:
+        return {
+            "changed": changed,
+            "added": added,
+            "removed": removed,
+            "unchanged_count": len(current),
+        }
+
     all_keys = set(previous) | set(current)
     for key in all_keys:
         if key not in previous:
