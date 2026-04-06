@@ -104,6 +104,33 @@ def _send_logged(command: str, params: dict[str, Any] | None = None) -> Any:
     return _send(command, params)
 
 
+def _send_silent(command: str, params: dict[str, Any] | None = None) -> Any:
+    """Send a read-only command that must not create Ableton undo entries.
+
+    Sets ``silent=True`` in the JSON payload so the Remote Script wraps the
+    dispatched call in ``song.begin_undo_step`` / ``song.end_undo_step``.
+    Live silently drops undo steps that contain no mutations, so read-only
+    calls (including ``clip.get_notes`` which Live internally marks as
+    mutating) produce zero net undo entries.
+    """
+    payload = json.dumps({"command": command, "params": params or {}, "silent": True}).encode("utf-8")
+    with _ableton_socket() as sock:
+        sock.sendall(len(payload).to_bytes(4, "big") + payload)
+        header = _recv_exactly(sock, 4)
+        if not header:
+            raise RuntimeError("Connection closed before response header")
+        msg_len = int.from_bytes(header, "big")
+        if msg_len > 10 * 1024 * 1024:
+            raise RuntimeError("Response too large: {} bytes".format(msg_len))
+        data = _recv_exactly(sock, msg_len)
+        if data is None:
+            raise RuntimeError("Connection closed before response body")
+    response = json.loads(data.decode("utf-8"))
+    if response.get("status") == "error":
+        raise RuntimeError(response["error"])
+    return response.get("result")
+
+
 # ---------------------------------------------------------------------------
 # Shared in-process state (used across multiple tool modules)
 # ---------------------------------------------------------------------------

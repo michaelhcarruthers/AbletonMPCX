@@ -22,6 +22,7 @@ from helpers import (
     mcp,
     _send,
     _send_logged,
+    _send_silent,
     _append_operation,
     _operation_log,
     _MAX_LOG_ENTRIES,
@@ -1534,7 +1535,7 @@ def _observer_loop():
 
     while _observer_running:
         try:
-            snapshot = _send("get_session_snapshot", _log=False)
+            snapshot = _send_silent("get_session_snapshot")
             with _observer_lock:
                 prev = _observer_last_snapshot
             _evaluate_observer_rules(snapshot, prev)
@@ -1670,7 +1671,7 @@ def _evaluate_observer_rules(current: dict, previous: dict | None):
                     if (track_index, slot_index) in _observer_flagged_clips:
                         continue
                     try:
-                        result = _send("get_notes", {"track_index": track_index, "slot_index": slot_index}, _log=False)
+                        result = _send_silent("get_notes", {"track_index": track_index, "slot_index": slot_index})
                         notes = result.get("notes", [])
                     except Exception:
                         continue
