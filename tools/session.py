@@ -35,7 +35,6 @@ from helpers import (
     _load_reference_profiles_from_project,
 )
 from helpers.cache import cache_state
-from tools.spectrum import get_spectrum_telemetry_instances
 
 # ---------------------------------------------------------------------------
 # Application
@@ -1387,50 +1386,16 @@ def _infer_role_from_devices(track_index: int) -> tuple[str, str]:
     return "default", "fallback"
 
 
-def _infer_role_from_spectrum(track_index: int) -> tuple[str, str]:
-    """Return (role, method_used) by inspecting MCPSpectrum band profile."""
-    try:
-        data = get_spectrum_telemetry_instances()
-        for instance in data.get("instances", []):
-            if instance.get("track_index") == track_index:
-                bands = instance.get("bands", {})
-
-                def _band_val(keyword):
-                    for bname, bdata in bands.items():
-                        if keyword.lower() in bname.lower():
-                            return float(bdata.get("value", 0.0))
-                    return 0.0
-
-                sub = _band_val("sub")
-                body = _band_val("body")
-                air = _band_val("air")
-                punch = _band_val("punch")
-                transient = _band_val("transient")
-
-                if sub > 0.6:
-                    return "bass", "spectrum_sub"
-                if air > 0.6:
-                    return "pad", "spectrum_air"
-                if transient > 0.6 or punch > 0.6:
-                    return "perc", "spectrum_transient"
-                if body > 0.6:
-                    return "keys", "spectrum_body"
-    except Exception:
-        pass
-    return "default", "fallback"
-
-
 # --- Feature 1: Auto-naming and color ---
 
 @mcp.tool()
 def auto_name_track(track_index: int, dry_run: bool = False) -> dict:
     """
-    Automatically name a track based on its device chain content and spectrum analyzer data.
+    Automatically name a track based on its device chain content.
 
     Infers the track role by:
     1. Checking device names against _DEVICE_TO_ROLE mappings
-    2. Falling back to MCPSpectrum band profile (sub-heavy=bass, air-heavy=pad, etc.)
-    3. Using track position as last resort (Track 1, Track 2, etc.)
+    2. Using track position as last resort (Track 1, Track 2, etc.)
 
     Args:
         track_index: Track to name (-1 for master).
@@ -1440,8 +1405,6 @@ def auto_name_track(track_index: int, dry_run: bool = False) -> dict:
         track_index, suggested_name, inferred_role, method_used, applied (bool)
     """
     role, method = _infer_role_from_devices(track_index)
-    if role == "default":
-        role, method = _infer_role_from_spectrum(track_index)
     if role == "default":
         suggested_name = "Track {}".format(track_index + 1)
         method = "position"
@@ -1487,8 +1450,6 @@ def auto_color_track(track_index: int, role: str | None = None, dry_run: bool = 
     """
     if role is None:
         role, _ = _infer_role_from_devices(track_index)
-        if role == "default":
-            role, _ = _infer_role_from_spectrum(track_index)
 
     color_value = _ROLE_COLORS.get(role, _ROLE_COLORS["default"])
 
@@ -1554,8 +1515,6 @@ def auto_name_all_tracks(dry_run: bool = False, skip_named: bool = True) -> dict
                 skipped_reason = "already_named"
 
         role, _ = _infer_role_from_devices(idx)
-        if role == "default":
-            role, _ = _infer_role_from_spectrum(idx)
 
         if role == "default":
             suggested_name = "Track {}".format(idx + 1)
@@ -3047,18 +3006,8 @@ def mix_correction_loop(
     if direction not in ("reduce", "boost"):
         return {"error": "direction must be 'reduce' or 'boost'"}
 
-    # Read initial band value
+    # Band value reading is not supported without an external spectrum analyzer.
     def _read_band_value():
-        try:
-            data = get_spectrum_telemetry_instances()
-            for instance in data.get("instances", []):
-                if instance.get("track_index") == track_index:
-                    bands = instance.get("bands", {})
-                    for bname, bdata in bands.items():
-                        if target_band.lower() in bname.lower():
-                            return float(bdata.get("value", 0.0))
-        except Exception:
-            pass
         return None
 
     before_value = _read_band_value()
