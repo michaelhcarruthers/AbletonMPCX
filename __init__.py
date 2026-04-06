@@ -1340,6 +1340,92 @@ class AbletonMPCX(ControlSurface):
                     self._song.end_undo_step()
         return self._run_on_main_thread(fn)
 
+    def _cmd_get_arrangement_clips(self, params):
+        """Return all clips placed in the Arrangement View across all tracks."""
+        track_index_filter = params.get("track_index")  # optional int filter
+
+        def fn():
+            results = []
+            tracks = list(self._song.tracks)
+            for t_idx, track in enumerate(tracks):
+                if track_index_filter is not None and t_idx != int(track_index_filter):
+                    continue
+                try:
+                    arr_clips = track.arrangement_clips
+                except AttributeError:
+                    continue  # track type doesn't support arrangement clips
+                for c_idx, clip in enumerate(arr_clips):
+                    try:
+                        results.append({
+                            "track_index": t_idx,
+                            "track_name": track.name,
+                            "clip_index": c_idx,
+                            "clip_name": clip.name,
+                            "start_time": clip.start_time,
+                            "end_time": clip.end_time,
+                            "length": clip.length,
+                            "is_midi_clip": clip.is_midi_clip,
+                            "color": self._color(clip),
+                            "muted": clip.muted,
+                            "looping": clip.looping,
+                            "loop_start": clip.loop_start,
+                            "loop_end": clip.loop_end,
+                        })
+                    except Exception as exc:
+                        self.log_message("AbletonMPCX: error reading arrangement clip {} on track {}: {}".format(c_idx, t_idx, exc))
+            return results
+
+        return self._run_on_main_thread(fn)
+
+    def _cmd_get_arrangement_clip_notes(self, params):
+        """Return MIDI notes from a specific arrangement clip."""
+        track_index = int(params["track_index"])
+        clip_index = int(params["clip_index"])
+        silent = getattr(self._thread_local, "silent", False)
+
+        def fn():
+            track = self._get_track(track_index)
+            try:
+                arr_clips = list(track.arrangement_clips)
+            except AttributeError:
+                raise RuntimeError("Track {} does not support arrangement_clips".format(track_index))
+            if clip_index < 0 or clip_index >= len(arr_clips):
+                raise IndexError(
+                    "clip_index {} out of range for track {} ({} arrangement clips)".format(
+                        clip_index, track_index, len(arr_clips)
+                    )
+                )
+            clip = arr_clips[clip_index]
+            if not clip.is_midi_clip:
+                raise RuntimeError("Arrangement clip {} on track {} is not a MIDI clip".format(
+                    clip_index, track_index
+                ))
+            if silent:
+                self._song.begin_undo_step("silent_read")
+            try:
+                notes = []
+                for note in clip.get_notes(0, 0, clip.length, 128):
+                    notes.append({
+                        "pitch": note[0],
+                        "start_time": note[1],
+                        "duration": note[2],
+                        "velocity": note[3],
+                        "mute": note[4],
+                    })
+                return {
+                    "notes": notes,
+                    "clip_name": clip.name,
+                    "track_index": track_index,
+                    "clip_index": clip_index,
+                    "clip_start_time": clip.start_time,
+                    "clip_length": clip.length,
+                }
+            finally:
+                if silent:
+                    self._song.end_undo_step()
+
+        return self._run_on_main_thread(fn)
+
     # -------------------------------------------------------------------------
     # Clip (write)
     # -------------------------------------------------------------------------

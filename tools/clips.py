@@ -5,7 +5,7 @@ import math
 from typing import Any
 
 import helpers
-from helpers import mcp, _send
+from helpers import mcp, _send, _send_silent
 
 # ---------------------------------------------------------------------------
 # ClipSlot
@@ -599,8 +599,8 @@ def list_arrangement_clips(
     try:
         raw = _send("get_arrangement_clips", {})
         all_clips = raw if isinstance(raw, list) else raw.get("clips", [])
-    except Exception:
-        all_clips = []
+    except Exception as e:
+        return {"clips": [], "total_clips": 0, "filtered_by": {}, "error": str(e)}
 
     clips = []
     for clip in all_clips:
@@ -655,6 +655,39 @@ def list_arrangement_clips(
         "total_clips": len(clips),
         "filtered_by": filtered_by,
     }
+
+
+@mcp.tool()
+def get_arrangement_clip_notes(
+    track_index: int,
+    clip_index: int,
+) -> dict:
+    """
+    Read the MIDI notes from a specific arrangement clip.
+
+    Use list_arrangement_clips() first to discover track_index and clip_index values.
+
+    Args:
+        track_index: Zero-based track index.
+        clip_index: Zero-based index into the track's arrangement_clips list
+                    (as returned by list_arrangement_clips()).
+
+    Returns:
+        notes: list of {pitch, start_time, duration, velocity, mute}
+        clip_name: str
+        track_index: int
+        clip_index: int
+        clip_start_time: float  -- position in the arrangement (beats)
+        clip_length: float      -- length in beats
+        note_count: int
+    """
+    result = _send_silent("get_arrangement_clip_notes", {
+        "track_index": track_index,
+        "clip_index": clip_index,
+    })
+    if isinstance(result, dict):
+        result["note_count"] = len(result.get("notes", []))
+    return result
 
 
 @mcp.tool()
