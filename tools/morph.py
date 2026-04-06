@@ -1,8 +1,11 @@
 """Morph tools — scene volume morph, tempo morph, device parameter morph, and combined morph plan."""
 from __future__ import annotations
 
+import logging
 import time
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 from helpers import (
     mcp,
@@ -67,8 +70,8 @@ def morph_scene_volumes(
                     from_clips.add(ti)
                 if si == to_scene_index:
                     to_clips.add(ti)
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug("Could not get clip slots for track %s: %s", ti, e)
 
     relevant_tracks = from_clips | to_clips
     plan = []
@@ -212,9 +215,8 @@ def morph_device_parameter(
             param_name = p.get("name", "")
             p_min = float(p.get("min", 0.0))
             p_max = float(p.get("max", 1.0))
-    except Exception:
-        pass
-
+    except Exception as e:
+        logger.debug("Could not get device parameters for morph validation: %s", e)
     clamped_from = max(p_min, min(p_max, from_value))
     clamped_to = max(p_min, min(p_max, to_value))
 

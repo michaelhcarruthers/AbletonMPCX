@@ -5,6 +5,7 @@ import collections
 import copy
 import datetime
 import json
+import logging
 import math
 import os
 import pathlib
@@ -17,6 +18,8 @@ import time
 from contextlib import contextmanager
 from typing import Any
 
+logger = logging.getLogger(__name__)
+
 import helpers
 from helpers import (
     mcp,
@@ -25,8 +28,11 @@ from helpers import (
     _operation_log,
     _MAX_LOG_ENTRIES,
     _snapshots,
+    _snapshots_lock,
     _reference_profiles,
+    _reference_profiles_lock,
     _audio_analysis_cache,
+    _audio_analysis_cache_lock,
     _get_memory,
     _save_memory,
     _load_memory,
@@ -35,6 +41,46 @@ from helpers import (
     _load_reference_profiles_from_project,
 )
 from helpers.cache import cache_state
+
+# ---------------------------------------------------------------------------
+# Sub-module imports — trigger @mcp.tool() registration and re-export for
+# backward compatibility with any callers that import from tools.session
+# ---------------------------------------------------------------------------
+
+from tools.session_snapshots import (  # noqa: E402,F401
+    take_snapshot,
+    list_snapshots,
+    delete_snapshot,
+    _diff_value,
+    diff_snapshots,
+    diff_snapshot_vs_live,
+    save_snapshot_to_project,
+    load_snapshots_from_project,
+    save_device_snapshot,
+    recall_device_snapshot,
+    list_device_snapshots,
+    diff_device_snapshots,
+    delete_device_snapshot,
+    save_version_snapshot,
+    list_version_snapshots,
+    diff_version_snapshots,
+    full_session_snapshot,
+    _SESSION_CACHE_DIR,
+    _DEVICE_SNAPSHOTS_PATH,
+    _VERSIONS_PATH,
+    _ensure_session_cache_dir,
+    _load_json_cache,
+    _save_json_cache,
+)
+
+from tools.session_suggestions import suggest_next_actions  # noqa: E402,F401
+
+from tools.session_recording import (  # noqa: E402,F401
+    setup_resampling_route,
+    teardown_resampling_route,
+    get_resampling_status,
+    render_track_to_audio,
+)
 
 # ---------------------------------------------------------------------------
 # Application
@@ -466,175 +512,16 @@ def get_session_snapshot() -> dict:
     return _send("get_session_snapshot")
 
 
-@mcp.tool()
-def take_snapshot(label: str) -> dict:
-    """
-    Take a named snapshot of the current session state and store it in memory.
-
-    The snapshot is retrieved via get_session_snapshot() and stored under the
-    given label. Use diff_snapshots(label_a, label_b) to compare two snapshots.
-
-    Labels are ephemeral — they are lost when the MCP server restarts.
-
-    Args:
-        label: A name for this snapshot, e.g. 'before_eq', 'after_mix', 'v1'.
-
-    Returns:
-        label, track_count, scene_count, timestamp_ms
-    """
-    snapshot = _send("get_session_snapshot")
-    snapshot["_label"] = label
-    snapshot["_timestamp_ms"] = int(time.time() * 1000)
-    _snapshots[label] = snapshot
-    return {
-        "label": label,
-        "track_count": snapshot.get("track_count", 0),
-        "scene_count": snapshot.get("scene_count", 0),
-        "timestamp_ms": snapshot["_timestamp_ms"],
-    }
 
 
-@mcp.tool()
-def list_snapshots() -> dict:
-    """
-    List all stored snapshots by label and timestamp.
-
-    Returns:
-        snapshots: list of {label, track_count, scene_count, timestamp_ms}
-    """
-    return {
-        "snapshots": [
-            {
-                "label": label,
-                "track_count": s.get("track_count", 0),
-                "scene_count": s.get("scene_count", 0),
-                "timestamp_ms": s.get("_timestamp_ms", 0),
-            }
-            for label, s in sorted(_snapshots.items(), key=lambda x: x[1].get("_timestamp_ms", 0))
-        ]
-    }
 
 
-@mcp.tool()
-def delete_snapshot(label: str) -> dict:
-    """Delete a stored snapshot by label."""
-    if label not in _snapshots:
-        raise ValueError("No snapshot with label '{}'".format(label))
-    del _snapshots[label]
-    return {"deleted": label}
 
 
-def _diff_value(a, b, path: str, changes: list):
-    """Recursively diff two values, appending changes to the list."""
-    if type(a) != type(b):
-        changes.append({"path": path, "before": a, "after": b})
-        return
-    if isinstance(a, dict):
-        all_keys = set(a.keys()) | set(b.keys())
-        for k in sorted(all_keys):
-            if k.startswith("_"):
-                continue
-            child_path = "{}.{}".format(path, k)
-            if k not in a:
-                changes.append({"path": child_path, "before": None, "after": b[k]})
-            elif k not in b:
-                changes.append({"path": child_path, "before": a[k], "after": None})
-            else:
-                _diff_value(a[k], b[k], child_path, changes)
-    elif isinstance(a, list):
-        # For lists of dicts with an "index" key (tracks, scenes, devices), diff by index
-        if a and b and isinstance(a[0], dict) and "index" in a[0]:
-            a_map = {item["index"]: item for item in a}
-            b_map = {item["index"]: item for item in b}
-            all_indices = sorted(set(a_map.keys()) | set(b_map.keys()))
-            for idx in all_indices:
-                child_path = "{}[{}]".format(path, idx)
-                if idx not in a_map:
-                    changes.append({"path": child_path, "before": None, "after": b_map[idx]})
-                elif idx not in b_map:
-                    changes.append({"path": child_path, "before": a_map[idx], "after": None})
-                else:
-                    _diff_value(a_map[idx], b_map[idx], child_path, changes)
-        else:
-            if a != b:
-                changes.append({"path": path, "before": a, "after": b})
-    else:
-        if a != b:
-            changes.append({"path": path, "before": a, "after": b})
 
 
-@mcp.tool()
-def diff_snapshots(label_a: str, label_b: str) -> dict:
-    """
-    Compare two named snapshots and return what changed between them.
-
-    Args:
-        label_a: Label of the 'before' snapshot.
-        label_b: Label of the 'after' snapshot.
-
-    Returns:
-        label_a, label_b, change_count, changes: list of {path, before, after}
-
-    The 'path' uses dot notation, e.g.:
-        'tracks[0].volume'        — track 0 volume changed
-        'tracks[2].devices[1].is_active'  — device enabled/disabled
-        'master_track.volume'     — master volume changed
-        'tempo'                   — song tempo changed
-
-    Example workflow:
-        take_snapshot('before')
-        set_master_volume(0.9)
-        add_native_device(0, 'EQ Eight')
-        take_snapshot('after')
-        diff_snapshots('before', 'after')
-    """
-    if label_a not in _snapshots:
-        raise ValueError("No snapshot with label '{}'".format(label_a))
-    if label_b not in _snapshots:
-        raise ValueError("No snapshot with label '{}'".format(label_b))
-
-    a = _snapshots[label_a]
-    b = _snapshots[label_b]
-
-    changes: list = []
-    _diff_value(a, b, "session", changes)
-
-    return {
-        "label_a": label_a,
-        "label_b": label_b,
-        "change_count": len(changes),
-        "changes": changes,
-    }
 
 
-@mcp.tool()
-def diff_snapshot_vs_live(label: str) -> dict:
-    """
-    Compare a stored snapshot against the current live session state.
-
-    Equivalent to: take_snapshot('_live_now') then diff_snapshots(label, '_live_now'),
-    but without permanently storing the live snapshot.
-
-    Args:
-        label: Label of the stored 'before' snapshot to compare against live.
-
-    Returns:
-        label, change_count, changes: list of {path, before, after}
-    """
-    if label not in _snapshots:
-        raise ValueError("No snapshot with label '{}'".format(label))
-
-    live = _send("get_session_snapshot")
-    a = _snapshots[label]
-
-    changes: list = []
-    _diff_value(a, live, "session", changes)
-
-    return {
-        "label": label,
-        "change_count": len(changes),
-        "changes": changes,
-    }
 
 
 
@@ -782,51 +669,8 @@ def get_preferences() -> dict:
     return {"preferences": mem.get("preferences", {})}
 
 
-@mcp.tool()
-def save_snapshot_to_project(label: str) -> dict:
-    """
-    Capture the current session state and persist it to project memory on disk.
-
-    Unlike take_snapshot() which is in-memory only, this survives MCP server restarts.
-
-    Args:
-        label: Snapshot label.
-
-    Returns:
-        label, track_count, scene_count, timestamp
-    """
-    mem = _get_memory()
-    snapshot = _send("get_session_snapshot")
-    snapshot["_label"] = label
-    snapshot["_timestamp"] = datetime.datetime.now(datetime.timezone.utc).isoformat()
-    mem.setdefault("snapshots", {})[label] = snapshot
-    _save_memory(helpers._current_project_id, mem)
-    # Also store in-process for diff tools
-    _snapshots[label] = snapshot
-    return {
-        "label": label,
-        "track_count": snapshot.get("track_count", 0),
-        "scene_count": snapshot.get("scene_count", 0),
-        "timestamp": snapshot["_timestamp"],
-    }
 
 
-@mcp.tool()
-def load_snapshots_from_project() -> dict:
-    """
-    Load all persisted snapshots from project memory into the in-process store.
-
-    After calling this, diff_snapshots() and diff_snapshot_vs_live() can use
-    snapshots that were saved in previous sessions.
-
-    Returns:
-        loaded: list of snapshot labels loaded
-    """
-    mem = _get_memory()
-    persisted = mem.get("snapshots", {})
-    for label, snap in persisted.items():
-        _snapshots[label] = snap
-    return {"loaded": list(persisted.keys()), "count": len(persisted)}
 
 
 # ---------------------------------------------------------------------------
@@ -935,157 +779,6 @@ def summarise_session() -> dict:
 # Phase 7: Contextual suggestions
 # ---------------------------------------------------------------------------
 
-@mcp.tool()
-def suggest_next_actions() -> dict:
-    """
-    Analyse the current session context and suggest logical next actions.
-
-    Looks at:
-    - Current session snapshot (tracks, devices, mixer state)
-    - Recent operation log
-    - Project memory (notes, preferences, track roles)
-    - Stored snapshots
-
-    Returns a list of suggestions with reasoning. These are observations only —
-    nothing is executed automatically.
-
-    Returns:
-        suggestions: list of {action, reason, priority ('high'|'medium'|'low')}
-    """
-    suggestions = []
-
-    # 1. Snapshot suggestion — if no snapshot taken recently
-    recent_snapshots = [e for e in _operation_log[-50:] if "snapshot" in e["command"]]
-    if not recent_snapshots:
-        suggestions.append({
-            "action": "take_snapshot('before_changes')",
-            "reason": "No snapshot taken in recent operations. Recommended before making changes.",
-            "priority": "high",
-        })
-
-    # 2. Project memory suggestion
-    if helpers._current_project_id is None:
-        suggestions.append({
-            "action": "set_project_id('your_project_name')",
-            "reason": "No project ID set. Set one to enable persistent memory, notes, and operation history.",
-            "priority": "high",
-        })
-
-    # 3. Analyse session state
-    try:
-        snapshot = _send("get_session_snapshot")
-        tracks = snapshot.get("tracks", [])
-
-        # Unarmed tracks with no devices
-        empty_tracks = [t for t in tracks if t.get("device_count", 0) == 0]
-        if empty_tracks:
-            suggestions.append({
-                "action": "review or delete empty tracks: {}".format([t["name"] for t in empty_tracks[:5]]),
-                "reason": "{} track(s) have no devices loaded.".format(len(empty_tracks)),
-                "priority": "low",
-            })
-
-        # Master track device check
-        master_devices = snapshot.get("master_track", {}).get("devices", [])
-        if not master_devices:
-            suggestions.append({
-                "action": "add_native_device(-1, 'Limiter') or add_native_device(-1, 'EQ Eight')",
-                "reason": "Master track has no devices. Consider adding a limiter or EQ.",
-                "priority": "medium",
-            })
-
-        # Muted tracks
-        muted = [t for t in tracks if t.get("mute")]
-        if muted:
-            suggestions.append({
-                "action": "review muted tracks: {}".format([t["name"] for t in muted[:5]]),
-                "reason": "{} track(s) are currently muted.".format(len(muted)),
-                "priority": "low",
-            })
-
-    except Exception:
-        pass
-
-    # 4. Operation log patterns
-    if _operation_log:
-        recent_cmds = [e["command"] for e in _operation_log[-20:]]
-
-        # If user added devices recently, suggest snapshot
-        if any("add_native_device" in c or "load_browser_item" in c for c in recent_cmds):
-            already_snapped = any("snapshot" in c for c in recent_cmds)
-            if not already_snapped:
-                suggestions.append({
-                    "action": "take_snapshot('after_device_changes')",
-                    "reason": "Devices were recently added. Snapshot recommended to capture state.",
-                    "priority": "high",
-                })
-
-        # If notes were removed recently, warn
-        if any("remove_notes" in c for c in recent_cmds):
-            suggestions.append({
-                "action": "verify clip note state with get_notes()",
-                "reason": "Notes were recently removed. Verify the clip state is as expected.",
-                "priority": "medium",
-            })
-
-        # Flush log suggestion
-        if len(_operation_log) > 100 and helpers._current_project_id:
-            suggestions.append({
-                "action": "flush_operation_log()",
-                "reason": "Operation log has {} entries. Flush to persist to project memory.".format(len(_operation_log)),
-                "priority": "low",
-            })
-
-    # 5. Project memory patterns
-    if helpers._current_project_id:
-        try:
-            mem = _get_memory()
-            prefs = mem.get("preferences", {})
-
-            # If preferences mention a reverb, suggest checking return tracks
-            if any("reverb" in str(v).lower() for v in prefs.values()):
-                try:
-                    returns = _send("get_return_tracks")
-                    reverb_returns = [r for r in returns if "reverb" in r["name"].lower() or "verb" in r["name"].lower()]
-                    if not reverb_returns:
-                        suggestions.append({
-                            "action": "check return tracks — no reverb return found",
-                            "reason": "Your preferences mention a reverb preference but no return track is named for reverb.",
-                            "priority": "medium",
-                        })
-                except Exception:
-                    pass
-        except Exception:
-            pass
-
-    # Reference profile suggestion
-    if "default" in _reference_profiles:
-        ref = _reference_profiles.get("default", {})
-        if ref.get("type") == "clip_feel":
-            suggestions.append({
-                "action": "compare_clip_feel(track_index, slot_index, reference_label='default')",
-                "reason": "A clip feel reference profile exists. Use compare_clip_feel() to check how your current clips compare.",
-                "priority": "low",
-            })
-        elif ref.get("type") == "mix_state":
-            suggestions.append({
-                "action": "compare_mix_state(reference_label='default')",
-                "reason": "A mix state reference profile exists. Use compare_mix_state() to check what has changed.",
-                "priority": "low",
-            })
-
-    # Audio reference suggestion
-    if "default_audio" in _reference_profiles:
-        suggestions.append({
-            "action": "compare_audio('/path/to/your/bounce.wav', reference_label='default_audio')",
-            "reason": "An audio reference profile exists. Export a bounce and compare it against your reference.",
-            "priority": "low",
-        })
-
-    return {
-        "suggestion_count": len(suggestions),
-        "suggestions": suggestions,
-    }
 
 
 @mcp.tool()
@@ -1182,8 +875,8 @@ def analyse_mix_state() -> dict:
                         "category": "levels",
                         "severity": "info",
                     })
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug("Could not read project memory for mix analysis: %s", e)
 
     except Exception as e:
         observations.append({
@@ -1334,42 +1027,10 @@ _SCENE_SECTION_COLORS = {
     "default":  0,
 }
 
-# Cache directory for session management persistent data
-_SESSION_CACHE_DIR = os.path.expanduser("~/.ableton_mpcx")
-_DEVICE_SNAPSHOTS_PATH = os.path.join(_SESSION_CACHE_DIR, "device_snapshots.json")
-_VERSIONS_PATH = os.path.join(_SESSION_CACHE_DIR, "versions.json")
-
-
 
 # ---------------------------------------------------------------------------
 # Session Management
 # ---------------------------------------------------------------------------
-
-
-def _ensure_session_cache_dir():
-    os.makedirs(_SESSION_CACHE_DIR, exist_ok=True)
-
-
-def _load_json_cache(path: str, default):
-    """Load a JSON cache file; return default on missing/corrupt."""
-    if not os.path.exists(path):
-        return default
-    try:
-        with open(path, "r", encoding="utf-8") as f:
-            return json.load(f)
-    except Exception:
-        return default
-
-
-def _save_json_cache(path: str, data) -> bool:
-    """Save data to a JSON cache file. Returns True on success."""
-    _ensure_session_cache_dir()
-    try:
-        with open(path, "w", encoding="utf-8") as f:
-            json.dump(data, f, indent=2)
-        return True
-    except Exception:
-        return False
 
 
 def _infer_role_from_devices(track_index: int) -> tuple[str, str]:
@@ -1530,9 +1191,9 @@ def auto_name_all_tracks(dry_run: bool = False, skip_named: bool = True) -> dict
                 _send("set_track_color", {"track_index": idx, "color": color})
                 applied = True
                 applied_count += 1
-            except RuntimeError:
-                pass
-        elif skipped_reason:
+            except RuntimeError as e:
+                logger.debug("Could not rename/recolor track %s: %s", idx, e)
+        elif skipped_reason is not None:
             skipped_count += 1
 
         results.append({
@@ -1669,8 +1330,8 @@ def auto_name_scene(scene_index: int, dry_run: bool = False) -> dict:
                 clip_name = slot.get("clip_name", slot.get("name", ""))
                 if clip_name:
                     clip_names.append(clip_name.lower())
-        except RuntimeError:
-            pass
+        except RuntimeError as e:
+            logger.debug("Could not get clip slots for track %s: %s", idx, e)
 
     combined = " ".join(clip_names)
     suggested_name = "Scene {}".format(scene_index + 1)
@@ -1708,478 +1369,22 @@ def auto_name_scene(scene_index: int, dry_run: bool = False) -> dict:
 
 # --- Feature 2: Device state snapshots + diff ---
 
-@mcp.tool()
-def save_device_snapshot(
-    track_index: int,
-    snapshot_name: str,
-    device_index: int | None = None,
-) -> dict:
-    """
-    Save the current parameter state of all devices on a track (or one device) as a named snapshot.
-
-    Snapshots are stored in ~/.ableton_mpcx/device_snapshots.json.
-    If a snapshot with the same name already exists for this track, it is overwritten.
-
-    Args:
-        track_index: Track to snapshot (-1 for master).
-        snapshot_name: Name for this snapshot (e.g. 'lo-fi', 'clean', 'warm').
-        device_index: If specified, snapshot only this device. If None, snapshot all devices.
-
-    Returns:
-        snapshot_name, track_index, devices_captured: int, parameter_count: int, saved_at: str
-    """
-    try:
-        devices = _send("get_devices", {"track_index": track_index})
-    except RuntimeError as e:
-        return {"error": "Could not get devices: {}".format(e)}
-
-    if device_index is not None:
-        devices = [d for d in devices if d.get("index", d.get("device_index")) == device_index]
-
-    snapshot_data = {}
-    total_params = 0
-
-    for device in devices:
-        dev_idx = device.get("index", device.get("device_index", 0))
-        try:
-            params_result = _send("get_device_parameters", {
-                "track_index": track_index,
-                "device_index": dev_idx,
-            })
-            params = params_result.get("parameters", params_result) if isinstance(params_result, dict) else params_result
-            param_map = {}
-            for p in params:
-                p_idx = p.get("index", p.get("parameter_index", 0))
-                param_map[str(p_idx)] = {
-                    "value": p.get("value", 0.0),
-                    "name": p.get("name", ""),
-                }
-                total_params += 1
-            snapshot_data[str(dev_idx)] = {
-                "device_name": device.get("name", ""),
-                "parameters": param_map,
-            }
-        except RuntimeError:
-            pass
-
-    saved_at = datetime.datetime.now(datetime.timezone.utc).isoformat()
-    all_snapshots = _load_json_cache(_DEVICE_SNAPSHOTS_PATH, {})
-    track_key = str(track_index)
-    if track_key not in all_snapshots:
-        all_snapshots[track_key] = {}
-    all_snapshots[track_key][snapshot_name] = {
-        "devices": snapshot_data,
-        "saved_at": saved_at,
-    }
-    _save_json_cache(_DEVICE_SNAPSHOTS_PATH, all_snapshots)
-
-    return {
-        "snapshot_name": snapshot_name,
-        "track_index": track_index,
-        "devices_captured": len(snapshot_data),
-        "parameter_count": total_params,
-        "saved_at": saved_at,
-    }
 
 
-@mcp.tool()
-def recall_device_snapshot(
-    track_index: int,
-    snapshot_name: str,
-    device_index: int | None = None,
-) -> dict:
-    """
-    Restore a previously saved device parameter snapshot on a track.
-
-    All parameter changes are grouped into a single undo step.
-
-    Args:
-        track_index: Track to restore.
-        snapshot_name: Name of the snapshot to recall.
-        device_index: If specified, restore only this device. If None, restore all.
-
-    Returns:
-        snapshot_name, track_index, parameters_restored: int, devices_restored: int
-    """
-    all_snapshots = _load_json_cache(_DEVICE_SNAPSHOTS_PATH, {})
-    track_key = str(track_index)
-    if track_key not in all_snapshots or snapshot_name not in all_snapshots[track_key]:
-        return {
-            "error": "Snapshot '{}' not found for track {}. Use list_device_snapshots() to see available.".format(
-                snapshot_name, track_index
-            )
-        }
-
-    snapshot = all_snapshots[track_key][snapshot_name]
-    devices_data = snapshot.get("devices", {})
-
-    try:
-        _send("begin_undo_step", {"name": "recall_snapshot_{}".format(snapshot_name)})
-    except RuntimeError:
-        pass
-
-    parameters_restored = 0
-    devices_restored = 0
-
-    for dev_idx_str, dev_data in devices_data.items():
-        dev_idx = int(dev_idx_str)
-        if device_index is not None and dev_idx != device_index:
-            continue
-        param_map = dev_data.get("parameters", {})
-        restored_any = False
-        for param_idx_str, param_info in param_map.items():
-            try:
-                _send("set_device_parameter", {
-                    "track_index": track_index,
-                    "device_index": dev_idx,
-                    "parameter_index": int(param_idx_str),
-                    "value": param_info.get("value", 0.0),
-                })
-                parameters_restored += 1
-                restored_any = True
-            except RuntimeError:
-                pass
-        if restored_any:
-            devices_restored += 1
-
-    try:
-        _send("end_undo_step", {})
-    except RuntimeError:
-        pass
-
-    return {
-        "snapshot_name": snapshot_name,
-        "track_index": track_index,
-        "parameters_restored": parameters_restored,
-        "devices_restored": devices_restored,
-    }
 
 
-@mcp.tool()
-def list_device_snapshots(track_index: int | None = None) -> dict:
-    """
-    List all saved device snapshots, optionally filtered by track.
-
-    Args:
-        track_index: If specified, list only snapshots for this track. If None, list all.
-
-    Returns:
-        snapshots: list of {track_index, snapshot_name, device_count, parameter_count, saved_at}
-    """
-    all_snapshots = _load_json_cache(_DEVICE_SNAPSHOTS_PATH, {})
-    results = []
-
-    for track_key, snaps in all_snapshots.items():
-        ti = int(track_key)
-        if track_index is not None and ti != track_index:
-            continue
-        for snap_name, snap_data in snaps.items():
-            devices_data = snap_data.get("devices", {})
-            param_count = sum(
-                len(d.get("parameters", {})) for d in devices_data.values()
-            )
-            results.append({
-                "track_index": ti,
-                "snapshot_name": snap_name,
-                "device_count": len(devices_data),
-                "parameter_count": param_count,
-                "saved_at": snap_data.get("saved_at", ""),
-            })
-
-    return {"snapshots": results}
 
 
-@mcp.tool()
-def diff_device_snapshots(
-    track_index: int,
-    snapshot_a: str,
-    snapshot_b: str,
-) -> dict:
-    """
-    Compare two named device snapshots for a track and return what changed.
-
-    Args:
-        track_index: Track the snapshots belong to.
-        snapshot_a: Name of the first snapshot (the 'before').
-        snapshot_b: Name of the second snapshot (the 'after').
-
-    Returns:
-        snapshot_a, snapshot_b, track_index,
-        changed: list of {device_index, device_name, param_index, param_name, value_a, value_b, delta}
-        unchanged_count: int,
-        summary: human-readable string describing what changed
-    """
-    all_snapshots = _load_json_cache(_DEVICE_SNAPSHOTS_PATH, {})
-    track_key = str(track_index)
-
-    for snap_name in (snapshot_a, snapshot_b):
-        if track_key not in all_snapshots or snap_name not in all_snapshots[track_key]:
-            return {"error": "Snapshot '{}' not found for track {}.".format(snap_name, track_index)}
-
-    data_a = all_snapshots[track_key][snapshot_a].get("devices", {})
-    data_b = all_snapshots[track_key][snapshot_b].get("devices", {})
-
-    changed = []
-    unchanged_count = 0
-
-    all_dev_keys = set(data_a.keys()) | set(data_b.keys())
-    for dev_key in all_dev_keys:
-        dev_a = data_a.get(dev_key, {})
-        dev_b = data_b.get(dev_key, {})
-        dev_name = dev_a.get("device_name", dev_b.get("device_name", ""))
-        params_a = dev_a.get("parameters", {})
-        params_b = dev_b.get("parameters", {})
-        all_param_keys = set(params_a.keys()) | set(params_b.keys())
-        for p_key in all_param_keys:
-            pa = params_a.get(p_key, {})
-            pb = params_b.get(p_key, {})
-            va = pa.get("value", 0.0)
-            vb = pb.get("value", 0.0)
-            param_name = pa.get("name", pb.get("name", ""))
-            if abs(va - vb) > 1e-9:
-                changed.append({
-                    "device_index": int(dev_key),
-                    "device_name": dev_name,
-                    "param_index": int(p_key),
-                    "param_name": param_name,
-                    "value_a": va,
-                    "value_b": vb,
-                    "delta": vb - va,
-                })
-            else:
-                unchanged_count += 1
-
-    if changed:
-        summary = "{} parameter(s) changed across {} device(s) between '{}' and '{}'.".format(
-            len(changed),
-            len({c["device_index"] for c in changed}),
-            snapshot_a,
-            snapshot_b,
-        )
-    else:
-        summary = "No differences found between '{}' and '{}'.".format(snapshot_a, snapshot_b)
-
-    return {
-        "snapshot_a": snapshot_a,
-        "snapshot_b": snapshot_b,
-        "track_index": track_index,
-        "changed": changed,
-        "unchanged_count": unchanged_count,
-        "summary": summary,
-    }
 
 
-@mcp.tool()
-def delete_device_snapshot(track_index: int, snapshot_name: str) -> dict:
-    """
-    Delete a named device snapshot.
-
-    Returns:
-        deleted (bool), snapshot_name, track_index
-    """
-    all_snapshots = _load_json_cache(_DEVICE_SNAPSHOTS_PATH, {})
-    track_key = str(track_index)
-
-    if track_key not in all_snapshots or snapshot_name not in all_snapshots[track_key]:
-        return {"deleted": False, "snapshot_name": snapshot_name, "track_index": track_index}
-
-    del all_snapshots[track_key][snapshot_name]
-    _save_json_cache(_DEVICE_SNAPSHOTS_PATH, all_snapshots)
-
-    return {"deleted": True, "snapshot_name": snapshot_name, "track_index": track_index}
 
 
 # --- Feature 3: Project version snapshots ---
 
-@mcp.tool()
-def save_version_snapshot(version_name: str) -> dict:
-    """
-    Save a named version snapshot of the current project.
-
-    Workflow:
-    1. Calls song.save() via _send("save_song") to save the current .als file
-    2. Finds the current .als file path via _send("get_song_file_path")
-    3. Copies it to "<OriginalName> - <version_name> [YYYY-MM-DD].als" in the same folder
-    4. Records the entry in ~/.ableton_mpcx/versions.json
-
-    Also captures a full_session_snapshot of all device states at this version.
-
-    Args:
-        version_name: Label for this version (e.g. 'lo-fi', 'clean', 'v2-with-strings').
-
-    Returns:
-        version_name, source_path, copy_path, saved_at, device_snapshot_captured (bool)
-    """
-    saved_at = datetime.datetime.now(datetime.timezone.utc).isoformat()
-    source_path = None
-    copy_path = None
-    als_save_note = None
-
-    try:
-        _send("save_song")
-    except RuntimeError as e:
-        als_save_note = "save_song not available: {}".format(e)
-
-    try:
-        file_info = _send("get_song_file_path")
-        source_path = file_info if isinstance(file_info, str) else file_info.get("path", "")
-    except RuntimeError as e:
-        als_save_note = (als_save_note or "") + " get_song_file_path not available: {}".format(e)
-
-    if source_path and os.path.isfile(source_path):
-        base_dir = os.path.dirname(source_path)
-        base_name = os.path.splitext(os.path.basename(source_path))[0]
-        date_str = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%d")
-        copy_name = "{} - {} [{}].als".format(base_name, version_name, date_str)
-        copy_path = os.path.join(base_dir, copy_name)
-        try:
-            shutil.copy2(source_path, copy_path)
-        except Exception as e:
-            als_save_note = (als_save_note or "") + " copy failed: {}".format(e)
-            copy_path = None
-
-    # Capture full device snapshot
-    device_snapshot_captured = False
-    snap_label = "__version__{}".format(version_name)
-    try:
-        snap_result = full_session_snapshot(snap_label)
-        device_snapshot_captured = snap_result.get("tracks_captured", 0) > 0
-    except Exception:
-        pass
-
-    versions = _load_json_cache(_VERSIONS_PATH, [])
-    versions.append({
-        "version_name": version_name,
-        "saved_at": saved_at,
-        "source_path": source_path,
-        "copy_path": copy_path,
-        "device_snapshot_label": snap_label,
-        "has_device_snapshot": device_snapshot_captured,
-        "note": als_save_note,
-    })
-    _save_json_cache(_VERSIONS_PATH, versions)
-
-    return {
-        "version_name": version_name,
-        "source_path": source_path,
-        "copy_path": copy_path,
-        "saved_at": saved_at,
-        "device_snapshot_captured": device_snapshot_captured,
-        "note": als_save_note,
-    }
 
 
-@mcp.tool()
-def list_version_snapshots() -> dict:
-    """
-    List all saved version snapshots for the current project.
-
-    Returns:
-        versions: list of {version_name, saved_at, copy_path, has_device_snapshot}
-        total: int
-    """
-    versions = _load_json_cache(_VERSIONS_PATH, [])
-    summaries = [
-        {
-            "version_name": v.get("version_name", ""),
-            "saved_at": v.get("saved_at", ""),
-            "copy_path": v.get("copy_path"),
-            "has_device_snapshot": v.get("has_device_snapshot", False),
-        }
-        for v in versions
-    ]
-    return {"versions": summaries, "total": len(summaries)}
 
 
-@mcp.tool()
-def diff_version_snapshots(version_a: str, version_b: str) -> dict:
-    """
-    Compare device states between two saved version snapshots.
-
-    Uses the device snapshots captured at each version save to produce
-    a parameter-level diff across all tracks.
-
-    Args:
-        version_a: Name of the first version (the 'before').
-        version_b: Name of the second version (the 'after').
-
-    Returns:
-        version_a, version_b,
-        tracks_changed: list of {track_index, track_name, changes: [{device, param, before, after, delta}]}
-        tracks_unchanged: list of track names
-        summary: human-readable description of what changed between versions
-    """
-    versions = _load_json_cache(_VERSIONS_PATH, [])
-    ver_map = {v["version_name"]: v for v in versions}
-
-    for vname in (version_a, version_b):
-        if vname not in ver_map:
-            return {"error": "Version '{}' not found. Use list_version_snapshots() to see available.".format(vname)}
-
-    label_a = ver_map[version_a].get("device_snapshot_label", "__version__{}".format(version_a))
-    label_b = ver_map[version_b].get("device_snapshot_label", "__version__{}".format(version_b))
-
-    all_snapshots = _load_json_cache(_DEVICE_SNAPSHOTS_PATH, {})
-
-    # Version snapshots for all tracks are stored under track_key → label_a/label_b
-    tracks_changed = []
-    tracks_unchanged = []
-
-    all_track_keys = set(all_snapshots.keys())
-    for track_key in sorted(all_track_keys, key=lambda x: int(x)):
-        track_snaps = all_snapshots[track_key]
-        if label_a not in track_snaps and label_b not in track_snaps:
-            continue
-
-        snap_a = track_snaps.get(label_a, {}).get("devices", {})
-        snap_b = track_snaps.get(label_b, {}).get("devices", {})
-        changes = []
-
-        all_dev_keys = set(snap_a.keys()) | set(snap_b.keys())
-        for dev_key in all_dev_keys:
-            dev_a = snap_a.get(dev_key, {})
-            dev_b = snap_b.get(dev_key, {})
-            dev_name = dev_a.get("device_name", dev_b.get("device_name", ""))
-            params_a = dev_a.get("parameters", {})
-            params_b = dev_b.get("parameters", {})
-            all_param_keys = set(params_a.keys()) | set(params_b.keys())
-            for p_key in all_param_keys:
-                pa = params_a.get(p_key, {})
-                pb = params_b.get(p_key, {})
-                va = pa.get("value", 0.0)
-                vb = pb.get("value", 0.0)
-                if abs(va - vb) > 1e-9:
-                    changes.append({
-                        "device": dev_name,
-                        "param": pa.get("name", pb.get("name", "")),
-                        "before": va,
-                        "after": vb,
-                        "delta": vb - va,
-                    })
-
-        if changes:
-            tracks_changed.append({
-                "track_index": int(track_key),
-                "track_name": "Track {}".format(track_key),
-                "changes": changes,
-            })
-        else:
-            tracks_unchanged.append("Track {}".format(track_key))
-
-    if tracks_changed:
-        summary = "{} track(s) changed between version '{}' and '{}'.".format(
-            len(tracks_changed), version_a, version_b
-        )
-    else:
-        summary = "No device parameter differences found between '{}' and '{}'.".format(version_a, version_b)
-
-    return {
-        "version_a": version_a,
-        "version_b": version_b,
-        "tracks_changed": tracks_changed,
-        "tracks_unchanged": tracks_unchanged,
-        "summary": summary,
-    }
 
 
 # --- Feature 4: Scene scaffolding ---
@@ -2295,14 +1500,14 @@ def build_scene_scaffold(
 
         try:
             _send("set_scene_name", {"scene_index": scene_index, "name": name})
-        except RuntimeError:
-            pass
+        except RuntimeError as e:
+            logger.debug("Could not set scene name for scene %s: %s", scene_index, e)
 
         if color_code:
             try:
                 _send("set_scene_color", {"scene_index": scene_index, "color": color})
-            except RuntimeError:
-                pass
+            except RuntimeError as e:
+                logger.debug("Could not set scene color for scene %s: %s", scene_index, e)
 
         scene_list.append({"scene_index": scene_index, "name": name, "bars": bars, "color": color})
 
@@ -2366,8 +1571,8 @@ def place_clip_in_arrangement(
         clip_info = _send("get_clip_info", {"track_index": track_index, "slot_index": clip_index})
         clip_name = clip_info.get("name", "")
         clip_length_beats = float(clip_info.get("length", 0.0))
-    except RuntimeError:
-        pass
+    except RuntimeError as e:
+        logger.debug("Could not get clip info for track %s slot %s: %s", track_index, clip_index, e)
 
     try:
         _send("duplicate_clip_to_arrangement", {
@@ -2514,8 +1719,9 @@ def arrange_from_scene_scaffold(
                     if clip_len > 0:
                         length_beats = clip_len
                         break
-                except RuntimeError:
-                    pass
+                except RuntimeError as e:
+                    logger.debug("Could not get clip length for track %s scene %s: %s", ti, scene_idx, e)
+
             length_bars = max(1, round(length_beats / time_signature_numerator)) if length_beats > 0 else 8
 
         tracks_placed = 0
@@ -2537,8 +1743,8 @@ def arrange_from_scene_scaffold(
                         "time": start_time,
                     })
                     tracks_placed += 1
-                except RuntimeError:
-                    pass
+                except RuntimeError as e:
+                    logger.debug("Could not place clip for track %s scene %s: %s", ti, scene_idx, e)
 
         placements.append({
             "scene_name": scene_name,
@@ -2562,261 +1768,14 @@ def arrange_from_scene_scaffold(
 
 # --- Feature 6: Resampling routing ---
 
-@mcp.tool()
-def setup_resampling_route(
-    source_track_index: int | None = None,
-    resample_track_index: int | None = None,
-    track_name: str = "Resample",
-    armed: bool = True,
-) -> dict:
-    """
-    Set up resampling routing between a source track (or master) and a target audio track.
-
-    Workflow:
-    1. If resample_track_index is None, creates a new audio track named track_name
-    2. Sets the new/target track's input routing to the source track output (or Master if source is None)
-    3. Sets monitor to "In"
-    4. Arms the track for recording if armed=True
-
-    Args:
-        source_track_index: Track to resample from. None = resample from Master output.
-        resample_track_index: Existing audio track to use as resample target. None = create new.
-        track_name: Name for the new resample track (default "Resample").
-        armed: Whether to arm the resample track for recording (default True).
-
-    Returns:
-        resample_track_index, resample_track_name, source_routing, armed, monitor_mode,
-        instructions: human-readable summary of what was set up and how to use it
-    """
-    if resample_track_index is None:
-        try:
-            _send("create_audio_track", {"index": -1})
-            tracks = _send("get_tracks")
-            resample_track_index = len(tracks) - 1
-        except RuntimeError as e:
-            return {"error": "Could not create audio track: {}".format(e)}
-
-    try:
-        _send("set_track_name", {"track_index": resample_track_index, "name": track_name})
-    except RuntimeError:
-        pass
-
-    source_routing = "Master" if source_track_index is None else "Track {}".format(source_track_index)
-    routing_set = False
-    try:
-        if source_track_index is None:
-            _send("set_track_input_routing", {"track_index": resample_track_index, "routing": "Master"})
-        else:
-            _send("set_track_input_routing", {
-                "track_index": resample_track_index,
-                "source_track_index": source_track_index,
-            })
-        routing_set = True
-    except RuntimeError:
-        routing_set = False
-
-    monitor_mode = "In"
-    monitor_set = False
-    try:
-        _send("set_track_monitor", {"track_index": resample_track_index, "monitor": 1})
-        monitor_set = True
-    except RuntimeError:
-        monitor_set = False
-
-    arm_result = False
-    if armed:
-        try:
-            _send("set_track_arm", {"track_index": resample_track_index, "arm": True})
-            arm_result = True
-        except RuntimeError:
-            arm_result = False
-
-    instructions = (
-        "Resampling track '{}' (index {}) is set up to record from {}. "
-        "Press Record in Live, then play your session to capture the output. "
-        "When done, call teardown_resampling_route({}) to reset routing.".format(
-            track_name, resample_track_index, source_routing, resample_track_index
-        )
-    )
-
-    return {
-        "resample_track_index": resample_track_index,
-        "resample_track_name": track_name,
-        "source_routing": source_routing,
-        "routing_set": routing_set,
-        "armed": arm_result,
-        "monitor_mode": monitor_mode,
-        "monitor_set": monitor_set,
-        "instructions": instructions,
-    }
 
 
-@mcp.tool()
-def teardown_resampling_route(resample_track_index: int) -> dict:
-    """
-    Reset a resampling track's routing back to defaults and disarm it.
-
-    Args:
-        resample_track_index: The resample track to reset.
-
-    Returns:
-        resample_track_index, disarmed (bool), routing_reset (bool)
-    """
-    disarmed = False
-    try:
-        _send("set_track_arm", {"track_index": resample_track_index, "arm": False})
-        disarmed = True
-    except RuntimeError:
-        pass
-
-    routing_reset = False
-    try:
-        _send("set_track_monitor", {"track_index": resample_track_index, "monitor": 0})
-        routing_reset = True
-    except RuntimeError:
-        pass
-
-    try:
-        _send("set_track_input_routing", {"track_index": resample_track_index, "routing": "default"})
-    except RuntimeError:
-        pass
-
-    return {
-        "resample_track_index": resample_track_index,
-        "disarmed": disarmed,
-        "routing_reset": routing_reset,
-    }
 
 
-@mcp.tool()
-def get_resampling_status(resample_track_index: int) -> dict:
-    """
-    Return the current routing and arm status of a track, to verify resampling is set up correctly.
-
-    Returns:
-        track_index, track_name, input_routing, monitor_mode, armed, ready_to_resample (bool)
-    """
-    try:
-        tracks = _send("get_tracks")
-        track = next(
-            (t for t in tracks if t.get("index", t.get("track_index")) == resample_track_index),
-            None,
-        )
-    except RuntimeError as e:
-        return {"error": "Could not get tracks: {}".format(e)}
-
-    if track is None:
-        return {"error": "Track {} not found.".format(resample_track_index)}
-
-    track_name = track.get("name", "")
-    armed = track.get("arm", track.get("armed", False))
-    monitor_mode = track.get("monitor", track.get("monitor_mode", ""))
-    input_routing = track.get("input_routing", track.get("input", ""))
-
-    ready = bool(armed) and str(monitor_mode) in {"1", "In", 1}
-
-    return {
-        "track_index": resample_track_index,
-        "track_name": track_name,
-        "input_routing": input_routing,
-        "monitor_mode": monitor_mode,
-        "armed": armed,
-        "ready_to_resample": ready,
-    }
 
 
 # --- Feature 7: Session collaborator tools ---
 
-@mcp.tool()
-def full_session_snapshot(snapshot_name: str) -> dict:
-    """
-    Save device parameter snapshots for ALL tracks simultaneously under a single name.
-
-    Captures master track, all audio/MIDI tracks, and all return tracks.
-    All stored in ~/.ableton_mpcx/device_snapshots.json under the given name.
-
-    Args:
-        snapshot_name: Name for this full-session snapshot (e.g. 'pre-drop', 'final-mix').
-
-    Returns:
-        snapshot_name, tracks_captured: int, total_parameters: int, saved_at: str
-    """
-    saved_at = datetime.datetime.now(datetime.timezone.utc).isoformat()
-    tracks_captured = 0
-    total_parameters = 0
-
-    # Collect all track indices: regular tracks + master (-1) + return tracks
-    track_indices = [-1]
-    try:
-        tracks = _send("get_tracks")
-        for t in tracks:
-            idx = t.get("index", t.get("track_index"))
-            if idx is not None:
-                track_indices.append(idx)
-    except RuntimeError:
-        pass
-
-    try:
-        return_tracks = _send("get_return_tracks")
-        for rt in return_tracks:
-            idx = rt.get("index", rt.get("track_index"))
-            if idx is not None:
-                track_indices.append(("return", idx))
-    except RuntimeError:
-        pass
-
-    all_snapshots = _load_json_cache(_DEVICE_SNAPSHOTS_PATH, {})
-
-    for ti in track_indices:
-        if isinstance(ti, tuple):
-            # return track — skip for now, they aren't indexed the same way
-            continue
-        track_key = str(ti)
-        try:
-            devices = _send("get_devices", {"track_index": ti})
-        except RuntimeError:
-            continue
-
-        snapshot_data = {}
-        for device in devices:
-            dev_idx = device.get("index", device.get("device_index", 0))
-            try:
-                params_result = _send("get_device_parameters", {
-                    "track_index": ti,
-                    "device_index": dev_idx,
-                })
-                params = params_result.get("parameters", params_result) if isinstance(params_result, dict) else params_result
-                param_map = {}
-                for p in params:
-                    p_idx = p.get("index", p.get("parameter_index", 0))
-                    param_map[str(p_idx)] = {
-                        "value": p.get("value", 0.0),
-                        "name": p.get("name", ""),
-                    }
-                    total_parameters += 1
-                snapshot_data[str(dev_idx)] = {
-                    "device_name": device.get("name", ""),
-                    "parameters": param_map,
-                }
-            except RuntimeError:
-                pass
-
-        if not all_snapshots.get(track_key):
-            all_snapshots[track_key] = {}
-        all_snapshots[track_key][snapshot_name] = {
-            "devices": snapshot_data,
-            "saved_at": saved_at,
-        }
-        tracks_captured += 1
-
-    _save_json_cache(_DEVICE_SNAPSHOTS_PATH, all_snapshots)
-
-    return {
-        "snapshot_name": snapshot_name,
-        "tracks_captured": tracks_captured,
-        "total_parameters": total_parameters,
-        "saved_at": saved_at,
-    }
 
 
 @mcp.tool()
@@ -2864,8 +1823,8 @@ def session_audit(fix: bool = False) -> dict:
                     auto_name_track(idx, dry_run=False)
                     fixed = True
                     issues_fixed += 1
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.debug("Could not auto-name track %s during audit fix: %s", idx, e)
             issues.append({
                 "type": "unnamed_track",
                 "severity": "warning",
@@ -2883,8 +1842,8 @@ def session_audit(fix: bool = False) -> dict:
                     _send("set_track_arm", {"track_index": idx, "arm": False})
                     fixed = True
                     issues_fixed += 1
-                except RuntimeError:
-                    pass
+                except RuntimeError as e:
+                    logger.debug("Could not disarm track %s during audit fix: %s", idx, e)
             issues.append({
                 "type": "track_armed",
                 "severity": "warning",
@@ -2906,10 +1865,8 @@ def session_audit(fix: bool = False) -> dict:
                     "auto_fixable": False,
                     "fixed": False,
                 })
-        except RuntimeError:
-            pass
-
-    # Check for no snapshots saved
+        except RuntimeError as e:
+            logger.debug("Could not get devices for track %s during audit: %s", idx, e)
     all_snapshots = _load_json_cache(_DEVICE_SNAPSHOTS_PATH, {})
     if not all_snapshots:
         issues.append({
@@ -2933,9 +1890,8 @@ def session_audit(fix: bool = False) -> dict:
                     if clip_info:
                         has_clip = True
                         break
-                except RuntimeError:
-                    pass
-            if not has_clip:
+                except RuntimeError as e:
+                    logger.debug("Could not get clip info for track %s scene %s during audit: %s", ti, scene_idx, e)
                 issues.append({
                     "type": "empty_scene",
                     "severity": "info",
@@ -2946,10 +1902,8 @@ def session_audit(fix: bool = False) -> dict:
                     "auto_fixable": False,
                     "fixed": False,
                 })
-    except RuntimeError:
-        pass
-
-    has_issue = any(i["severity"] == "issues" for i in issues)
+    except RuntimeError as e:
+        logger.debug("Could not check scenes during session audit: %s", e)
     has_warning = any(i["severity"] == "warning" for i in issues)
     if has_issue:
         session_health = "issues"
@@ -3049,8 +2003,9 @@ def mix_correction_loop(
                 target_parameter_index = p.get("index", p.get("parameter_index", 0))
                 target_param_name = p_name
                 break
-        except RuntimeError:
-            pass
+        except RuntimeError as e:
+            logger.debug("Could not get parameters for device %s on track %s: %s", dev_idx, track_index, e)
+
         if target_device_index is not None:
             break
 
@@ -3135,8 +2090,8 @@ def mix_correction_loop(
         try:
             save_device_snapshot(track_index, snap_label, device_index=target_device_index)
             snapshot_saved = True
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning("Could not save post-correction snapshot: %s", e)
 
     if steps_taken > 0:
         summary = "Adjusted '{}' on track {} by {} step(s) to {} the '{}' band. Improved: {}.".format(
@@ -3451,264 +2406,3 @@ def get_full_session_state() -> dict:
 # Render / Print to audio
 # ---------------------------------------------------------------------------
 
-@mcp.tool()
-def render_track_to_audio(
-    source_track_index: int,
-    start_bar: int = 1,
-    end_bar: int = 9,
-    use_resampling: bool = False,
-    post_fx: bool = True,
-    ensure_full_length: bool = True,
-    new_track_name: str | None = None,
-    target_track_index: int | None = None,
-) -> dict:
-    """
-    Print a track's audio output to a new audio track for a given bar range.
-
-    Automates the "resample" workflow:
-    1. Optionally duplicates the source clip until it fills the requested range.
-    2. Creates a new audio track routed to the source track (Post FX) or Resampling.
-    3. Arms the new track and starts Arrangement recording for exactly the bar range.
-    4. Stops, disarms, and returns the new track details.
-
-    Useful for printing third-party plugin edits (e.g. Melodyne) to audio.
-
-    Args:
-        source_track_index: Track to capture audio from.
-        start_bar: First bar of the range to record (1-based, default 1).
-        end_bar: Bar after the last bar to record (default 9 = 8 bars).
-        use_resampling: If True, route from master Resampling instead of the source track directly.
-        post_fx: If True (default), capture post-effects signal.
-        ensure_full_length: If True (default), try to extend the source clip to fill the range.
-        new_track_name: Name for the new audio track (default: "{source_track_name} [Rendered]").
-        target_track_index: Position to insert the new track (default: right after source track).
-
-    Returns:
-        new_track_index, new_track_name, source_track_name, bars_recorded, duration_seconds
-    """
-    warnings: list[str] = []
-
-    # --- Gather song info (tempo + time signature) ---
-    try:
-        song_info = _send("get_song_info")
-    except RuntimeError as e:
-        return {"error": "Could not get song info: {}".format(e)}
-
-    tempo = float(song_info.get("tempo", 120.0))
-    time_sig_num = int(song_info.get("time_signature_numerator", song_info.get("numerator", 4)))
-
-    bars_to_record = end_bar - start_bar
-    if bars_to_record <= 0:
-        return {"error": "end_bar must be greater than start_bar"}
-
-    beats_per_bar = time_sig_num
-    start_beat = (start_bar - 1) * beats_per_bar
-    length_beats = bars_to_record * beats_per_bar
-    seconds_per_beat = 60.0 / tempo
-    duration_seconds = length_beats * seconds_per_beat
-
-    # --- Get source track info ---
-    try:
-        tracks = _send("get_tracks")
-    except RuntimeError as e:
-        return {"error": "Could not get tracks: {}".format(e)}
-
-    if source_track_index < 0 or source_track_index >= len(tracks):
-        return {"error": "source_track_index {} is out of range (0-{})".format(
-            source_track_index, len(tracks) - 1)}
-
-    source_track = tracks[source_track_index]
-    source_track_name = source_track.get("name", "Track {}".format(source_track_index + 1))
-
-    # --- Step 1: Optionally extend source clip to cover the requested range ---
-    clip_length_warning = None
-    if ensure_full_length:
-        try:
-            track_info = _send("get_track_info", {"track_index": source_track_index})
-            clip_slots = track_info.get("clip_slots", [])
-            # Find the first populated clip slot
-            source_slot_index = None
-            for slot_idx, slot in enumerate(clip_slots):
-                if slot and slot.get("has_clip"):
-                    source_slot_index = slot_idx
-                    break
-
-            if source_slot_index is not None:
-                clip_info = _send("get_clip_info", {
-                    "track_index": source_track_index,
-                    "slot_index": source_slot_index,
-                })
-                clip_length = float(clip_info.get("length", 0))
-                # Double the loop until the clip length covers what we need.
-                # Cap at 10 doublings (2^10 = 1024× original length) to prevent
-                # runaway loops for extremely long requested ranges.
-                max_doublings = 10
-                doublings = 0
-                while clip_length < length_beats and doublings < max_doublings:
-                    try:
-                        _send("duplicate_clip_loop", {
-                            "track_index": source_track_index,
-                            "slot_index": source_slot_index,
-                        })
-                        doublings += 1
-                        # Refresh clip length
-                        clip_info = _send("get_clip_info", {
-                            "track_index": source_track_index,
-                            "slot_index": source_slot_index,
-                        })
-                        clip_length = float(clip_info.get("length", 0))
-                    except RuntimeError:
-                        break
-                if clip_length < length_beats:
-                    clip_length_warning = (
-                        "Source clip (length={} beats) may be shorter than requested range "
-                        "({} beats); recorded clip may be shorter than expected.".format(
-                            clip_length, length_beats)
-                    )
-                    warnings.append(clip_length_warning)
-            else:
-                warnings.append(
-                    "No clip found in source track slot; skipping ensure_full_length."
-                )
-        except RuntimeError as e:
-            warnings.append("ensure_full_length skipped: {}".format(e))
-
-    # --- Step 2: Create new audio track ---
-    insert_index = target_track_index if target_track_index is not None else source_track_index + 1
-    try:
-        _send("create_audio_track", {"index": insert_index})
-    except RuntimeError as e:
-        return {"error": "Could not create audio track: {}".format(e)}
-
-    # After insertion, fetch fresh track list to get the new track's actual index
-    try:
-        tracks_after = _send("get_tracks")
-        new_track_index = insert_index if insert_index < len(tracks_after) else len(tracks_after) - 1
-    except RuntimeError:
-        new_track_index = insert_index
-
-    # Determine the name for the new track
-    if new_track_name is None:
-        new_track_name = "{} [Rendered]".format(source_track_name)
-
-    try:
-        _send("set_track_name", {"track_index": new_track_index, "name": new_track_name})
-    except RuntimeError as e:
-        warnings.append("Could not rename new track: {}".format(e))
-
-    # --- Step 3: Set input routing ---
-    routing_set = False
-    if use_resampling:
-        routing_type_name = "Resampling"
-        routing_channel_name = None
-    else:
-        # Live's display name for track routing is typically "{index+1}-{track_name}"
-        routing_type_name = "{}-{}".format(source_track_index + 1, source_track_name)
-        routing_channel_name = "Post FX" if post_fx else "Pre FX"
-
-    try:
-        _send("set_track_input_routing", {
-            "track_index": new_track_index,
-            "routing_type_name": routing_type_name,
-            "routing_channel_name": routing_channel_name,
-        })
-        routing_set = True
-    except RuntimeError as e:
-        warnings.append(
-            "Could not set input routing to '{}' (channel '{}'): {}. "
-            "Please set routing manually in Live.".format(
-                routing_type_name, routing_channel_name, e)
-        )
-
-    # --- Step 4: Arm the new track ---
-    try:
-        _send("set_track_arm", {"track_index": new_track_index, "arm": True})
-    except RuntimeError as e:
-        warnings.append("Could not arm new track: {}".format(e))
-
-    # --- Step 5: Set Arrangement loop ---
-    try:
-        _send("set_loop", {
-            "enabled": True,
-            "loop_start": float(start_beat),
-            "loop_length": float(length_beats),
-        })
-    except RuntimeError as e:
-        warnings.append("Could not set loop: {}".format(e))
-
-    # --- Step 6: Move playhead to start_bar ---
-    try:
-        _send("set_current_song_time", {"song_time": float(start_beat)})
-    except RuntimeError:
-        try:
-            _send("jump_to_position", {"position": float(start_beat)})
-        except RuntimeError as e:
-            warnings.append("Could not move playhead to start: {}".format(e))
-
-    # Make sure we are not already playing / recording
-    try:
-        _send("stop_playing")
-    except RuntimeError:
-        pass
-
-    # --- Step 7: Start Arrangement recording ---
-    try:
-        _send("set_record_mode", {"record_mode": True})
-    except RuntimeError as e:
-        warnings.append("Could not enable record mode: {}".format(e))
-
-    # Jump playhead to start of render range
-    try:
-        _send("set_arrangement_position", {"position": float(start_beat)})
-    except RuntimeError as e:
-        warnings.append("Could not set arrangement position: {}".format(e))
-
-    try:
-        _send("start_playing")
-    except RuntimeError as e:
-        # Cleanup on failure
-        try:
-            _send("set_track_arm", {"track_index": new_track_index, "arm": False})
-        except RuntimeError:
-            pass
-        return {"error": "Could not start playback: {}".format(e), "warnings": warnings}
-
-    # --- Step 8: Wait for the recording duration ---
-    time.sleep(duration_seconds + 0.5)
-
-    # --- Step 9: Stop recording ---
-    try:
-        _send("stop_playing")
-    except RuntimeError as e:
-        warnings.append("Could not stop playback: {}".format(e))
-
-    try:
-        _send("set_record_mode", {"record_mode": False})
-    except RuntimeError:
-        pass
-
-    # --- Step 10: Disarm the new track ---
-    try:
-        _send("set_track_arm", {"track_index": new_track_index, "arm": False})
-    except RuntimeError as e:
-        warnings.append("Could not disarm new track: {}".format(e))
-
-    # --- Step 11: Return result ---
-    result: dict[str, Any] = {
-        "new_track_index": new_track_index,
-        "new_track_name": new_track_name,
-        "source_track_name": source_track_name,
-        "source_track_index": source_track_index,
-        "bars_recorded": bars_to_record,
-        "duration_seconds": round(duration_seconds, 3),
-        "start_bar": start_bar,
-        "end_bar": end_bar,
-        "tempo": tempo,
-        "routing_type_name": routing_type_name,
-        "routing_channel_name": routing_channel_name,
-        "routing_set": routing_set,
-        "use_resampling": use_resampling,
-    }
-    if warnings:
-        result["warnings"] = warnings
-    return result

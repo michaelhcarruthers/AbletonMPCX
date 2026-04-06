@@ -1,8 +1,12 @@
 """Performance tools — performance FX (reverb throw, filter sweep, stutter), DJ blend/transition macros, and the macro execution engine."""
 from __future__ import annotations
 
+import logging
+
 import helpers
 from helpers import mcp, _send
+
+logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Performance FX MCP tools
@@ -894,8 +898,8 @@ def setup_fx_chain(
         if track_name:
             try:
                 _send("set_track_name", {"track_index": track_index, "name": track_name})
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug("Could not set track name during setup_performance_chain: %s", e)
     finally:
         _send("end_undo_step", {})
 

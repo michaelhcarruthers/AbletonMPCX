@@ -19,8 +19,11 @@ Imports:
                        — tools.session
 """
 
+import logging
 import sys
 import os
+
+logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Configuration
@@ -119,8 +122,8 @@ def _print_pending():
                 action = s.get("action")
                 if action:
                     print(f"   → {action}")
-    except Exception:
-        pass  # silently ignore if Ableton not connected
+    except Exception as e:
+        logger.debug("Could not fetch pending suggestions (Ableton not connected?): %s", e)
 
 
 def _maybe_auto_suggest():
@@ -137,8 +140,8 @@ def _maybe_auto_suggest():
         high = [s for s in suggestions if s.get("priority") in ("high", "critical")]
         for s in high:
             print(f"💡 {s.get('reason', s.get('action', ''))}")
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug("Could not auto-suggest next actions (Ableton not connected?): %s", e)
 
 
 def _after_command():

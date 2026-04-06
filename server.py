@@ -7,7 +7,7 @@ Starts the FastMCP server and imports all domain tool modules so that every
 from helpers import mcp  # noqa: F401 — creates the FastMCP instance
 
 # Import all tool modules so their @mcp.tool() decorators fire
-import tools.session      # noqa: F401
+import tools.session      # noqa: F401  (also imports session_snapshots, session_suggestions, session_recording)
 import tools.tracks       # noqa: F401
 import tools.clips        # noqa: F401
 import tools.devices      # noqa: F401

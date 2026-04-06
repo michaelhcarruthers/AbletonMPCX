@@ -5,6 +5,7 @@ import collections
 import copy
 import datetime
 import json
+import logging
 import math
 import os
 import pathlib
@@ -13,6 +14,8 @@ import threading
 import time
 from contextlib import contextmanager
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 from mcp.server.fastmcp import FastMCP
 
@@ -74,10 +77,40 @@ def _append_operation(command: str, params: dict, result: Any):
 
 
 # ---------------------------------------------------------------------------
+# Transport abstraction (mockable for unit tests)
+# ---------------------------------------------------------------------------
+
+# The active transport — None means use the default socket-based Ableton transport.
+_active_transport: Any = None
+
+
+def set_transport(transport: Any) -> None:
+    """Replace the internal transport used by ``_send``.
+
+    Pass a :class:`helpers.transport.MockTransport` instance (or any object
+    with a compatible ``send(command, params)`` method) to run tools without
+    a live Ableton connection.
+
+    Pass ``None`` to restore the default socket transport.
+
+    Args:
+        transport: An object implementing ``send(command, params) -> Any``,
+            or ``None`` to restore the socket transport.
+    """
+    global _active_transport
+    _active_transport = transport
+
+
+# ---------------------------------------------------------------------------
 # High-level send helpers
 # ---------------------------------------------------------------------------
 
 def _send(command: str, params: dict[str, Any] | None = None, _log: bool = True, _silent: bool = False) -> Any:
+    if _active_transport is not None:
+        result = _active_transport.send(command, params or {})
+        if _log:
+            _append_operation(command, params or {}, result)
+        return result
     payload = json.dumps({"command": command, "params": params or {}, "silent": _silent}).encode("utf-8")
     with _ableton_socket() as sock:
         sock.sendall(len(payload).to_bytes(4, "big") + payload)
@@ -117,12 +150,15 @@ def _send_silent(command: str, params: dict[str, Any] | None = None) -> Any:
 
 # Snapshot store (ephemeral, cleared on restart)
 _snapshots: dict[str, dict] = {}
+_snapshots_lock = threading.Lock()
 
 # Reference profile store (also persisted to project memory)
 _reference_profiles: dict[str, dict] = {}
+_reference_profiles_lock = threading.Lock()
 
 # Audio analysis cache (in-process)
 _audio_analysis_cache: dict[str, dict] = {}
+_audio_analysis_cache_lock = threading.Lock()
 
 # Persistent project memory settings
 _MEMORY_DIR = os.path.expanduser("~/.ableton_mpcx/projects")
@@ -145,8 +181,8 @@ def _load_memory(project_id: str) -> dict:
         try:
             with open(path, "r", encoding="utf-8") as f:
                 return json.load(f)
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning("Failed to load memory for project '%s': %s", project_id, e)
     return {
         "project_id": project_id,
         "created_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
@@ -165,8 +201,8 @@ def _save_memory(project_id: str, memory: dict):
     try:
         with open(path, "w", encoding="utf-8") as f:
             json.dump(memory, f, indent=2)
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning("Failed to save memory for project '%s': %s", project_id, e)
 
 
 def _get_memory() -> dict:
@@ -177,14 +213,15 @@ def _get_memory() -> dict:
 
 def _save_reference_profile(label: str, profile: dict):
     """Store a reference profile in-process and persist to project memory if a project is loaded."""
-    _reference_profiles[label] = profile
+    with _reference_profiles_lock:
+        _reference_profiles[label] = profile
     if _current_project_id is not None:
         try:
             mem = _get_memory()
             mem.setdefault("reference_profiles", {})[label] = profile
             _save_memory(_current_project_id, mem)
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning("Failed to persist reference profile '%s': %s", label, e)
 
 
 def _load_reference_profiles_from_project():
@@ -193,7 +230,8 @@ def _load_reference_profiles_from_project():
         return
     try:
         mem = _get_memory()
-        for label, profile in mem.get("reference_profiles", {}).items():
-            _reference_profiles[label] = profile
-    except Exception:
-        pass
+        with _reference_profiles_lock:
+            for label, profile in mem.get("reference_profiles", {}).items():
+                _reference_profiles[label] = profile
+    except Exception as e:
+        logger.warning("Failed to load reference profiles from project: %s", e)

@@ -4,3 +4,4 @@ __pycache__/
 .env
 *.egg-info/
 session_state.json
+.DS_Store

@@ -1,7 +1,10 @@
 """Chop tools — audio clip chopping by equal slices, transients, and drum rack distribution."""
 from __future__ import annotations
 
+import logging
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 from helpers import (
     mcp,
@@ -224,8 +227,8 @@ def distribute_chops_to_drum_rack(
         # Create a new scene for this chop
         try:
             _send("create_scene", {"scene_index": -1})
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug("Could not create scene for chop %s: %s", i, e)
         scene_index = i  # best-effort: use chop index as scene index
 
         clip_length = 1.0
@@ -233,8 +236,8 @@ def distribute_chops_to_drum_rack(
             clip_info = _send("get_clip_info", {"track_index": track_index, "slot_index": si})
             if isinstance(clip_info, dict):
                 clip_length = float(clip_info.get("length", 1.0))
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug("Could not get clip info for slot %s: %s", si, e)
 
         try:
             _send("create_clip", {
@@ -248,8 +251,8 @@ def distribute_chops_to_drum_rack(
                 "notes": [{"pitch": note, "start_time": 0.0, "duration": clip_length * 0.9, "velocity": 100, "mute": False}],
             })
             pads_mapped += 1
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning("Could not create drum rack clip for slot %s: %s", si, e)
 
     return {
         "pads_mapped": pads_mapped,

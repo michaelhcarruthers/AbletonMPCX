@@ -4,6 +4,7 @@ from __future__ import annotations
 import collections
 import datetime
 import json
+import logging
 import math
 import os
 import pathlib
@@ -11,6 +12,8 @@ import re
 import threading
 import time
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 import helpers
 from helpers import (
@@ -21,8 +24,11 @@ from helpers import (
     _operation_log,
     _MAX_LOG_ENTRIES,
     _snapshots,
+    _snapshots_lock,
     _reference_profiles,
+    _reference_profiles_lock,
     _audio_analysis_cache,
+    _audio_analysis_cache_lock,
     _get_memory,
     _save_memory,
     _load_memory,
@@ -504,7 +510,8 @@ def apply_device_macro_snapshot(label: str, track_index: int | None = None, devi
                 "is_return_track": False,
             })
             set_count += 1
-        except Exception:
+        except Exception as e:
+            logger.debug("Could not set parameter %s on device %s track %s: %s", param.get("index"), di, ti, e)
             skipped += 1
 
     return {
@@ -544,7 +551,8 @@ def prep_track_for_resampling(track_index: int, resample_track_name: str = "Resa
     arm_succeeded = True
     try:
         _send("set_track_arm", {"track_index": resample_track_index, "arm": True})
-    except Exception:
+    except Exception as e:
+        logger.debug("Could not arm resampling track %s: %s", resample_track_index, e)
         arm_succeeded = False  # Some track types may not support arming
 
     return {
@@ -591,12 +599,14 @@ def create_arrangement_scaffold(
         if "tempo" in section:
             try:
                 _send("set_scene_tempo", {"scene_index": scene_index, "tempo": float(section["tempo"]), "tempo_enabled": True})
-            except Exception:
+            except Exception as e:
+                logger.debug("Could not set tempo for scene %s: %s", scene_index, e)
                 tempo_failures += 1
         if "color" in section:
             try:
                 _send("set_scene_color", {"scene_index": scene_index, "color": int(section["color"])})
-            except Exception:
+            except Exception as e:
+                logger.debug("Could not set color for scene %s: %s", scene_index, e)
                 color_failures += 1
         created.append({"name": name, "scene_index": scene_index})
 
@@ -732,15 +742,17 @@ def compare_clip_feel(
         summary: one-line summary of the main departure
         reference_label, reference_note_count
     """
-    if reference_label not in _reference_profiles:
+    with _reference_profiles_lock:
+        has_label = reference_label in _reference_profiles
+    if not has_label:
         # Try loading from project memory
         _load_reference_profiles_from_project()
-    if reference_label not in _reference_profiles:
-        raise ValueError(
-            "No reference profile '{}'. Call designate_reference_clip() first.".format(reference_label)
-        )
-
-    ref = _reference_profiles[reference_label]
+    with _reference_profiles_lock:
+        if reference_label not in _reference_profiles:
+            raise ValueError(
+                "No reference profile '{}'. Call designate_reference_clip() first.".format(reference_label)
+            )
+        ref = _reference_profiles[reference_label]
     if ref.get("type") != "clip_feel":
         raise ValueError("Reference '{}' is not a clip feel profile (type={}).".format(
             reference_label, ref.get("type")))
@@ -954,14 +966,16 @@ def compare_mix_state(
         master_volume_delta, total_clip_count_delta,
         reference_label, reference_timestamp
     """
-    if reference_label not in _reference_profiles:
+    with _reference_profiles_lock:
+        has_label = reference_label in _reference_profiles
+    if not has_label:
         _load_reference_profiles_from_project()
-    if reference_label not in _reference_profiles:
-        raise ValueError(
-            "No reference profile '{}'. Call designate_reference_mix_state() first.".format(reference_label)
-        )
-
-    ref = _reference_profiles[reference_label]
+    with _reference_profiles_lock:
+        if reference_label not in _reference_profiles:
+            raise ValueError(
+                "No reference profile '{}'. Call designate_reference_mix_state() first.".format(reference_label)
+            )
+        ref = _reference_profiles[reference_label]
     if ref.get("type") != "mix_state":
         raise ValueError("Reference '{}' is not a mix state profile (type={}).".format(
             reference_label, ref.get("type")))
@@ -1085,7 +1099,9 @@ def list_reference_profiles() -> dict:
     """
     _load_reference_profiles_from_project()
     profiles = []
-    for label, p in sorted(_reference_profiles.items()):
+    with _reference_profiles_lock:
+        items = sorted(_reference_profiles.items())
+    for label, p in items:
         entry = {
             "label": label,
             "type": p.get("type", "unknown"),
@@ -1105,10 +1121,11 @@ def list_reference_profiles() -> dict:
 def delete_reference_profile(label: str) -> dict:
     """Delete a reference profile by label (in-process and from project memory)."""
     removed_memory = False
-    if label in _reference_profiles:
-        del _reference_profiles[label]
-    else:
-        raise ValueError("No reference profile with label '{}'.".format(label))
+    with _reference_profiles_lock:
+        if label in _reference_profiles:
+            del _reference_profiles[label]
+        else:
+            raise ValueError("No reference profile with label '{}'.".format(label))
     if helpers._current_project_id is not None:
         try:
             mem = _get_memory()
@@ -1116,8 +1133,8 @@ def delete_reference_profile(label: str) -> dict:
                 del mem["reference_profiles"][label]
                 _save_memory(helpers._current_project_id, mem)
                 removed_memory = True
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning("Failed to delete memory reference profile '%s': %s", label, e)
     return {"deleted": label, "removed_from_disk": removed_memory}
 
 
@@ -1158,10 +1175,8 @@ def _analyse_audio_file(file_path: str, duration_limit: float = 300.0) -> dict:
             mid_rms = float(np.sqrt(np.mean(mid ** 2)) + 1e-9)
             side_rms = float(np.sqrt(np.mean(side ** 2)) + 1e-9)
             stereo_width = round(side_rms / mid_rms, 4)
-    except Exception:
-        pass
-
-    S = np.abs(librosa.stft(y))
+    except Exception as e:
+        logger.debug("Could not compute stereo width for '%s': %s", file_path, e)
     freqs = librosa.fft_frequencies(sr=sr)
 
     def band_energy(f_low, f_high):
@@ -1262,7 +1277,8 @@ def designate_reference_audio(
     profile["timestamp"] = datetime.datetime.now(datetime.timezone.utc).isoformat()
 
     _save_reference_profile(label, profile)
-    _audio_analysis_cache[label] = profile
+    with _audio_analysis_cache_lock:
+        _audio_analysis_cache[label] = profile
 
     return {k: v for k, v in profile.items() if k != "type"}
 
@@ -1319,14 +1335,16 @@ def compare_audio(
         tonal_balance_deltas: dict of {band: delta}
         reference_label, reference_file_path
     """
-    if reference_label not in _reference_profiles:
+    with _reference_profiles_lock:
+        has_label = reference_label in _reference_profiles
+    if not has_label:
         _load_reference_profiles_from_project()
-    if reference_label not in _reference_profiles:
-        raise ValueError(
-            "No reference audio profile '{}'. Call designate_reference_audio() first.".format(reference_label)
-        )
-
-    ref = _reference_profiles[reference_label]
+    with _reference_profiles_lock:
+        if reference_label not in _reference_profiles:
+            raise ValueError(
+                "No reference audio profile '{}'. Call designate_reference_audio() first.".format(reference_label)
+            )
+        ref = _reference_profiles[reference_label]
     if ref.get("type") != "audio_analysis":
         raise ValueError("Reference '{}' is not an audio analysis profile (type={}).".format(
             reference_label, ref.get("type")))
@@ -1446,14 +1464,16 @@ def compare_audio_sections(
             "Install with: pip install librosa soundfile"
         )
 
-    if reference_label not in _reference_profiles:
+    with _reference_profiles_lock:
+        has_label = reference_label in _reference_profiles
+    if not has_label:
         _load_reference_profiles_from_project()
-    if reference_label not in _reference_profiles:
-        raise ValueError(
-            "No reference audio profile '{}'. Call designate_reference_audio() first.".format(reference_label)
-        )
-
-    ref = _reference_profiles[reference_label]
+    with _reference_profiles_lock:
+        if reference_label not in _reference_profiles:
+            raise ValueError(
+                "No reference audio profile '{}'. Call designate_reference_audio() first.".format(reference_label)
+            )
+        ref = _reference_profiles[reference_label]
     path = os.path.expanduser(file_path)
     if not os.path.exists(path):
         raise FileNotFoundError("Audio file not found: {}".format(path))
@@ -1611,9 +1631,10 @@ def _evaluate_observer_rules(current: dict, previous: dict | None):
             _observer_last_checkpoint_log_len = current_threshold
 
     # Rule 6: Clip feel divergence from default reference
-    if "default" in _reference_profiles:
-        ref = _reference_profiles["default"]
-        if ref.get("type") == "clip_feel" and ref.get("timing_variance", 0) > 0.002:
+    with _reference_profiles_lock:
+        default_ref = _reference_profiles.get("default")
+    if default_ref is not None:
+        if default_ref.get("type") == "clip_feel" and default_ref.get("timing_variance", 0) > 0.002:
             # Only flag if reference has meaningful human feel
             for track in current.get("tracks", []):
                 # We only have clip_count here, not note data — so we can only flag
@@ -1933,14 +1954,16 @@ def fix_groove_from_reference(
         timing_variance_before, timing_variance_after,
         velocity_std_before, velocity_std_after, reference_label
     """
-    if reference_label not in _reference_profiles:
+    with _reference_profiles_lock:
+        has_label = reference_label in _reference_profiles
+    if not has_label:
         _load_reference_profiles_from_project()
-    if reference_label not in _reference_profiles:
-        raise ValueError(
-            "No reference feel profile '{}'. Call designate_reference_clip() first.".format(reference_label)
-        )
-
-    ref = _reference_profiles[reference_label]
+    with _reference_profiles_lock:
+        if reference_label not in _reference_profiles:
+            raise ValueError(
+                "No reference feel profile '{}'. Call designate_reference_clip() first.".format(reference_label)
+            )
+        ref = _reference_profiles[reference_label]
     if ref.get("type") != "clip_feel":
         raise ValueError(
             "Reference '{}' is not a feel profile (type={}). "
@@ -2465,15 +2488,15 @@ def cleanup_session(dry_run: bool = True) -> dict:
                 try:
                     _send("delete_return_track", {"index": idx})
                     removed.append(next(c for c in candidates if c["track_index"] == idx))
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.warning("Could not delete return track %s: %s", idx, e)
             # Delete empty regular tracks in reverse index order
             for idx in sorted(empty_track_indices, reverse=True):
                 try:
                     _send("delete_track", {"track_index": idx})
                     removed.append(next(c for c in candidates if c["track_index"] == idx))
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.warning("Could not delete track %s: %s", idx, e)
         finally:
             _send("end_undo_step", {})
 
@@ -2574,8 +2597,8 @@ def batch_audit_projects(set_paths: list, save_reports: bool = True) -> dict:
                     with open(report_path, "w", encoding="utf-8") as f:
                         json.dump(report, f, indent=2)
                     report_saved_to = report_path
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.warning("Could not save audit report to '%s': %s", report_path, e)
 
             entry = {
                 "set_path": path,
