@@ -99,11 +99,6 @@ def _send(command: str, params: dict[str, Any] | None = None, _log: bool = True)
     return result
 
 
-def _send_logged(command: str, params: dict[str, Any] | None = None) -> Any:
-    """Like _send but appends to the operation log. Kept for compatibility; _send now logs by default."""
-    return _send(command, params)
-
-
 # ---------------------------------------------------------------------------
 # Shared in-process state (used across multiple tool modules)
 # ---------------------------------------------------------------------------

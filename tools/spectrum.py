@@ -1,27 +1,12 @@
 """Spectrum analyser tools — MCPSpectrum telemetry, band diagnostics, arrangement automation, and device parameter helpers."""
 from __future__ import annotations
 
-import collections
-import copy
-import datetime
-import json
-import math
-import os
-import pathlib
-import plistlib
-import re
-import shutil
-import socket
-import threading
 import time
-from contextlib import contextmanager
-from typing import Any
 
 import helpers
 from helpers import (
     mcp,
     _send,
-    _send_logged,
     _append_operation,
     _operation_log,
     _MAX_LOG_ENTRIES,

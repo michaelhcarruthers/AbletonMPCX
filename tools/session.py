@@ -21,7 +21,6 @@ import helpers
 from helpers import (
     mcp,
     _send,
-    _send_logged,
     _append_operation,
     _operation_log,
     _MAX_LOG_ENTRIES,
@@ -36,6 +35,7 @@ from helpers import (
     _load_reference_profiles_from_project,
 )
 from helpers.cache import cache_state
+from tools.spectrum import get_spectrum_telemetry_instances
 
 # ---------------------------------------------------------------------------
 # Application
@@ -413,135 +413,26 @@ def get_selected_context() -> dict:
 @mcp.tool()
 def get_capabilities() -> dict:
     """
-    Returns a structured summary of all available MCP tools grouped by category.
+    Returns a structured summary of all registered MCP tools with their descriptions.
     Call this on connect to understand what actions are available before acting.
 
     Returns:
-        categories: dict mapping category name to list of tool names
-        total_tools: int
+        tools: dict mapping tool name to first-line description
+        tool_count: int
         version: str
         usage_hint: str
     """
-    categories = {
-        "session": [
-            "add_project_note", "analyse_mix_state", "arrange_from_scene_scaffold",
-            "auto_color_track", "auto_name_all_tracks", "auto_name_clip",
-            "auto_name_scene", "auto_name_track", "auto_orient", "available_main_views",
-            "build_scene_scaffold", "capture_and_insert_scene", "capture_midi",
-            "continue_playing", "create_audio_track", "create_midi_track",
-            "create_return_track", "create_scene", "create_song_from_brief",
-            "delete_device_snapshot", "delete_return_track", "delete_scene",
-            "delete_snapshot", "delete_track", "diff_device_snapshots",
-            "diff_snapshot_vs_live", "diff_snapshots", "diff_version_snapshots",
-            "duplicate_clip_to_scenes", "duplicate_scene", "duplicate_track",
-            "flush_operation_log", "focus_view", "full_session_snapshot",
-            "get_app_version", "get_appointed_device", "get_capabilities",
-            "get_cue_points", "get_draw_mode", "get_follow_song",
-            "get_full_session_state", "get_operation_log", "get_preferences",
-            "get_project_memory", "get_protocol_version", "get_resampling_status",
-            "get_selected_context", "get_selected_scene", "get_selected_track",
-            "get_session_diff", "get_session_snapshot",
-            "get_song_info", "get_stored_operation_log", "get_track_roles",
-            "hide_view", "is_view_visible", "jump_by", "jump_to_cue_point",
-            "jump_to_next_cue", "jump_to_prev_cue", "list_device_snapshots",
-            "list_scaffold_templates", "list_snapshots", "list_version_snapshots",
-            "load_snapshots_from_project", "mix_correction_loop", "nudge_down",
-            "nudge_up", "place_clip_in_arrangement", "play_selection",
-            "re_enable_automation", "recall_device_snapshot", "redo",
-            "save_device_snapshot", "save_snapshot_to_project", "save_version_snapshot",
-            "session_audit", "set_back_to_arranger", "set_clip_trigger_quantization",
-            "set_draw_mode", "set_exclusive_arm", "set_exclusive_solo",
-            "set_follow_song", "set_groove_amount", "set_loop", "set_metronome",
-            "set_midi_recording_quantization", "set_or_delete_cue", "set_overdub",
-            "set_preference", "set_project_id", "set_record_mode", "set_root_note",
-            "set_scale_mode", "set_scale_name", "set_select_on_launch",
-            "set_selected_scene", "set_selected_track", "set_session_record",
-            "set_swing_amount", "set_tempo", "set_time_signature", "set_track_role",
-            "setup_resampling_route", "show_view", "start_playing", "stop_all_clips",
-            "stop_playing", "suggest_next_actions", "summarise_session",
-            "take_snapshot", "tap_tempo", "teardown_resampling_route", "undo",
-        ],
-        "tracks": [
-            "get_available_routings", "get_master_track", "get_return_tracks",
-            "get_track_info", "get_track_names", "get_track_playing_state",
-            "get_track_routing", "get_tracks", "set_crossfader", "set_master_pan",
-            "set_master_volume", "set_track_arm", "set_track_color",
-            "set_track_fold_state", "set_track_input_routing",
-            "set_track_input_routing_channel", "set_track_input_routing_type",
-            "set_track_mute", "set_track_name", "set_track_output_routing",
-            "set_track_output_routing_channel", "set_track_output_routing_type",
-            "set_track_pan", "set_track_send", "set_track_solo",
-            "set_track_volume", "stop_track_clips",
-        ],
-        "clips": [
-            "add_notes", "apply_note_modifications", "clear_clip_envelope",
-            "create_clip", "crop_clip", "delete_clip", "delete_device",
-            "deselect_all_notes", "duplicate_clip_loop", "duplicate_clip_slot",
-            "duplicate_device", "fire_clip", "fire_clip_slot", "get_clip_envelope",
-            "get_clip_envelopes", "get_clip_follow_actions", "get_clip_info",
-            "get_clip_playing_position", "get_clip_slots", "get_device_info",
-            "get_device_parameters", "get_devices", "get_notes",
-            "insert_clip_envelope_point", "move_device", "quantize_clip",
-            "remove_notes", "replace_all_notes", "select_all_notes",
-            "set_clip_color", "set_clip_envelope_points", "set_clip_follow_actions",
-            "set_clip_gain", "set_clip_launch_mode", "set_clip_launch_quantization",
-            "set_clip_loop", "set_clip_markers", "set_clip_mute", "set_clip_name",
-            "set_clip_pitch", "set_clip_velocity_amount", "set_clip_warp_mode",
-            "set_clip_warping", "set_device_enabled", "set_device_parameter",
-            "set_device_parameter_human", "stop_clip", "stop_clip_slot",
-        ],
-        "devices": [
-            "add_native_device", "begin_undo_step", "end_undo_step",
-            "extract_groove_from_clip", "fire_scene", "get_browser_items_at_path",
-            "get_browser_tree", "get_grooves", "get_mixer_device",
-            "get_rack_chains", "get_rack_drum_pads", "get_scene_info",
-            "get_scenes", "load_browser_item", "randomize_rack_macros",
-            "set_crossfade_assign", "set_mixer_snapshot", "set_return_track_mute",
-            "set_return_track_name", "set_return_track_pan",
-            "set_return_track_volume", "set_scene_color", "set_scene_name",
-            "set_scene_tempo", "store_rack_variation",
-        ],
-        "audit": [
-            "analyse_audio", "analyze_clip_feel", "apply_device_macro_snapshot",
-            "auto_humanize_if_robotic", "batch_audit_projects", "batch_auto_humanize",
-            "capture_device_macro_snapshot", "compare_audio",
-            "compare_audio_sections", "compare_clip_feel", "compare_mix_state",
-            "create_arrangement_scaffold", "create_midi_track_with_drum_rack",
-            "delete_reference_profile", "designate_reference_audio",
-            "designate_reference_clip", "designate_reference_mix_state",
-            "duplicate_clip_to_new_scene", "find_missing_plugins",
-            "fix_groove_from_reference", "get_missing_media_status",
-            "get_pending_suggestions", "humanize_dilla", "humanize_notes",
-            "list_reference_profiles", "observer_status", "open_set",
-            "prep_track_for_resampling", "project_health_report",
-            "search_missing_media",
-        ],
-        "spectrum": [
-            "bars_beats_to_song_time", "diagnose_spectrum_issue",
-            "find_spectrum_analyzers", "get_arrangement_automation_targets",
-            "get_spectrum_telemetry_instances", "set_device_parameter_by_name",
-            "set_spectrum_band_on_track", "write_arrangement_automation",
-        ],
-        "performance": [
-            "add_performance_fx", "check_macro_readiness", "delay_echo_out",
-            "filter_sweep", "list_macro_definitions", "perform_macro",
-            "reverb_throw", "set_macro_intensity", "setup_fx_chain",
-            "stutter_clip",
-        ],
-        "diagnostics": [
-            "analyze_mix_balance", "audit_preset", "get_sound_library_stats",
-            "recommend_presets", "scan_au_presets", "scan_splice_library",
-        ],
-    }
-    total = sum(len(v) for v in categories.values())
+    tools_map = {}
+    for name, tool_obj in mcp._tool_manager._tools.items():
+        description = (tool_obj.description or "").strip().split("\n")[0]
+        tools_map[name] = description
     return {
-        "categories": categories,
-        "total_tools": total,
+        "tool_count": len(tools_map),
+        "tools": tools_map,
         "version": "AbletonMPCX 1.0",
         "usage_hint": (
             "Call get_session_snapshot() to orient fully. "
-            "Use category keys to discover tools: session, tracks, clips, "
-            "devices, audit, spectrum, performance, diagnostics."
+            "Use tool names to discover capabilities."
         ),
     }
 
@@ -813,8 +704,7 @@ def add_project_note(note: str, category: str = "general") -> dict:
     return {"note_id": entry["id"], "timestamp": entry["ts"]}
 
 
-@mcp.tool()
-def set_track_role(track_index: int, role: str) -> dict:
+def _set_track_role(track_index: int, role: str) -> dict:
     """
     Assign a semantic role to a track in the current project memory.
 
@@ -833,8 +723,7 @@ def set_track_role(track_index: int, role: str) -> dict:
     return {"track_index": track_index, "role": role}
 
 
-@mcp.tool()
-def get_track_roles() -> dict:
+def _get_track_roles() -> dict:
     """
     Return all track role assignments for the current project.
 
@@ -1334,16 +1223,16 @@ def create_song_from_brief(
     warnings: list[str] = []
 
     # 1. Set tempo
-    _send_logged("set_tempo", {"tempo": bpm_used})
+    _send("set_tempo", {"tempo": bpm_used})
 
     # 2. Create tracks and rename them
     track_names: list[str] = []
     for idx, (name, track_type) in enumerate(tracks):
         if track_type == "audio":
-            _send_logged("create_audio_track", {"index": idx})
+            _send("create_audio_track", {"index": idx})
         else:
-            _send_logged("create_midi_track", {"index": idx})
-        _send_logged("set_track_name", {"track_index": idx, "name": name})
+            _send("create_midi_track", {"index": idx})
+        _send("set_track_name", {"track_index": idx, "name": name})
         track_names.append(name)
 
     # 3. Warn if key was provided (no set_song_key command available)
