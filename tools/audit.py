@@ -2436,6 +2436,7 @@ def cleanup_session(dry_run: bool = True) -> dict:
         _send("begin_undo_step", {"name": "cleanup_session"})
         try:
             # Delete return tracks in reverse index order
+            # Note: delete_return_track uses 'index', while delete_track uses 'track_index' — both match the existing MCP API
             for idx in sorted(unused_return_indices, reverse=True):
                 try:
                     _send("delete_return_track", {"index": idx})

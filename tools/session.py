@@ -3225,10 +3225,6 @@ def mix_correction_loop(
 # Auto-orient
 # ---------------------------------------------------------------------------
 
-_DEFAULT_TRACK_NAME_PATTERN = re.compile(
-    r"^(Audio|MIDI|1-Audio|1-MIDI)\s*\d*$|^\d+$", re.IGNORECASE
-)
-
 
 @mcp.tool()
 def auto_orient() -> dict:
@@ -3256,6 +3252,9 @@ def auto_orient() -> dict:
         recommended_actions: list of str
         orientation_complete: bool
     """
+    _default_name_pattern = re.compile(
+        r"^(Audio|MIDI|1-Audio|1-MIDI)\s*\d*$|^\d+$", re.IGNORECASE
+    )
     # Session info (name + tempo)
     try:
         song_info = _send("get_song_info", {})
@@ -3298,7 +3297,7 @@ def auto_orient() -> dict:
             "device_count": device_count,
         })
 
-        if not name or _DEFAULT_TRACK_NAME_PATTERN.match(name.strip()):
+        if not name or _default_name_pattern.match(name.strip()):
             unnamed_tracks.append({"index": index, "name": name})
 
         if armed:

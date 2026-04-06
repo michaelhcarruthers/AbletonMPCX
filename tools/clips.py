@@ -606,6 +606,9 @@ def list_arrangement_clips(
     """
     List all clips in the arrangement view, optionally filtered by track or time range.
 
+    Bar numbers are calculated assuming 4/4 time (1 bar = 4 beats). For songs in other
+    time signatures the bar numbers will be approximate positional guides only.
+
     Args:
         track_index: If provided, only return clips from this track
         start_bar: If provided, only return clips starting at or after this bar
@@ -741,11 +744,12 @@ def get_arrangement_overview() -> dict:
     )
 
     # Detect empty regions: bars where NO track has a clip
-    # Build a set of all "occupied" bars
+    # Build a set of all "occupied" bars; use math.ceil so sub-bar clips still
+    # occupy at least 1 bar, consistent with how length_bars is displayed.
     occupied_bars: set[int] = set()
     for clip in all_clips:
         bar_start = clip["start_bar"]
-        bar_end = int(bar_start + max(1, clip["length_bars"]))
+        bar_end = bar_start + max(1, math.ceil(clip["length_bars"]))
         for b in range(bar_start, bar_end):
             occupied_bars.add(b)
 
