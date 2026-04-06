@@ -3,3 +3,7 @@ librosa>=0.10.0
 numpy>=1.24.0
 scipy>=1.10.0
 soundfile>=0.12.0
+pyloudnorm>=0.1.0
+essentia>=2.1b6.dev1034
+aubio>=0.4.9
+madmom>=0.16.1
