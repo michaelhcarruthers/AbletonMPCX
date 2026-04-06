@@ -27,15 +27,26 @@ The device opens a TCP server on **port 9878** (separate from the Remote Script
 on port 9877). The MCP server connects to it using the same length-prefixed JSON
 protocol used by the Remote Script.
 
-Inside the device, a JavaScript file (`amcpx_bridge.js`) uses Max for Live's
-`LiveAPI` to traverse `song.tracks[n].arrangement_clips` — the only reliable
-way to access arrangement clips in Ableton Live.
+Inside the device, `node.script` runs `amcpx_node_server.js` — a Node for Max
+script that opens the TCP server and uses `maxApi.call` to query Live's LOM via
+`LiveAPI`. This gives full access to `song.tracks[n].arrangement_clips` — the
+only reliable way to read arrangement clips in Ableton Live.
+
+## TCP Protocol
+
+All messages use a **4-byte big-endian length prefix + UTF-8 JSON body**. The
+server uses a persistent per-connection buffer (stream buffering) to correctly
+handle cases where the header and body arrive in the same TCP chunk.
+
+## Troubleshooting
+
+- Run `lsof -i :9878` in Terminal — you should see a `node` process listening
+- If the Max console says `can't find file amcpx_node_server.js`, make sure
+  `amcpx_node_server.js` is in the same folder as `AMCPX_Bridge.amxd`
+- If `node.script` does not auto-start, right-click it → Inspector → enable **Autostart**
+- Remove and re-add the device in Live after any file changes
 
 ## Requirements
 
 - Ableton Live 11 or 12 with Max for Live (Suite edition, or Max for Live add-on)
 - AMCPX MCP server running
-
-> **Note:** The TCP server in the patch uses `mxj net.tcp.server`, a Java-based
-> Max object included with Max for Live. It is available in all standard Max for
-> Live installations.
