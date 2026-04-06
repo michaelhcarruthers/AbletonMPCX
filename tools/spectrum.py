@@ -630,6 +630,495 @@ def get_arrangement_automation_targets(track_index: int, device_index: int) -> d
 
 
 @mcp.tool()
+def get_spectrum_peak(track_index: int, device_index: int) -> dict:
+    """
+    Read the current peak hold values from a spectrum analyser device.
+
+    Reads the peak_hold_enabled, peak_hold_time, peak_frequency, and peak_magnitude
+    parameters exposed by the AbletonMPCX spectrum plugin (peak hold mod).
+
+    Args:
+        track_index: Track containing the spectrum device (-1 for master).
+        device_index: Index of the spectrum device on the track.
+
+    Returns:
+        peak_frequency_hz: float — Hz of the current held peak
+        peak_magnitude_db: float — dB of the current held peak
+        peak_hold_time: float — configured hold window in seconds
+        peak_hold_enabled: bool — whether peak hold is active
+        timestamp: float — epoch seconds when this was read
+    """
+    params_result = _send("get_device_parameters", {
+        "track_index": track_index,
+        "device_index": device_index,
+    })
+    parameters = params_result.get("parameters", [])
+    param_map = {p["name"].lower(): p for p in parameters}
+
+    def _val(name: str, default=None):
+        entry = param_map.get(name)
+        return entry["value"] if entry is not None else default
+
+    return {
+        "peak_frequency_hz": _val("peak_frequency"),
+        "peak_magnitude_db": _val("peak_magnitude"),
+        "peak_hold_time": _val("peak_hold_time"),
+        "peak_hold_enabled": bool(_val("peak_hold_enabled", 1)),
+        "timestamp": time.time(),
+    }
+
+
+@mcp.tool()
+def reset_spectrum_peak(track_index: int, device_index: int) -> dict:
+    """
+    Reset the peak hold on a spectrum analyser device.
+
+    Triggers the peak_reset bang parameter on the spectrum plugin, clearing the
+    stored peak frequency/magnitude so the hold restarts from the next frame.
+
+    Args:
+        track_index: Track containing the spectrum device (-1 for master).
+        device_index: Index of the spectrum device on the track.
+
+    Returns:
+        success: bool
+        track_name: str
+        device_name: str
+    """
+    # Resolve track and device names for the response
+    try:
+        track_names = _send("get_track_names", {"include_returns": True, "include_master": True})
+        track_name = next(
+            (t["name"] for t in track_names if t["index"] == track_index),
+            "track_{}".format(track_index),
+        )
+    except Exception:
+        track_name = "track_{}".format(track_index)
+
+    try:
+        devices = _send("get_devices", {"track_index": track_index})
+        device_name = next(
+            (d["name"] for d in devices if d["index"] == device_index),
+            "device_{}".format(device_index),
+        )
+    except Exception:
+        device_name = "device_{}".format(device_index)
+
+    # Find peak_reset parameter and trigger it (set to 1.0 == bang)
+    params_result = _send("get_device_parameters", {
+        "track_index": track_index,
+        "device_index": device_index,
+    })
+    parameters = params_result.get("parameters", [])
+    reset_param = next(
+        (p for p in parameters if "peak_reset" in p["name"].lower()),
+        None,
+    )
+    if reset_param is None:
+        raise RuntimeError(
+            "peak_reset parameter not found on device '{}'. "
+            "Ensure the AbletonMPCX peak hold mod is loaded.".format(device_name)
+        )
+
+    _send("set_device_parameter", {
+        "track_index": track_index,
+        "device_index": device_index,
+        "parameter_index": reset_param["index"],
+        "value": 1.0,
+    })
+
+    return {
+        "success": True,
+        "track_name": track_name,
+        "device_name": device_name,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Dynamics telemetry tools (P2 — AbletonMPCX_DynamicsTelemetry.amxd)
+# ---------------------------------------------------------------------------
+
+def _interpret_dynamics(
+    rms_db: float | None,
+    peak_db: float | None,
+    crest_factor_db: float | None,
+    dynamic_range_db: float | None,
+    is_clipping: bool,
+) -> str:
+    """Generate a human-readable interpretation of dynamics telemetry values."""
+    parts = []
+    if crest_factor_db is not None:
+        if crest_factor_db > 15:
+            parts.append("Punchy transients")
+        elif crest_factor_db > 8:
+            parts.append("Moderate transients")
+        else:
+            parts.append("Compressed / limited transients")
+    if dynamic_range_db is not None:
+        if dynamic_range_db > 20:
+            parts.append("wide dynamic range")
+        elif dynamic_range_db > 10:
+            parts.append("moderate dynamic range")
+        else:
+            parts.append("tightly controlled dynamics")
+    if is_clipping:
+        parts.append("CLIPPING DETECTED")
+    if rms_db is not None and rms_db > -6:
+        parts.append("very hot signal level")
+    return ", ".join(parts) if parts else "Normal dynamics"
+
+
+@mcp.tool()
+def get_dynamics_telemetry(track_index: int, device_index: int) -> dict:
+    """
+    Read dynamics telemetry from an AbletonMPCX_DynamicsTelemetry device.
+
+    Reads RMS level, peak level, crest factor, dynamic range, clipping state,
+    and the analysis window size from the device parameters.
+
+    Args:
+        track_index: Track containing the dynamics device (-1 for master).
+        device_index: Index of the dynamics device on the track.
+
+    Returns:
+        rms_db: float — RMS level in dBFS (100 ms window)
+        peak_db: float — instantaneous peak level in dBFS
+        crest_factor_db: float — peak minus RMS (transient density indicator)
+        dynamic_range_db: float — loudest minus quietest over last 4 bars
+        is_clipping: bool — any sample above 0 dBFS in the last 100 ms
+        window_ms: float — configured analysis window in milliseconds
+        timestamp: float — epoch seconds when this was read
+        interpretation: str — human-readable summary
+    """
+    params_result = _send("get_device_parameters", {
+        "track_index": track_index,
+        "device_index": device_index,
+    })
+    parameters = params_result.get("parameters", [])
+    param_map = {p["name"].lower(): p for p in parameters}
+
+    def _val(name: str, default=None):
+        entry = param_map.get(name)
+        return entry["value"] if entry is not None else default
+
+    rms_db = _val("rms_level")
+    peak_db = _val("peak_level")
+    crest_factor_db = _val("crest_factor")
+    dynamic_range_db = _val("dynamic_range")
+    is_clipping = bool(_val("is_clipping", 0))
+    window_ms = _val("window_ms", 100.0)
+
+    return {
+        "rms_db": rms_db,
+        "peak_db": peak_db,
+        "crest_factor_db": crest_factor_db,
+        "dynamic_range_db": dynamic_range_db,
+        "is_clipping": is_clipping,
+        "window_ms": window_ms,
+        "timestamp": time.time(),
+        "interpretation": _interpret_dynamics(
+            rms_db, peak_db, crest_factor_db, dynamic_range_db, is_clipping
+        ),
+    }
+
+
+def _scan_tracks_for_device(name_pattern: str) -> list[dict]:
+    """
+    Scan all tracks (normal, master, returns) for devices whose name contains
+    name_pattern (case-insensitive).  Returns a list of track/device dicts.
+    """
+    all_tracks: list[dict] = []
+    try:
+        normal = _send("get_track_names", {"include_returns": False, "include_master": False})
+        for t in normal:
+            t["_track_type"] = "normal"
+            all_tracks.append(t)
+    except Exception:
+        pass
+    try:
+        master_tracks = _send("get_track_names", {"include_returns": False, "include_master": True})
+        for t in master_tracks:
+            if t.get("is_master"):
+                t["_track_type"] = "master"
+                all_tracks.append(t)
+    except Exception:
+        pass
+    try:
+        return_tracks = _send("get_track_names", {"include_returns": True, "include_master": False})
+        for t in return_tracks:
+            if t.get("is_return"):
+                t["_track_type"] = "return"
+                all_tracks.append(t)
+    except Exception:
+        pass
+
+    pattern_lower = name_pattern.lower()
+    found: list[dict] = []
+    for track in all_tracks:
+        try:
+            devices = _send("get_devices", {"track_index": track["index"]})
+        except Exception:
+            continue
+        for device in devices:
+            if pattern_lower in device["name"].lower():
+                found.append({
+                    "track_index": track["index"],
+                    "track_name": track["name"],
+                    "track_type": track.get("_track_type", "normal"),
+                    "device_index": device["index"],
+                    "device_name": device["name"],
+                })
+    return found
+
+
+@mcp.tool()
+def get_dynamics_overview() -> dict:
+    """
+    Read dynamics telemetry from all tracks that have an AbletonMPCX_DynamicsTelemetry
+    device installed.
+
+    Returns a session-wide picture of dynamics across all monitored tracks,
+    highlighting the most dynamic, most compressed, and any clipping tracks.
+
+    Returns:
+        tracks: list of {track_index, track_name, rms_db, peak_db, crest_factor_db,
+                         dynamic_range_db, is_clipping}
+        most_dynamic_track: str — name of the track with highest dynamic_range_db
+        most_compressed_track: str — name of the track with lowest crest_factor_db
+        any_clipping: bool — True if any monitored track is clipping
+        total_monitored: int — number of tracks with a dynamics device found
+    """
+    device_instances = _scan_tracks_for_device("AbletonMPCX_DynamicsTelemetry")
+
+    tracks = []
+    for inst in device_instances:
+        try:
+            params_result = _send("get_device_parameters", {
+                "track_index": inst["track_index"],
+                "device_index": inst["device_index"],
+            })
+            parameters = params_result.get("parameters", [])
+            param_map = {p["name"].lower(): p for p in parameters}
+
+            def _pval(name, default=None):
+                entry = param_map.get(name)
+                return entry["value"] if entry is not None else default
+
+            tracks.append({
+                "track_index": inst["track_index"],
+                "track_name": inst["track_name"],
+                "rms_db": _pval("rms_level"),
+                "peak_db": _pval("peak_level"),
+                "crest_factor_db": _pval("crest_factor"),
+                "dynamic_range_db": _pval("dynamic_range"),
+                "is_clipping": bool(_pval("is_clipping", 0)),
+            })
+        except Exception:
+            continue
+
+    most_dynamic_track = None
+    most_compressed_track = None
+
+    dr_values = [(t["track_name"], t["dynamic_range_db"]) for t in tracks if t["dynamic_range_db"] is not None]
+    if dr_values:
+        most_dynamic_track = max(dr_values, key=lambda x: x[1])[0]
+
+    cf_values = [(t["track_name"], t["crest_factor_db"]) for t in tracks if t["crest_factor_db"] is not None]
+    if cf_values:
+        most_compressed_track = min(cf_values, key=lambda x: x[1])[0]
+
+    return {
+        "tracks": tracks,
+        "most_dynamic_track": most_dynamic_track,
+        "most_compressed_track": most_compressed_track,
+        "any_clipping": any(t["is_clipping"] for t in tracks),
+        "total_monitored": len(tracks),
+    }
+
+
+# ---------------------------------------------------------------------------
+# Stereo field analyser tools (P3 — AbletonMPCX_StereoAnalyser.amxd)
+# ---------------------------------------------------------------------------
+
+def _interpret_stereo(
+    correlation: float | None,
+    stereo_width: float | None,
+    phase_issues: bool,
+    mid_level_db: float | None,
+    side_level_db: float | None,
+) -> tuple[str, list[str]]:
+    """Return (interpretation_string, recommendations_list) for stereo field values."""
+    parts = []
+    recommendations = []
+
+    if correlation is not None:
+        if correlation > 0.9:
+            parts.append("Very mono-compatible signal")
+        elif correlation > 0.5:
+            parts.append("Good correlation")
+        elif correlation > 0.0:
+            parts.append("Moderate stereo width")
+        elif correlation > -0.3:
+            parts.append("Wide stereo image")
+        else:
+            parts.append("Potential phase cancellation")
+            recommendations.append("Check for phase issues — correlation is below -0.3")
+
+    if stereo_width is not None:
+        if stereo_width < 0.1:
+            parts.append("near-mono")
+        elif stereo_width > 0.8:
+            parts.append("very wide stereo")
+
+    if phase_issues:
+        recommendations.append("Phase problems detected — check mono compatibility")
+
+    if mid_level_db is not None and side_level_db is not None:
+        if side_level_db > mid_level_db:
+            recommendations.append(
+                "Side level ({:.1f} dB) exceeds mid level ({:.1f} dB) — "
+                "may fold poorly to mono".format(side_level_db, mid_level_db)
+            )
+
+    if not recommendations:
+        recommendations.append("No issues detected")
+
+    interpretation = ", ".join(parts) if parts else "Normal stereo field"
+    return interpretation, recommendations
+
+
+@mcp.tool()
+def get_stereo_field(track_index: int, device_index: int) -> dict:
+    """
+    Read stereo field analysis from an AbletonMPCX_StereoAnalyser device.
+
+    Reads stereo correlation, width, mid/side levels, and phase issue flag
+    from the device parameters exposed by the stereo analyser plugin.
+
+    Args:
+        track_index: Track containing the stereo analyser device (-1 for master).
+        device_index: Index of the stereo analyser on the track.
+
+    Returns:
+        correlation: float — -1.0 (out of phase) to +1.0 (mono)
+        stereo_width: float — 0.0 (mono) to 1.0 (full stereo)
+        mid_level_db: float — mid channel level in dBFS
+        side_level_db: float — side channel level in dBFS
+        phase_issues: bool — True if correlation is below -0.3
+        interpretation: str — human-readable summary
+        recommendations: list of str — suggested actions
+    """
+    params_result = _send("get_device_parameters", {
+        "track_index": track_index,
+        "device_index": device_index,
+    })
+    parameters = params_result.get("parameters", [])
+    param_map = {p["name"].lower(): p for p in parameters}
+
+    def _val(name: str, default=None):
+        entry = param_map.get(name)
+        return entry["value"] if entry is not None else default
+
+    correlation = _val("correlation")
+    stereo_width = _val("stereo_width")
+    mid_level_db = _val("mid_level")
+    side_level_db = _val("side_level")
+    phase_issues = bool(_val("phase_issues", 0))
+
+    interpretation, recommendations = _interpret_stereo(
+        correlation, stereo_width, phase_issues, mid_level_db, side_level_db
+    )
+
+    return {
+        "correlation": correlation,
+        "stereo_width": stereo_width,
+        "mid_level_db": mid_level_db,
+        "side_level_db": side_level_db,
+        "phase_issues": phase_issues,
+        "interpretation": interpretation,
+        "recommendations": recommendations,
+    }
+
+
+@mcp.tool()
+def get_stereo_overview() -> dict:
+    """
+    Read stereo field data from all tracks that have an AbletonMPCX_StereoAnalyser installed.
+
+    Provides a session-wide view of stereo width and phase health, flagging any
+    tracks with phase cancellation issues and summarising mono compatibility.
+
+    Returns:
+        tracks: list of {track_index, track_name, correlation, stereo_width, phase_issues}
+        phase_problem_tracks: list of {track_index, track_name, correlation}
+        mono_compatible: bool — True if no monitored tracks have phase issues
+        total_monitored: int — number of tracks with a stereo analyser found
+        recommendation: str — overall session recommendation
+    """
+    device_instances = _scan_tracks_for_device("AbletonMPCX_StereoAnalyser")
+
+    tracks = []
+    phase_problem_tracks = []
+
+    for inst in device_instances:
+        try:
+            params_result = _send("get_device_parameters", {
+                "track_index": inst["track_index"],
+                "device_index": inst["device_index"],
+            })
+            parameters = params_result.get("parameters", [])
+            param_map = {p["name"].lower(): p for p in parameters}
+
+            def _pval(name, default=None):
+                entry = param_map.get(name)
+                return entry["value"] if entry is not None else default
+
+            correlation = _pval("correlation")
+            stereo_width = _pval("stereo_width")
+            phase_issues = bool(_pval("phase_issues", 0))
+
+            entry = {
+                "track_index": inst["track_index"],
+                "track_name": inst["track_name"],
+                "correlation": correlation,
+                "stereo_width": stereo_width,
+                "phase_issues": phase_issues,
+            }
+            tracks.append(entry)
+
+            if phase_issues:
+                phase_problem_tracks.append({
+                    "track_index": inst["track_index"],
+                    "track_name": inst["track_name"],
+                    "correlation": correlation,
+                })
+        except Exception:
+            continue
+
+    mono_compatible = len(phase_problem_tracks) == 0
+
+    if not tracks:
+        recommendation = "No stereo analyser devices found. Add AbletonMPCX_StereoAnalyser to tracks you want to monitor."
+    elif phase_problem_tracks:
+        recommendation = (
+            "{} track(s) have phase issues: {}. Check mono compatibility before release.".format(
+                len(phase_problem_tracks),
+                ", ".join(t["track_name"] for t in phase_problem_tracks),
+            )
+        )
+    else:
+        recommendation = "All {} monitored track(s) are mono-compatible.".format(len(tracks))
+
+    return {
+        "tracks": tracks,
+        "phase_problem_tracks": phase_problem_tracks,
+        "mono_compatible": mono_compatible,
+        "total_monitored": len(tracks),
+        "recommendation": recommendation,
+    }
+
+
+@mcp.tool()
 def write_arrangement_automation(
     track_index: int,
     device_index: int,
