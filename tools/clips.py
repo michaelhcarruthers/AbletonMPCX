@@ -592,3 +592,197 @@ def move_device(
         "target_device_index": target_device_index,
     })
 
+
+# ---------------------------------------------------------------------------
+# Arrangement clip tools
+# ---------------------------------------------------------------------------
+
+@mcp.tool()
+def list_arrangement_clips(
+    track_index: int = None,
+    start_bar: int = None,
+    end_bar: int = None,
+) -> dict:
+    """
+    List all clips in the arrangement view, optionally filtered by track or time range.
+
+    Bar numbers are calculated assuming 4/4 time (1 bar = 4 beats). For songs in other
+    time signatures the bar numbers will be approximate positional guides only.
+
+    Args:
+        track_index: If provided, only return clips from this track
+        start_bar: If provided, only return clips starting at or after this bar
+        end_bar: If provided, only return clips starting before this bar
+
+    Returns:
+        clips: list of {track_index, track_name, clip_index, clip_name,
+                        start_time, end_time, start_bar, length_bars,
+                        is_audio, is_midi, color, muted}
+        total_clips: int
+        filtered_by: dict
+    """
+    try:
+        raw = _send("get_arrangement_clips", {})
+        all_clips = raw if isinstance(raw, list) else raw.get("clips", [])
+    except Exception:
+        all_clips = []
+
+    clips = []
+    for clip in all_clips:
+        t_idx = clip.get("track_index", clip.get("track_idx", 0))
+        t_name = clip.get("track_name", "")
+        c_idx = clip.get("clip_index", clip.get("clip_idx", 0))
+        c_name = clip.get("name", clip.get("clip_name", ""))
+        start_time = float(clip.get("start_time", clip.get("start", 0.0)))
+        end_time = float(clip.get("end_time", clip.get("end", start_time)))
+        # Convert beat times to bars (1 bar = 4 beats for 4/4; use raw beat position as bar proxy)
+        clip_start_bar = int(start_time // 4) + 1
+        length_beats = max(0.0, end_time - start_time)
+        length_bars = length_beats / 4.0
+        is_midi = bool(clip.get("is_midi_clip", clip.get("is_midi", False)))
+        is_audio = not is_midi
+        color = clip.get("color", 0)
+        muted = bool(clip.get("muted", clip.get("mute", False)))
+
+        # Apply filters
+        if track_index is not None and t_idx != track_index:
+            continue
+        if start_bar is not None and clip_start_bar < start_bar:
+            continue
+        if end_bar is not None and clip_start_bar >= end_bar:
+            continue
+
+        clips.append({
+            "track_index": t_idx,
+            "track_name": t_name,
+            "clip_index": c_idx,
+            "clip_name": c_name,
+            "start_time": start_time,
+            "end_time": end_time,
+            "start_bar": clip_start_bar,
+            "length_bars": length_bars,
+            "is_audio": is_audio,
+            "is_midi": is_midi,
+            "color": color,
+            "muted": muted,
+        })
+
+    filtered_by: dict[str, Any] = {}
+    if track_index is not None:
+        filtered_by["track_index"] = track_index
+    if start_bar is not None:
+        filtered_by["start_bar"] = start_bar
+    if end_bar is not None:
+        filtered_by["end_bar"] = end_bar
+
+    return {
+        "clips": clips,
+        "total_clips": len(clips),
+        "filtered_by": filtered_by,
+    }
+
+
+@mcp.tool()
+def get_arrangement_overview() -> dict:
+    """
+    Return a high-level structural overview of the arrangement.
+
+    Returns:
+        total_bars: int
+        tracks_with_clips: int
+        clips_per_track: list of {track_index, track_name, clip_count, first_bar, last_bar}
+        empty_regions: list of {start_bar, end_bar, length_bars}  # gaps with no clips on any track
+        total_clips: int
+        tempo: float
+    """
+    # Fetch all arrangement clips (unfiltered)
+    clips_result = list_arrangement_clips()
+    all_clips = clips_result["clips"]
+
+    # Tempo
+    try:
+        song_info = _send("get_song_info", {})
+        tempo = float(song_info.get("tempo", 0.0))
+    except Exception:
+        tempo = 0.0
+
+    if not all_clips:
+        return {
+            "total_bars": 0,
+            "tracks_with_clips": 0,
+            "clips_per_track": [],
+            "empty_regions": [],
+            "total_clips": 0,
+            "tempo": tempo,
+        }
+
+    # Build per-track summary
+    track_map: dict[int, dict] = {}
+    for clip in all_clips:
+        t_idx = clip["track_index"]
+        if t_idx not in track_map:
+            track_map[t_idx] = {
+                "track_index": t_idx,
+                "track_name": clip["track_name"],
+                "clip_count": 0,
+                "first_bar": clip["start_bar"],
+                "last_bar": clip["start_bar"],
+            }
+        entry = track_map[t_idx]
+        entry["clip_count"] += 1
+        if clip["start_bar"] < entry["first_bar"]:
+            entry["first_bar"] = clip["start_bar"]
+        clip_last_bar = int(clip["start_bar"] + clip["length_bars"])
+        if clip_last_bar > entry["last_bar"]:
+            entry["last_bar"] = clip_last_bar
+
+    clips_per_track = sorted(track_map.values(), key=lambda x: x["track_index"])
+
+    # Total bars = last bar across all clips
+    total_bars = max(
+        int(c["start_bar"] + c["length_bars"]) for c in all_clips
+    )
+
+    # Detect empty regions: bars where NO track has a clip
+    # Build a set of all "occupied" bars; use math.ceil so sub-bar clips still
+    # occupy at least 1 bar, consistent with how length_bars is displayed.
+    occupied_bars: set[int] = set()
+    for clip in all_clips:
+        bar_start = clip["start_bar"]
+        bar_end = bar_start + max(1, math.ceil(clip["length_bars"]))
+        for b in range(bar_start, bar_end):
+            occupied_bars.add(b)
+
+    empty_regions = []
+    in_gap = False
+    gap_start = 1
+    for bar in range(1, total_bars + 1):
+        if bar not in occupied_bars:
+            if not in_gap:
+                in_gap = True
+                gap_start = bar
+        else:
+            if in_gap:
+                gap_end = bar
+                empty_regions.append({
+                    "start_bar": gap_start,
+                    "end_bar": gap_end,
+                    "length_bars": gap_end - gap_start,
+                })
+                in_gap = False
+    if in_gap:
+        empty_regions.append({
+            "start_bar": gap_start,
+            "end_bar": total_bars + 1,
+            "length_bars": total_bars + 1 - gap_start,
+        })
+
+    return {
+        "total_bars": total_bars,
+        "tracks_with_clips": len(track_map),
+        "clips_per_track": clips_per_track,
+        "empty_regions": empty_regions,
+        "total_clips": len(all_clips),
+        "tempo": tempo,
+    }
+

@@ -412,64 +412,135 @@ def get_selected_context() -> dict:
 @mcp.tool()
 def get_capabilities() -> dict:
     """
-    Return the full list of available MCP tools with their parameter schemas.
+    Returns a structured summary of all available MCP tools grouped by category.
+    Call this on connect to understand what actions are available before acting.
 
     Returns:
-        protocol_version: the AbletonMPCX protocol version
-        tool_count: number of registered tools
-        tools: list of {name, description, parameters: [{name, type, required, default}]}
-
-    Use this for self-configuration — an agent can call this once to know
-    exactly what commands are available and what parameters they accept.
+        categories: dict mapping category name to list of tool names
+        total_tools: int
+        version: str
+        usage_hint: str
     """
-    import inspect
-
-    tools = []
-    # Iterate over all functions in this module decorated with @mcp.tool()
-    # FastMCP stores registered tools in mcp._tools (dict of name -> tool)
-    try:
-        registered = mcp._tool_manager._tools  # FastMCP internal
-    except AttributeError:
-        try:
-            registered = mcp._tools
-        except AttributeError:
-            registered = {}
-
-    for tool_name, tool_obj in registered.items():
-        try:
-            fn = tool_obj.fn
-            sig = inspect.signature(fn)
-            params = []
-            for pname, param in sig.parameters.items():
-                entry = {"name": pname}
-                if param.annotation != inspect.Parameter.empty:
-                    try:
-                        entry["type"] = str(param.annotation.__name__) if hasattr(param.annotation, "__name__") else str(param.annotation)
-                    except Exception:
-                        entry["type"] = "any"
-                entry["required"] = param.default == inspect.Parameter.empty
-                if param.default != inspect.Parameter.empty:
-                    entry["default"] = param.default
-                params.append(entry)
-            tools.append({
-                "name": tool_name,
-                "description": (fn.__doc__ or "").strip().split("\n")[0],
-                "parameters": params,
-            })
-        except Exception:
-            tools.append({"name": tool_name, "description": "", "parameters": []})
-
-    # Get protocol version from Ableton side
-    try:
-        version_info = _send("get_protocol_version")
-        protocol_version = version_info.get("protocol_version", "unknown")
-    except Exception:
-        protocol_version = "unknown"
-
+    categories = {
+        "session": [
+            "add_project_note", "analyse_mix_state", "arrange_from_scene_scaffold",
+            "auto_color_track", "auto_name_all_tracks", "auto_name_clip",
+            "auto_name_scene", "auto_name_track", "available_main_views",
+            "build_scene_scaffold", "capture_and_insert_scene", "capture_midi",
+            "continue_playing", "create_audio_track", "create_midi_track",
+            "create_return_track", "create_scene", "create_song_from_brief",
+            "delete_device_snapshot", "delete_return_track", "delete_scene",
+            "delete_snapshot", "delete_track", "diff_device_snapshots",
+            "diff_snapshot_vs_live", "diff_snapshots", "diff_version_snapshots",
+            "duplicate_clip_to_scenes", "duplicate_scene", "duplicate_track",
+            "flush_operation_log", "focus_view", "full_session_snapshot",
+            "get_app_version", "get_appointed_device", "get_capabilities",
+            "get_cue_points", "get_draw_mode", "get_follow_song",
+            "get_operation_log", "get_preferences", "get_project_memory",
+            "get_protocol_version", "get_resampling_status", "get_selected_context",
+            "get_selected_scene", "get_selected_track", "get_session_snapshot",
+            "get_song_info", "get_stored_operation_log", "get_track_roles",
+            "hide_view", "is_view_visible", "jump_by", "jump_to_cue_point",
+            "jump_to_next_cue", "jump_to_prev_cue", "list_device_snapshots",
+            "list_scaffold_templates", "list_snapshots", "list_version_snapshots",
+            "load_snapshots_from_project", "mix_correction_loop", "nudge_down",
+            "nudge_up", "place_clip_in_arrangement", "play_selection",
+            "re_enable_automation", "recall_device_snapshot", "redo",
+            "save_device_snapshot", "save_snapshot_to_project", "save_version_snapshot",
+            "session_audit", "set_back_to_arranger", "set_clip_trigger_quantization",
+            "set_draw_mode", "set_exclusive_arm", "set_exclusive_solo",
+            "set_follow_song", "set_groove_amount", "set_loop", "set_metronome",
+            "set_midi_recording_quantization", "set_or_delete_cue", "set_overdub",
+            "set_preference", "set_project_id", "set_record_mode", "set_root_note",
+            "set_scale_mode", "set_scale_name", "set_select_on_launch",
+            "set_selected_scene", "set_selected_track", "set_session_record",
+            "set_swing_amount", "set_tempo", "set_time_signature", "set_track_role",
+            "setup_resampling_route", "show_view", "start_playing", "stop_all_clips",
+            "stop_playing", "suggest_next_actions", "summarise_session",
+            "take_snapshot", "tap_tempo", "teardown_resampling_route", "undo",
+        ],
+        "tracks": [
+            "get_available_routings", "get_master_track", "get_return_tracks",
+            "get_track_info", "get_track_names", "get_track_playing_state",
+            "get_track_routing", "get_tracks", "set_crossfader", "set_master_pan",
+            "set_master_volume", "set_track_arm", "set_track_color",
+            "set_track_fold_state", "set_track_input_routing",
+            "set_track_input_routing_channel", "set_track_input_routing_type",
+            "set_track_mute", "set_track_name", "set_track_output_routing",
+            "set_track_output_routing_channel", "set_track_output_routing_type",
+            "set_track_pan", "set_track_send", "set_track_solo",
+            "set_track_volume", "stop_track_clips",
+        ],
+        "clips": [
+            "add_notes", "apply_note_modifications", "clear_clip_envelope",
+            "create_clip", "crop_clip", "delete_clip", "delete_device",
+            "deselect_all_notes", "duplicate_clip_loop", "duplicate_clip_slot",
+            "duplicate_device", "fire_clip", "fire_clip_slot", "get_clip_envelope",
+            "get_clip_envelopes", "get_clip_follow_actions", "get_clip_info",
+            "get_clip_playing_position", "get_clip_slots", "get_device_info",
+            "get_device_parameters", "get_devices", "get_notes",
+            "insert_clip_envelope_point", "move_device", "quantize_clip",
+            "remove_notes", "replace_all_notes", "select_all_notes",
+            "set_clip_color", "set_clip_envelope_points", "set_clip_follow_actions",
+            "set_clip_gain", "set_clip_launch_mode", "set_clip_launch_quantization",
+            "set_clip_loop", "set_clip_markers", "set_clip_mute", "set_clip_name",
+            "set_clip_pitch", "set_clip_velocity_amount", "set_clip_warp_mode",
+            "set_clip_warping", "set_device_enabled", "set_device_parameter",
+            "set_device_parameter_human", "stop_clip", "stop_clip_slot",
+        ],
+        "devices": [
+            "add_native_device", "begin_undo_step", "end_undo_step",
+            "extract_groove_from_clip", "fire_scene", "get_browser_items_at_path",
+            "get_browser_tree", "get_grooves", "get_mixer_device",
+            "get_rack_chains", "get_rack_drum_pads", "get_scene_info",
+            "get_scenes", "load_browser_item", "randomize_rack_macros",
+            "set_crossfade_assign", "set_mixer_snapshot", "set_return_track_mute",
+            "set_return_track_name", "set_return_track_pan",
+            "set_return_track_volume", "set_scene_color", "set_scene_name",
+            "set_scene_tempo", "store_rack_variation",
+        ],
+        "audit": [
+            "analyse_audio", "analyze_clip_feel", "apply_device_macro_snapshot",
+            "auto_humanize_if_robotic", "batch_auto_humanize",
+            "capture_device_macro_snapshot", "compare_audio",
+            "compare_audio_sections", "compare_clip_feel", "compare_mix_state",
+            "create_arrangement_scaffold", "create_midi_track_with_drum_rack",
+            "delete_reference_profile", "designate_reference_audio",
+            "designate_reference_clip", "designate_reference_mix_state",
+            "duplicate_clip_to_new_scene", "find_missing_plugins",
+            "fix_groove_from_reference", "get_missing_media_status",
+            "get_pending_suggestions", "humanize_dilla", "humanize_notes",
+            "list_reference_profiles", "observer_status",
+            "prep_track_for_resampling", "project_health_report",
+            "search_missing_media",
+        ],
+        "spectrum": [
+            "bars_beats_to_song_time", "diagnose_spectrum_issue",
+            "find_spectrum_analyzers", "get_arrangement_automation_targets",
+            "get_spectrum_telemetry_instances", "set_device_parameter_by_name",
+            "set_spectrum_band_on_track", "write_arrangement_automation",
+        ],
+        "performance": [
+            "add_performance_fx", "check_macro_readiness", "delay_echo_out",
+            "filter_sweep", "list_macro_definitions", "perform_macro",
+            "reverb_throw", "set_macro_intensity", "setup_fx_chain",
+            "stutter_clip",
+        ],
+        "diagnostics": [
+            "analyze_mix_balance", "audit_preset", "get_sound_library_stats",
+            "recommend_presets", "scan_au_presets", "scan_splice_library",
+        ],
+    }
+    total = sum(len(v) for v in categories.values())
     return {
-        "protocol_version": protocol_version,
-        "tool_count": len(tools),
-        "tools": sorted(tools, key=lambda t: t["name"]),
+        "categories": categories,
+        "total_tools": total,
+        "version": "AbletonMPCX 1.0",
+        "usage_hint": (
+            "Call get_session_snapshot() to orient fully. "
+            "Use category keys to discover tools: session, tracks, clips, "
+            "devices, audit, spectrum, performance, diagnostics."
+        ),
     }
 
 
@@ -3220,4 +3291,131 @@ def mix_correction_loop(
         "summary": summary,
     }
 
+
+# ---------------------------------------------------------------------------
+# Auto-orient
+# ---------------------------------------------------------------------------
+
+
+@mcp.tool()
+def auto_orient() -> dict:
+    """
+    Call this immediately on connecting to a Live session.
+
+    Surveys the current session and returns a structured orientation summary:
+    - Session name and tempo
+    - Track list with types (audio/midi/return/master), names, armed state, mute/solo state
+    - Active clip count in arrangement vs session view
+    - Any immediately obvious issues (unnamed tracks, armed tracks, missing media)
+    - Recommended first actions based on session state
+
+    This is the entry point for every AI session. Call it before any other tool.
+
+    Returns:
+        session_name: str
+        tempo: float
+        track_summary: list of {index, name, type, armed, muted, soloed, device_count}
+        arrangement_clip_count: int
+        session_clip_count: int
+        unnamed_tracks: list of {index, name}
+        armed_tracks: list of {index, name}
+        issues: list of str
+        recommended_actions: list of str
+        orientation_complete: bool
+    """
+    _default_name_pattern = re.compile(
+        r"^(Audio|MIDI|1-Audio|1-MIDI)\s*\d*$|^\d+$", re.IGNORECASE
+    )
+    # Session info (name + tempo)
+    try:
+        song_info = _send("get_song_info", {})
+        session_name = song_info.get("name", "")
+        tempo = song_info.get("tempo", 0.0)
+    except Exception:
+        session_name = ""
+        tempo = 0.0
+
+    # Full track list
+    try:
+        tracks = _send("get_tracks", {})
+    except Exception:
+        tracks = []
+
+    track_summary = []
+    unnamed_tracks = []
+    armed_tracks = []
+    session_clip_count = 0
+
+    for track in tracks:
+        index = track.get("index", track.get("track_index", 0))
+        name = track.get("name", "")
+        is_midi = track.get("is_midi_track", False)
+        track_type = "midi" if is_midi else "audio"
+        armed = bool(track.get("arm", False))
+        muted = bool(track.get("mute", False))
+        soloed = bool(track.get("solo", False))
+        device_count = track.get("device_count", 0)
+        clip_count = track.get("clip_count", 0)
+        session_clip_count += clip_count
+
+        track_summary.append({
+            "index": index,
+            "name": name,
+            "type": track_type,
+            "armed": armed,
+            "muted": muted,
+            "soloed": soloed,
+            "device_count": device_count,
+        })
+
+        if not name or _default_name_pattern.match(name.strip()):
+            unnamed_tracks.append({"index": index, "name": name})
+
+        if armed:
+            armed_tracks.append({"index": index, "name": name})
+
+    # Arrangement clip count
+    try:
+        arrangement_data = _send("get_arrangement_clips", {})
+        if isinstance(arrangement_data, list):
+            arrangement_clip_count = len(arrangement_data)
+        elif isinstance(arrangement_data, dict):
+            arrangement_clip_count = len(arrangement_data.get("clips", []))
+        else:
+            arrangement_clip_count = 0
+    except Exception:
+        arrangement_clip_count = 0
+
+    # Build issues list
+    issues: list[str] = []
+    if unnamed_tracks:
+        issues.append("{} track(s) have default names".format(len(unnamed_tracks)))
+    if armed_tracks:
+        issues.append("{} track(s) are currently armed for recording".format(len(armed_tracks)))
+
+    # Build recommended actions
+    recommended_actions: list[str] = []
+    if unnamed_tracks:
+        recommended_actions.append(
+            "{} tracks are unnamed — consider running auto_name_track".format(len(unnamed_tracks))
+        )
+    if armed_tracks:
+        recommended_actions.append(
+            "{} track(s) are armed — disarm before saving if not intentional".format(len(armed_tracks))
+        )
+    if not issues:
+        recommended_actions.append("Session looks clean — ready to work")
+
+    return {
+        "session_name": session_name,
+        "tempo": tempo,
+        "track_summary": track_summary,
+        "arrangement_clip_count": arrangement_clip_count,
+        "session_clip_count": session_clip_count,
+        "unnamed_tracks": unnamed_tracks,
+        "armed_tracks": armed_tracks,
+        "issues": issues,
+        "recommended_actions": recommended_actions,
+        "orientation_complete": True,
+    }
 

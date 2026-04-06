@@ -1,0 +1,126 @@
+# AbletonMPCX Roadmap
+
+## What is AbletonMPCX?
+
+AbletonMPCX is a Model Context Protocol (MCP) server that exposes Ableton Live's session, transport, mixer, device, clip, and arrangement APIs as callable tools. An AI agent (Claude, Copilot, etc.) connects to the MCP server via stdio and can then control every aspect of a running Live session — from setting tempo and firing clips to humanising MIDI, building arrangement scaffolds, and sweeping effect parameters using natural-language magnitude descriptions.
+
+---
+
+## Current Module Structure
+
+```
+server.py                  # 24-line entry point — imports all modules, starts observer thread
+helpers/
+  __init__.py              # FastMCP instance (mcp), TCP socket helpers (_send), operation log, project memory
+  cache.py                 # In-process state-diff cache
+  session_state.py         # Per-session AI handoff: save/load/summary helpers
+  summarizer.py            # Compact response summarisers
+  vocabulary.py            # Natural language → parameter delta / time mappings
+tools/
+  session.py               # Song, transport, snapshots, views, scaffolds, capabilities (112 tools)
+  tracks.py                # Track creation, routing, mix controls (27 tools)
+  clips.py                 # Clip editing, notes, envelopes, device management (48 tools)
+  devices.py               # Browser, scenes, rack, return tracks (25 tools)
+  audit.py                 # Audio analysis, humanise, reference profiles, health report (28 tools)
+  spectrum.py              # Spectrum analyser telemetry, automation writing (8 tools)
+  performance.py           # DJ/live performance macros (10 tools)
+  diagnostics.py           # Mix balance, preset audit, library scanning (6 tools)
+session_state.json         # Persisted AI handoff state (written each significant session)
+```
+
+**Total registered MCP tools: 263**
+
+---
+
+## Completed PRs
+
+| PR | Description |
+|----|-------------|
+| #17–#35 | Phases 1–7 — core tool suite built incrementally |
+| #36 | Performance FX macros (filter sweep, reverb throw, stutter, delay echo) |
+| #41 | Combined session management, performance macros, sound recording, arrangement automation |
+| #44 | Project audit tools (health report, missing media, reference profiles) |
+| #45 | DJ blend/transition macros |
+| #47 | Refactor — split 9 103-line server.py into focused domain modules |
+| #48 | Repo infrastructure (ROADMAP, session state, get_capabilities, vocabulary) |
+
+---
+
+## Full Build Queue
+
+### Repo infrastructure (completed in #48)
+
+| ID | Item | Status |
+|----|------|--------|
+| R1 | `ROADMAP.md` — single recovery document | ✅ Done |
+| R2 | `helpers/session_state.py` + `session_state.json` — AI handoff file | ✅ Done |
+| R3 | `get_capabilities()` — grouped capability surface on connect | ✅ Done |
+| R4 | `helpers/vocabulary.py` — natural language → parameter delta | ✅ Done |
+
+### Core tools
+
+| ID | Item | Status |
+|----|------|--------|
+| A | Auto-orient on connect | ⬜ Pending |
+| B | Empty tracks, unused returns, stage + execute cleanup | ⬜ Pending |
+| C | Relative parameter changes (uses R4 vocabulary) | ⬜ Pending |
+| D | Arrangement clips + missing file detection | ⬜ Pending |
+
+### Mix intelligence
+
+| ID | Item | Status |
+|----|------|--------|
+| E | `get_mix_levels_overview()` + `watch_for_clipping()` | ⬜ Pending |
+| F | Batch audit — `open_set(path)` + `batch_audit_projects(paths)` | ⬜ Pending |
+| G | Screenshot tool — autonomous, no human in loop | ⬜ Pending |
+
+### Performance optimisation
+
+| ID | Item | Status |
+|----|------|--------|
+| H | State diff cache | ⬜ Pending |
+| I | Compact summarisers | ⬜ Pending |
+| J | Diagnostic tools per question | ⬜ Pending |
+| K | Threshold engine for spectrum data | ⬜ Pending |
+| L | Tool call bundling | ⬜ Pending |
+| M | Per-project cached audit JSON files | ⬜ Pending |
+| N | Device/parameter alias registry | ⬜ Pending |
+
+### Plugins
+
+| ID | Item | Status |
+|----|------|--------|
+| P1 | Peak hold mod to existing spectrum plugin | ⬜ Pending |
+| P2 | Dynamics telemetry plugin | ⬜ Pending |
+| P3 | Stereo field analyser | ⬜ Pending |
+
+---
+
+## Key Design Decisions
+
+- **Transport**: JSON over TCP on `localhost:9877`. Each message is length-prefixed (4-byte big-endian header + UTF-8 JSON body). Ableton-side plugin listens; MCP server is the client.
+- **MCP pattern**: FastMCP (`mcp.server.fastmcp`). Every public action is a `@mcp.tool()` function. The server runs over stdio (Claude connects via `mcp` CLI or MCP config JSON).
+- **Vocabulary system**: Natural-language magnitude words ("a little", "a lot", "drenched") map to normalised deltas (0.0–1.0) via `helpers/vocabulary.py`. Time words ("fast", "gradually") map to seconds.
+- **Module layout**: One concern per file. `helpers/__init__.py` owns the shared FastMCP instance and TCP primitives; `tools/*.py` own the business logic. No circular imports.
+- **Snapshots**: Full session snapshots stored in `~/.ableton_mpcx/projects/<project_id>.json`. In-process snapshot cache in `helpers/__init__.py`.
+
+---
+
+## How to Resume Work After a Context Reset
+
+1. Read this file (`ROADMAP.md`) to orient.
+2. Read `session_state.json` (or call `get_capabilities()` once connected) to know exact current state.
+3. Check open PRs on GitHub for any in-progress work.
+4. Pick the next pending item from the build queue above and open a new PR.
+
+### Quick start commands
+
+```bash
+# Install dependencies
+pip install -r requirements.txt
+
+# Run the MCP server (connects to Ableton on localhost:9877)
+python server.py
+```
+
+The Ableton-side Remote Script plugin must be running inside Live before the MCP server can communicate. See `README.md` for full setup instructions.
