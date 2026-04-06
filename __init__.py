@@ -2422,6 +2422,90 @@ class AbletonMPCX(ControlSurface):
         self._run_on_main_thread(fn)
         return {"device_name": found_item.name}
 
+    def _cmd_load_plugin_device(self, params):
+        """Load a third-party AU or VST plugin onto a track by searching the browser by name."""
+        track_index = int(params["track_index"])
+        plugin_name = str(params["plugin_name"]).lower()
+        plugin_format = str(params.get("plugin_format", "au")).lower()
+        track = self._get_track(track_index)
+        try:
+            browser = self.application().browser
+        except AttributeError:
+            raise RuntimeError("Browser not supported in this version of Ableton Live")
+
+        def _find_by_name(node):
+            try:
+                children = node.children
+            except AttributeError:
+                return None
+            for child in children:
+                try:
+                    if not child.is_folder and plugin_name in child.name.lower():
+                        return child
+                    if child.is_folder:
+                        found = _find_by_name(child)
+                        if found is not None:
+                            return found
+                except AttributeError:
+                    continue
+            return None
+
+        # Search in plugins first, then audio_effects, then instruments
+        # Try to prefer the subfolder matching plugin_format
+        found_item = None
+        try:
+            plugins_root = browser.plugins
+            # First try the format-specific subfolder (e.g. "AU", "VST", "VST3")
+            try:
+                format_folder = None
+                for child in plugins_root.children:
+                    try:
+                        if child.is_folder and plugin_format in child.name.lower():
+                            format_folder = child
+                            break
+                    except AttributeError:
+                        continue
+                if format_folder is not None:
+                    found_item = _find_by_name(format_folder)
+            except AttributeError:
+                pass
+            # Fall back to the entire plugins root
+            if found_item is None:
+                found_item = _find_by_name(plugins_root)
+        except AttributeError:
+            pass
+
+        # Fall back to audio_effects and instruments for edge cases
+        if found_item is None:
+            for category_attr in ("audio_effects", "instruments"):
+                try:
+                    category = getattr(browser, category_attr)
+                    found_item = _find_by_name(category)
+                    if found_item is not None:
+                        break
+                except AttributeError:
+                    continue
+
+        if found_item is None:
+            raise RuntimeError(
+                "Plugin '{}' not found in browser (format: {}). "
+                "Ensure the plugin is installed and appears in Ableton's browser.".format(
+                    params["plugin_name"], plugin_format
+                )
+            )
+
+        loaded_name = found_item.name
+
+        def fn():
+            self._song.view.selected_track = track
+            try:
+                browser.load_item(found_item)
+            except AttributeError:
+                raise RuntimeError("browser.load_item() not supported in this version of Ableton Live")
+
+        self._run_on_main_thread(fn)
+        return {"status": "ok", "plugin_name": loaded_name}
+
     # -------------------------------------------------------------------------
     # Protocol versioning
     # -------------------------------------------------------------------------

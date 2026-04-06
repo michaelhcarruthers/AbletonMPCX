@@ -142,6 +142,38 @@ def load_browser_item(uri: str, track_index: int = 0, is_return_track: bool = Fa
     return _send("load_browser_item", {"uri": uri, "track_index": track_index, "is_return_track": is_return_track})
 
 @mcp.tool()
+def load_plugin_device(
+    track_index: int,
+    plugin_name: str,
+    plugin_format: str = "au",
+) -> dict:
+    """
+    Load a third-party AU or VST plugin onto a track by name.
+
+    Searches the Ableton browser for a plugin matching the name and loads it
+    onto the specified track. The track must exist. The plugin will be appended
+    to the end of the device chain.
+
+    Note: This selects the track in Live's UI as a side effect.
+
+    Args:
+        track_index: Index of the track to load the plugin onto.
+        plugin_name: Name of the plugin to search for (e.g. "Pro-Q 4", "Fabfilter Pro-Q 4").
+                     Partial name matching is used.
+        plugin_format: "au", "vst", or "vst3". Default: "au".
+
+    Returns:
+        status: "ok" on success
+        plugin_name: the exact name of the plugin that was loaded
+    """
+    return _send("load_plugin_device", {
+        "track_index": track_index,
+        "plugin_name": plugin_name,
+        "plugin_format": plugin_format,
+    })
+
+
+@mcp.tool()
 def add_native_device(track_index: int, device_name: str, is_return_track: bool = False) -> dict:
     """
     Add a native Ableton device to a track by name.
