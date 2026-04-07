@@ -1202,10 +1202,9 @@ class AbletonMPCX(ControlSurface):
         return {}
 
     def _cmd_begin_undo_step(self, params):
-        """Open an undo step with a given name. All mutations until end_undo_step are grouped."""
-        name = str(params.get("name", "MCP Operation"))
+        """Open an undo step. All mutations until end_undo_step are grouped."""
         def fn():
-            self._song.begin_undo_step(name)
+            self._song.begin_undo_step()
         self._run_on_main_thread(fn)
         return {}
 
@@ -1323,7 +1322,7 @@ class AbletonMPCX(ControlSurface):
             if not clip.is_midi_clip:
                 raise RuntimeError("Clip is not a MIDI clip")
             if silent:
-                self._song.begin_undo_step("silent_read")
+                self._song.begin_undo_step()
             try:
                 notes = []
                 for note in clip.get_notes(0, 0, clip.length, 128):
@@ -1425,7 +1424,7 @@ class AbletonMPCX(ControlSurface):
 
             # Read notes (use silent undo step to avoid polluting undo history)
             if silent:
-                self._song.begin_undo_step("silent_read")
+                self._song.begin_undo_step()
             try:
                 notes = []
                 for note in clip.get_notes(0, 0, clip.length, 128):
@@ -1504,7 +1503,7 @@ class AbletonMPCX(ControlSurface):
                     clip_index, track_index
                 ))
             if silent:
-                self._song.begin_undo_step("silent_read")
+                self._song.begin_undo_step()
             try:
                 notes = []
                 for note in clip.get_notes(0, 0, clip.length, 128):
