@@ -41,8 +41,8 @@
 				"box" : {
 					"id" : "obj-2",
 					"maxclass" : "comment",
-					"text" : "AMCPX Bridge v2 — Arrangement View Access\nNode for Max TCP server on port 9878\nDrop on any MIDI track and leave running.",
-					"patching_rect" : [ 30.0, 20.0, 420.0, 50.0 ],
+					"text" : "AMCPX Bridge v2 — Arrangement View Access\nNode for Max TCP server on port 9878\nroute object dispatches messages to js lom_bridge.js for LOM queries\nDrop on any track and leave running.",
+					"patching_rect" : [ 30.0, 20.0, 420.0, 60.0 ],
 					"numinlets" : 0,
 					"numoutlets" : 0
 				}
@@ -62,10 +62,21 @@
 					"id" : "obj-4",
 					"maxclass" : "newobj",
 					"text" : "js lom_bridge.js",
-					"patching_rect" : [ 310.0, 80.0, 160.0, 22.0 ],
+					"patching_rect" : [ 30.0, 230.0, 160.0, 22.0 ],
 					"numinlets" : 1,
 					"numoutlets" : 1,
 					"outlettype" : [ "" ]
+				}
+			},
+			{
+				"box" : {
+					"id" : "obj-5",
+					"maxclass" : "newobj",
+					"text" : "route live_get live_getcount live_call live_get_notes_extended",
+					"patching_rect" : [ 30.0, 155.0, 460.0, 22.0 ],
+					"numinlets" : 1,
+					"numoutlets" : 5,
+					"outlettype" : [ "", "", "", "", "" ]
 				}
 			}
 		],
@@ -79,6 +90,30 @@
 			{
 				"patchline" : {
 					"source" : [ "obj-1", 0 ],
+					"destination" : [ "obj-5", 0 ]
+				}
+			},
+			{
+				"patchline" : {
+					"source" : [ "obj-5", 0 ],
+					"destination" : [ "obj-4", 0 ]
+				}
+			},
+			{
+				"patchline" : {
+					"source" : [ "obj-5", 1 ],
+					"destination" : [ "obj-4", 0 ]
+				}
+			},
+			{
+				"patchline" : {
+					"source" : [ "obj-5", 2 ],
+					"destination" : [ "obj-4", 0 ]
+				}
+			},
+			{
+				"patchline" : {
+					"source" : [ "obj-5", 3 ],
 					"destination" : [ "obj-4", 0 ]
 				}
 			},
