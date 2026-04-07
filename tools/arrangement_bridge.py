@@ -187,9 +187,17 @@ def m4l_set_arrangement_clip_notes(
     notes: list[dict],
 ) -> dict:
     """
-    Replace ALL MIDI notes in a specific arrangement clip.
+    Replace ALL MIDI notes in a specific arrangement clip atomically.
 
-    Clears the existing notes and writes the complete new note set.
+    The operation is wrapped in a single Live undo step, so the clip never
+    passes through a zero-note transient state that could trigger auto-deletion
+    in some Live versions.  The entire replace appears as one entry in Live's
+    undo history.
+
+    On Live 11.1+ the faster ``replace_all_notes`` API is attempted first
+    (atomically replaces all notes in a single call).  If that API is not
+    available the implementation falls back to
+    ``begin_undo_step`` → ``remove_notes`` → ``set_notes`` → ``end_undo_step``.
 
     Use m4l_get_arrangement_clips() first to find track_index and clip_index.
 
@@ -257,3 +265,44 @@ def m4l_get_arrangement_overview() -> dict:
         tempo: float
     """
     return _send_m4l("get_arrangement_overview", {})
+
+
+@mcp.tool()
+def m4l_find_clip_by_name(name: str, track_index: int | None = None) -> dict:
+    """
+    Find arrangement clips by name (case-insensitive substring match).
+
+    Requires AMCPX_Bridge.amxd to be loaded on a track in your Live set.
+
+    Args:
+        name: Substring to search for (case-insensitive). E.g. "bass", "intro".
+        track_index: Optional. If provided, only search this track.
+
+    Returns:
+        clips: list of matching clip objects (same fields as m4l_get_arrangement_clips)
+        total_found: int
+    """
+    return _send_m4l("find_clip_by_name", {"name": name, "track_index": track_index})
+
+
+@mcp.tool()
+def m4l_find_clips_at_bar(bar: int, track_index: int | None = None) -> dict:
+    """
+    Find all arrangement clips playing at a specific bar number (1-based).
+
+    Bar 1 = beat 0, bar 5 = beat 16, bar 9 = beat 32, etc.
+    Returns every clip whose time range covers the given bar position.
+
+    Requires AMCPX_Bridge.amxd to be loaded on a track in your Live set.
+
+    Args:
+        bar: 1-based bar number (bar 1 is the very start of the arrangement).
+        track_index: Optional. If provided, only search this track.
+
+    Returns:
+        clips: list of matching clip objects
+        bar: int — the bar number queried
+        beat_position: float — beat position corresponding to the bar
+        total_found: int
+    """
+    return _send_m4l("find_clips_at_bar", {"bar": bar, "track_index": track_index})
