@@ -471,6 +471,30 @@ def set_device_parameter(track_index: int, device_index: int, parameter_index: i
     })
 
 @mcp.tool()
+def set_device_parameter_cs(
+    track_index: int,
+    device_index: int,
+    parameter_index: int,
+    value: float,
+    is_return_track: bool = False,
+) -> dict:
+    """
+    Set a device parameter using the control surface path.
+    Forces third-party plugin UI refresh (Pro-Q 4, FabFilter, etc.)
+    by selecting the device first, the same way Push 3 does.
+
+    Use track_index=-1 for the master track.
+    Set is_return_track=True to target a return track.
+    """
+    return _send("set_device_parameter_cs", {
+        "track_index": track_index,
+        "device_index": device_index,
+        "parameter_index": parameter_index,
+        "value": value,
+        "is_return_track": is_return_track,
+    })
+
+@mcp.tool()
 def set_device_parameter_human(
     track_index: int,
     device_index: int,
