@@ -101,6 +101,9 @@ async function handleCommand(command, params) {
         case "get_arrangement_overview":
             return await getArrangementOverview(params);
 
+        case "get_detail_clip":
+            return await getDetailClip(params);
+
         default:
             throw new Error(`Unknown command: ${command}`);
     }
@@ -242,11 +245,12 @@ async function getArrangementClipNotes(params) {
     const clipLength = parseFloat(await liveGet(clipPath, "length")) || 0;
     const startTime = parseFloat(await liveGet(clipPath, "start_time")) || 0;
 
-    const rawNotes = await liveCall(clipPath, "get_notes", 0, 0, clipLength, 128);
+    const rawNotes = await liveRPC("live_get_notes_extended", clipPath, 0, clipLength, 0, 128);
 
     const notes = [];
     if (rawNotes && rawNotes.length > 0) {
-        for (let i = 0; i < rawNotes.length; i += 5) {
+        const stride = 8;
+        for (let i = 0; i + stride <= rawNotes.length; i += stride) {
             notes.push({
                 pitch: parseInt(rawNotes[i]),
                 start_time: parseFloat(rawNotes[i + 1]),
@@ -342,6 +346,54 @@ async function getArrangementOverview(params) {
         tracks_with_clips: clipsPerTrack.length,
         clips_per_track: clipsPerTrack,
         tempo,
+    };
+}
+
+// ---------------------------------------------------------------------------
+// get_detail_clip
+// ---------------------------------------------------------------------------
+
+async function getDetailClip(params) {
+    const clipPath = "live_set view detail_clip";
+    const isMidi = await liveGet(clipPath, "is_midi_clip");
+    const name = await liveGet(clipPath, "name");
+    const length = parseFloat(await liveGet(clipPath, "length")) || 0;
+    const startTime = parseFloat(await liveGet(clipPath, "start_time")) || 0;
+    const endTime = parseFloat(await liveGet(clipPath, "end_time")) || 0;
+    const looping = await liveGet(clipPath, "looping");
+    const loopStart = parseFloat(await liveGet(clipPath, "loop_start")) || 0;
+    const loopEnd = parseFloat(await liveGet(clipPath, "loop_end")) || 0;
+
+    let notes = [];
+    if (isMidi === 1) {
+        const rawNotes = await liveRPC("live_get_notes_extended", clipPath, 0, length, 0, 128);
+        if (rawNotes && rawNotes.length > 0) {
+            const stride = 8;
+            for (let i = 0; i + stride <= rawNotes.length; i += stride) {
+                notes.push({
+                    pitch: parseInt(rawNotes[i]),
+                    start_time: parseFloat(rawNotes[i + 1]),
+                    duration: parseFloat(rawNotes[i + 2]),
+                    velocity: parseInt(rawNotes[i + 3]),
+                    mute: rawNotes[i + 4] === 1,
+                });
+            }
+        }
+    }
+
+    return {
+        clip_name: String(name),
+        start_time: startTime,
+        end_time: endTime,
+        length,
+        is_midi_clip: isMidi === 1,
+        looping: looping === 1,
+        loop_start: loopStart,
+        loop_end: loopEnd,
+        notes,
+        note_count: notes.length,
+        start_bar: Math.floor(startTime / 4) + 1,
+        length_bars: length / 4.0,
     };
 }
 
