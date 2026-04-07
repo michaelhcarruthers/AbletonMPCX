@@ -104,6 +104,14 @@ async function handleCommand(command, params) {
         case "get_detail_clip":
             return await getDetailClip(params);
 
+
+        case "find_clip_by_name":
+            return await findClipByName(params);
+
+        case "find_clips_at_bar":
+            return await findClipsAtBar(params);
+
+
         default:
             throw new Error(`Unknown command: ${command}`);
     }
@@ -398,7 +406,37 @@ async function getDetailClip(params) {
 }
 
 // ---------------------------------------------------------------------------
-// TCP Server — stream buffering approach (replaces broken recvExactly)
+// find_clip_by_name
+// ---------------------------------------------------------------------------
+
+async function findClipByName(params) {
+    const nameQuery = String(params.name || "").toLowerCase();
+    const trackFilter = (params.track_index !== undefined && params.track_index !== null)
+        ? parseInt(params.track_index) : -1;
+
+    const allClips = await getArrangementClips(trackFilter >= 0 ? { track_index: trackFilter } : {});
+    const matches = allClips.filter(c => c.clip_name.toLowerCase().includes(nameQuery));
+
+    return { clips: matches, total_found: matches.length };
+}
+
+// ---------------------------------------------------------------------------
+// find_clips_at_bar
+// ---------------------------------------------------------------------------
+
+async function findClipsAtBar(params) {
+    const bar = parseInt(params.bar) || 1;
+    const trackFilter = (params.track_index !== undefined && params.track_index !== null)
+        ? parseInt(params.track_index) : -1;
+
+    const beats = (bar - 1) * 4;
+    const allClips = await getArrangementClips(trackFilter >= 0 ? { track_index: trackFilter } : {});
+    const matches = allClips.filter(c => c.start_time <= beats && beats < c.end_time);
+
+    return { clips: matches, bar, beat_position: beats, total_found: matches.length };
+}
+
+// ---------------------------------------------------------------------------
 // ---------------------------------------------------------------------------
 
 let server = null;

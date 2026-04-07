@@ -25,7 +25,7 @@ tools/
   spectrum.py              # Spectrum analyser telemetry, automation writing (8 tools)
   performance.py           # DJ/live performance macros (10 tools)
   diagnostics.py           # Mix balance, preset audit, library scanning (6 tools)
-  arrangement_bridge.py    # M4L bridge tools — arrangement clips via port 9878 (7 tools)
+  arrangement_bridge.py    # M4L bridge tools — arrangement clips via port 9878 (9 tools)
   observer_bridge.py       # M4L observer tools — selected track/device/parameter/playhead via port 9879 (6 tools)
 m4l/
   AMCPX_Bridge.maxpat      # Max for Live patch — TCP server on port 9878
@@ -36,7 +36,7 @@ m4l/
 session_state.json         # Persisted AI handoff state (written each significant session)
 ```
 
-**Total registered MCP tools: 275**
+**Total registered MCP tools: 278**
 
 ---
 
@@ -114,7 +114,9 @@ session_state.json         # Persisted AI handoff state (written each significan
 |----|------|--------|
 | M1 | `m4l/AMCPX_Bridge.maxpat` — Max patch with TCP server on port 9878 | ✅ Done |
 | M2 | `m4l/amcpx_node_server.js` — Node for Max TCP server with stream buffering | ✅ Done |
-| M3 | `tools/arrangement_bridge.py` — 7 MCP tools connecting to port 9878 | ✅ Done |
+| M3 | `tools/arrangement_bridge.py` — 9 MCP tools connecting to port 9878 | ✅ Done |
+| M4 | Detail Clip Bridge — `get_detail_clip` command + `m4l_get_detail_clip()` tool | ✅ Done |
+| M5 | Clip Finder — `find_clip_by_name` + `find_clips_at_bar` commands + Python tools | ✅ Done |
 | O1 | `m4l/AMCPX_Observer.maxpat` + `amcpx_observer_server.js` + `tools/observer_bridge.py` — live.observer state push on port 9879 | ✅ Done |
 | M4 | `get_notes_extended` uses dedicated `live_get_notes_extended` handler in `lom_bridge.js` with Task-deferred callback collection — bypasses the broken sync/async ambiguity in `live_call` | ✅ Done |
 
