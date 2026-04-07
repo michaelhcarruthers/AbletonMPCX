@@ -101,6 +101,15 @@ async function handleCommand(command, params) {
         case "get_arrangement_overview":
             return await getArrangementOverview(params);
 
+        case "get_detail_clip":
+            return await getDetailClip(params);
+
+        case "find_clip_by_name":
+            return await findClipByName(params);
+
+        case "find_clips_at_bar":
+            return await findClipsAtBar(params);
+
         default:
             throw new Error(`Unknown command: ${command}`);
     }
@@ -343,6 +352,87 @@ async function getArrangementOverview(params) {
         clips_per_track: clipsPerTrack,
         tempo,
     };
+}
+
+// ---------------------------------------------------------------------------
+// get_detail_clip
+// ---------------------------------------------------------------------------
+
+async function getDetailClip(params) {
+    const clipPath = "live_set view detail_clip";
+
+    const [name, length, isMidi, startTime, endTime, loopStart, loopEnd, looping] = await Promise.all([
+        liveGet(clipPath, "name"),
+        liveGet(clipPath, "length"),
+        liveGet(clipPath, "is_midi_clip"),
+        liveGet(clipPath, "start_time"),
+        liveGet(clipPath, "end_time"),
+        liveGet(clipPath, "loop_start"),
+        liveGet(clipPath, "loop_end"),
+        liveGet(clipPath, "looping"),
+    ]);
+
+    const clipLength = parseFloat(length) || 0;
+    const notes = [];
+
+    if (isMidi === 1) {
+        const rawNotes = await liveCall(clipPath, "get_notes", 0, 0, clipLength, 128);
+        if (rawNotes && rawNotes.length > 0) {
+            for (let i = 0; i < rawNotes.length; i += 5) {
+                notes.push({
+                    pitch: parseInt(rawNotes[i]),
+                    start_time: parseFloat(rawNotes[i + 1]),
+                    duration: parseFloat(rawNotes[i + 2]),
+                    velocity: parseInt(rawNotes[i + 3]),
+                    mute: rawNotes[i + 4] === 1,
+                });
+            }
+        }
+    }
+
+    return {
+        name: String(name),
+        length: clipLength,
+        is_midi_clip: isMidi === 1,
+        start_time: parseFloat(startTime) || 0,
+        end_time: parseFloat(endTime) || 0,
+        loop_start: parseFloat(loopStart) || 0,
+        loop_end: parseFloat(loopEnd) || 0,
+        looping: looping === 1,
+        notes,
+        note_count: notes.length,
+    };
+}
+
+// ---------------------------------------------------------------------------
+// find_clip_by_name
+// ---------------------------------------------------------------------------
+
+async function findClipByName(params) {
+    const nameQuery = String(params.name || "").toLowerCase();
+    const trackFilter = (params.track_index !== undefined && params.track_index !== null)
+        ? parseInt(params.track_index) : -1;
+
+    const allClips = await getArrangementClips(trackFilter >= 0 ? { track_index: trackFilter } : {});
+    const matches = allClips.filter(c => c.clip_name.toLowerCase().includes(nameQuery));
+
+    return { clips: matches, total_found: matches.length };
+}
+
+// ---------------------------------------------------------------------------
+// find_clips_at_bar
+// ---------------------------------------------------------------------------
+
+async function findClipsAtBar(params) {
+    const bar = parseInt(params.bar) || 1;
+    const trackFilter = (params.track_index !== undefined && params.track_index !== null)
+        ? parseInt(params.track_index) : -1;
+
+    const beats = (bar - 1) * 4;
+    const allClips = await getArrangementClips(trackFilter >= 0 ? { track_index: trackFilter } : {});
+    const matches = allClips.filter(c => c.start_time <= beats && beats < c.end_time);
+
+    return { clips: matches, bar, beat_position: beats, total_found: matches.length };
 }
 
 // ---------------------------------------------------------------------------

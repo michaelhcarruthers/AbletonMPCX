@@ -229,3 +229,69 @@ def m4l_get_arrangement_overview() -> dict:
         tempo: float
     """
     return _send_m4l("get_arrangement_overview", {})
+
+
+@mcp.tool()
+def m4l_get_detail_clip() -> dict:
+    """
+    Read the clip currently open in Live's Detail View (the piano roll at the bottom).
+
+    This is a fallback for when arrangement clip indexing fails — it reads whatever
+    clip the user has open in the editor without needing to know its track/clip index.
+
+    Requires AMCPX_Bridge.amxd to be loaded on a track in your Live set.
+
+    Returns:
+        name: str
+        length: float (beats)
+        is_midi_clip: bool
+        start_time: float (beats — arrangement position)
+        end_time: float (beats)
+        loop_start: float (beats)
+        loop_end: float (beats)
+        looping: bool
+        notes: list of {pitch, start_time, duration, velocity, mute} (empty for audio clips)
+        note_count: int
+    """
+    return _send_m4l("get_detail_clip", {})
+
+
+@mcp.tool()
+def m4l_find_clip_by_name(name: str, track_index: int | None = None) -> dict:
+    """
+    Find arrangement clips by name (case-insensitive substring match).
+
+    Requires AMCPX_Bridge.amxd to be loaded on a track in your Live set.
+
+    Args:
+        name: Substring to search for (case-insensitive). E.g. "bass", "intro".
+        track_index: Optional. If provided, only search this track.
+
+    Returns:
+        clips: list of matching clip objects (same fields as m4l_get_arrangement_clips)
+        total_found: int
+    """
+    return _send_m4l("find_clip_by_name", {"name": name, "track_index": track_index})
+
+
+@mcp.tool()
+def m4l_find_clips_at_bar(bar: int, track_index: int | None = None) -> dict:
+    """
+    Find all arrangement clips playing at a specific bar number (1-based).
+
+    Bar 1 = beat 0, bar 5 = beat 16, bar 9 = beat 32, etc.
+    Returns every clip whose time range covers the given bar position.
+
+    Requires AMCPX_Bridge.amxd to be loaded on a track in your Live set.
+
+    Args:
+        bar: 1-based bar number (bar 1 is the very start of the arrangement).
+        track_index: Optional. If provided, only search this track.
+
+    Returns:
+        clips: list of matching clip objects
+        bar: int — the bar number queried
+        beat_position: float — beat position corresponding to the bar
+        total_found: int
+    """
+    return _send_m4l("find_clips_at_bar", {"bar": bar, "track_index": track_index})
