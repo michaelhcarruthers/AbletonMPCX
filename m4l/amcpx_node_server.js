@@ -289,20 +289,50 @@ async function setArrangementClipNotes(params) {
     if (isMidi !== 1) throw new Error("Clip is not a MIDI clip");
 
     const clipLength = parseFloat(await liveGet(clipPath, "length")) || 0;
-    await liveCall(clipPath, "remove_notes", 0, 0, clipLength, 128);
 
-    if (notes.length > 0) {
-        const noteArgs = [];
-        for (const n of notes) {
-            noteArgs.push(
-                parseInt(n.pitch),
-                parseFloat(n.start_time),
-                parseFloat(n.duration),
-                parseInt(n.velocity !== undefined ? n.velocity : 100),
-                n.mute ? 1 : 0
-            );
+    const noteArgs = [];
+    for (const n of notes) {
+        noteArgs.push(
+            parseInt(n.pitch),
+            parseFloat(n.start_time),
+            parseFloat(n.duration),
+            parseInt(n.velocity !== undefined ? n.velocity : 100),
+            n.mute ? 1 : 0
+        );
+    }
+
+    try {
+        // Fast path: replace_all_notes is atomic (Live 11.1+).
+        // For an empty note list we skip it and use the undo-step path below.
+        if (notes.length > 0) {
+            await liveCall(clipPath, "replace_all_notes", ...noteArgs);
+        } else {
+            // Wrap the clear-only case in an undo step so Live does not see
+            // a transient zero-note state that could trigger auto-deletion.
+            await liveCall("live_set", "begin_undo_step", "AMCPX set notes");
+            try {
+                await liveCall(clipPath, "remove_notes", 0, 0, clipLength, 128);
+                await liveCall("live_set", "end_undo_step");
+            } catch (eClear) {
+                await liveCall("live_set", "end_undo_step").catch(() => {});
+                throw eClear;
+            }
         }
-        await liveCall(clipPath, "set_notes", ...noteArgs);
+    } catch (e) {
+        // replace_all_notes not available (Live ≤ 11.0) — fall back to the
+        // wrapped remove + set pattern, guarded by a single undo step so
+        // Live never processes the intermediate zero-note state.
+        // Re-throw immediately for the clear-only path (no fallback needed).
+        if (notes.length === 0) throw e;
+        try {
+            await liveCall("live_set", "begin_undo_step", "AMCPX set notes");
+            await liveCall(clipPath, "remove_notes", 0, 0, clipLength, 128);
+            await liveCall(clipPath, "set_notes", ...noteArgs);
+            await liveCall("live_set", "end_undo_step");
+        } catch (e2) {
+            await liveCall("live_set", "end_undo_step").catch(() => {});
+            throw e2;
+        }
     }
 
     return { track_index: trackIndex, clip_index: clipIndex, note_count: notes.length };

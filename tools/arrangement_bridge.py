@@ -187,9 +187,17 @@ def m4l_set_arrangement_clip_notes(
     notes: list[dict],
 ) -> dict:
     """
-    Replace ALL MIDI notes in a specific arrangement clip.
+    Replace ALL MIDI notes in a specific arrangement clip atomically.
 
-    Clears the existing notes and writes the complete new note set.
+    The operation is wrapped in a single Live undo step, so the clip never
+    passes through a zero-note transient state that could trigger auto-deletion
+    in some Live versions.  The entire replace appears as one entry in Live's
+    undo history.
+
+    On Live 11.1+ the faster ``replace_all_notes`` API is attempted first
+    (atomically replaces all notes in a single call).  If that API is not
+    available the implementation falls back to
+    ``begin_undo_step`` → ``remove_notes`` → ``set_notes`` → ``end_undo_step``.
 
     Use m4l_get_arrangement_clips() first to find track_index and clip_index.
 
