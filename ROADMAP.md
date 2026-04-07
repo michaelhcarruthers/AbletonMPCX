@@ -125,7 +125,7 @@ session_state.json         # Persisted AI handoff state (written each significan
 | M8 | `m4l/amcpx_analyzer_server.js` — Node for Max server with LUFS/RMS/crest factor rolling buffers | ✅ Done |
 | M9 | `tools/realtime_analyzer.py` — 7 MCP tools connecting to port 9880 | ✅ Done |
 | O1 | `m4l/AMCPX_Observer.maxpat` + `amcpx_observer_server.js` + `tools/observer_bridge.py` — live.observer state push on port 9879 | ✅ Done |
-| M6 | `get_notes_extended` uses dedicated `live_get_notes_extended` handler in `lom_bridge.js` with Task-deferred callback collection — bypasses the broken sync/async ambiguity in `live_call` | ✅ Done |
+| M10 | `get_notes_extended` uses dedicated `live_get_notes_extended` handler in `lom_bridge.js` with Task-deferred callback collection — bypasses the broken sync/async ambiguity in `live_call` | ✅ Done |
 
 ---
 
