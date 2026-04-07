@@ -1995,6 +1995,31 @@ class AbletonMPCX(ControlSurface):
         self._run_on_main_thread(fn)
         return {}
 
+    def _cmd_set_device_parameter_cs(self, params):
+        """
+        Set a device parameter via the control surface path.
+        Forces plugin UI refresh by selecting the device first,
+        the same way Push 3 does it.
+        """
+        track_index = int(params["track_index"])
+        device_index = int(params["device_index"])
+        parameter_index = int(params["parameter_index"])
+        value = float(params["value"])
+
+        device = self._get_device(track_index, device_index, bool(params.get("is_return_track", False)))
+        parameters = list(device.parameters)
+        if parameter_index < 0 or parameter_index >= len(parameters):
+            raise IndexError("parameter_index {} out of range".format(parameter_index))
+        param = parameters[parameter_index]
+
+        def fn():
+            self.application().view.select_device(device)
+            self.application().view.show_view("Detail/DeviceChain")
+            param.value = value
+
+        self._run_on_main_thread(fn)
+        return {}
+
     def _cmd_set_device_parameter_human(self, params):
         """
         Set a device parameter using human-readable units.
