@@ -2006,17 +2006,21 @@ class AbletonMPCX(ControlSurface):
         parameter_index = int(params["parameter_index"])
         value = float(params["value"])
 
-        device = self._get_device(track_index, device_index, bool(params.get("is_return_track", False)))
-        parameters = list(device.parameters)
-        if parameter_index < 0 or parameter_index >= len(parameters):
-            raise IndexError("parameter_index {} out of range".format(parameter_index))
-        param = parameters[parameter_index]
-
         def fn():
-            # Force plugin window focus — this is what Push does
-            self.application().view.select_device(device)
+            track = self._resolve_track(track_index, bool(params.get("is_return_track", False)))
+            devices = list(track.devices)
+            if device_index < 0 or device_index >= len(devices):
+                raise IndexError("device_index {} out of range".format(device_index))
+            device = devices[device_index]
+            parameters = list(device.parameters)
+            if parameter_index < 0 or parameter_index >= len(parameters):
+                raise IndexError("parameter_index {} out of range".format(parameter_index))
+            param = parameters[parameter_index]
+
+            # appointed_device is the Live 12 way to focus a device — what Push 3 uses
+            self._song.appointed_device = device
             self.application().view.show_view("Detail/DeviceChain")
-            # Then set the value
+            # Set value after appointing the device so the plugin UI is focused first
             param.value = value
 
         self._run_on_main_thread(fn)
