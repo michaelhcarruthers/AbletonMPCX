@@ -104,6 +104,14 @@ async function handleCommand(command, params) {
         case "get_detail_clip":
             return await getDetailClip(params);
 
+
+        case "find_clip_by_name":
+            return await findClipByName(params);
+
+        case "find_clips_at_bar":
+            return await findClipsAtBar(params);
+
+
         default:
             throw new Error(`Unknown command: ${command}`);
     }
@@ -293,20 +301,50 @@ async function setArrangementClipNotes(params) {
     if (isMidi !== 1) throw new Error("Clip is not a MIDI clip");
 
     const clipLength = parseFloat(await liveGet(clipPath, "length")) || 0;
-    await liveCall(clipPath, "remove_notes", 0, 0, clipLength, 128);
 
-    if (notes.length > 0) {
-        const noteArgs = [];
-        for (const n of notes) {
-            noteArgs.push(
-                parseInt(n.pitch),
-                parseFloat(n.start_time),
-                parseFloat(n.duration),
-                parseInt(n.velocity !== undefined ? n.velocity : 100),
-                n.mute ? 1 : 0
-            );
+    const noteArgs = [];
+    for (const n of notes) {
+        noteArgs.push(
+            parseInt(n.pitch),
+            parseFloat(n.start_time),
+            parseFloat(n.duration),
+            parseInt(n.velocity !== undefined ? n.velocity : 100),
+            n.mute ? 1 : 0
+        );
+    }
+
+    try {
+        // Fast path: replace_all_notes is atomic (Live 11.1+).
+        // For an empty note list we skip it and use the undo-step path below.
+        if (notes.length > 0) {
+            await liveCall(clipPath, "replace_all_notes", ...noteArgs);
+        } else {
+            // Wrap the clear-only case in an undo step so Live does not see
+            // a transient zero-note state that could trigger auto-deletion.
+            await liveCall("live_set", "begin_undo_step", "AMCPX set notes");
+            try {
+                await liveCall(clipPath, "remove_notes", 0, 0, clipLength, 128);
+                await liveCall("live_set", "end_undo_step");
+            } catch (eClear) {
+                await liveCall("live_set", "end_undo_step").catch(() => {});
+                throw eClear;
+            }
         }
-        await liveCall(clipPath, "set_notes", ...noteArgs);
+    } catch (e) {
+        // replace_all_notes not available (Live ≤ 11.0) — fall back to the
+        // wrapped remove + set pattern, guarded by a single undo step so
+        // Live never processes the intermediate zero-note state.
+        // Re-throw immediately for the clear-only path (no fallback needed).
+        if (notes.length === 0) throw e;
+        try {
+            await liveCall("live_set", "begin_undo_step", "AMCPX set notes");
+            await liveCall(clipPath, "remove_notes", 0, 0, clipLength, 128);
+            await liveCall(clipPath, "set_notes", ...noteArgs);
+            await liveCall("live_set", "end_undo_step");
+        } catch (e2) {
+            await liveCall("live_set", "end_undo_step").catch(() => {});
+            throw e2;
+        }
     }
 
     return { track_index: trackIndex, clip_index: clipIndex, note_count: notes.length };
@@ -398,7 +436,37 @@ async function getDetailClip(params) {
 }
 
 // ---------------------------------------------------------------------------
-// TCP Server — stream buffering approach (replaces broken recvExactly)
+// find_clip_by_name
+// ---------------------------------------------------------------------------
+
+async function findClipByName(params) {
+    const nameQuery = String(params.name || "").toLowerCase();
+    const trackFilter = (params.track_index !== undefined && params.track_index !== null)
+        ? parseInt(params.track_index) : -1;
+
+    const allClips = await getArrangementClips(trackFilter >= 0 ? { track_index: trackFilter } : {});
+    const matches = allClips.filter(c => c.clip_name.toLowerCase().includes(nameQuery));
+
+    return { clips: matches, total_found: matches.length };
+}
+
+// ---------------------------------------------------------------------------
+// find_clips_at_bar
+// ---------------------------------------------------------------------------
+
+async function findClipsAtBar(params) {
+    const bar = parseInt(params.bar) || 1;
+    const trackFilter = (params.track_index !== undefined && params.track_index !== null)
+        ? parseInt(params.track_index) : -1;
+
+    const beats = (bar - 1) * 4;
+    const allClips = await getArrangementClips(trackFilter >= 0 ? { track_index: trackFilter } : {});
+    const matches = allClips.filter(c => c.start_time <= beats && beats < c.end_time);
+
+    return { clips: matches, bar, beat_position: beats, total_found: matches.length };
+}
+
+// ---------------------------------------------------------------------------
 // ---------------------------------------------------------------------------
 
 let server = null;
