@@ -125,7 +125,7 @@ async function getArrangementClips(params) {
     const trackFilter = (params.track_index !== undefined && params.track_index !== null)
         ? parseInt(params.track_index) : -1;
 
-    const trackCount = await liveGetCount("live_set", "tracks");
+    const trackCount = parseInt(await liveGetCount("live_set", "tracks"), 10) || 0;
     const results = [];
 
     for (let t = 0; t < trackCount; t++) {
@@ -133,7 +133,7 @@ async function getArrangementClips(params) {
 
         const trackPath = `live_set tracks ${t}`;
         const trackName = await liveGet(trackPath, "name");
-        const clipCount = await liveGetCount(trackPath, "arrangement_clips");
+        const clipCount = parseInt(await liveGetCount(trackPath, "arrangement_clips"), 10) || 0;
 
         for (let c = 0; c < clipCount; c++) {
             try {
@@ -157,11 +157,11 @@ async function getArrangementClips(params) {
                     start_time: parseFloat(startTime) || 0,
                     end_time: parseFloat(endTime) || 0,
                     length: parseFloat(length) || 0,
-                    is_midi_clip: isMidi === 1,
-                    is_audio_clip: isMidi !== 1,
-                    color: parseInt(color) || 0,
-                    muted: muted === 1,
-                    looping: looping === 1,
+                    is_midi_clip: (parseInt(isMidi, 10) || 0) === 1,
+                    is_audio_clip: (parseInt(isMidi, 10) || 0) !== 1,
+                    color: parseInt(color, 10) || 0,
+                    muted: (parseInt(muted, 10) || 0) === 1,
+                    looping: (parseInt(looping, 10) || 0) === 1,
                     start_bar: Math.floor((parseFloat(startTime) || 0) / 4) + 1,
                     length_bars: (parseFloat(length) || 0) / 4.0,
                 });
@@ -183,7 +183,7 @@ async function getArrangementClipInfo(params) {
     const clipIndex = parseInt(params.clip_index);
 
     const trackPath = `live_set tracks ${trackIndex}`;
-    const clipCount = await liveGetCount(trackPath, "arrangement_clips");
+    const clipCount = parseInt(await liveGetCount(trackPath, "arrangement_clips"), 10) || 0;
 
     if (clipIndex < 0 || clipIndex >= clipCount) {
         throw new Error(`clip_index ${clipIndex} out of range (${clipCount} arrangement clips on track ${trackIndex})`);
@@ -216,10 +216,10 @@ async function getArrangementClipInfo(params) {
         start_time: st,
         end_time: parseFloat(endTime) || 0,
         length: len,
-        is_midi_clip: isMidi === 1,
-        color: parseInt(color) || 0,
-        muted: muted === 1,
-        looping: looping === 1,
+        is_midi_clip: (parseInt(isMidi, 10) || 0) === 1,
+        color: parseInt(color, 10) || 0,
+        muted: (parseInt(muted, 10) || 0) === 1,
+        looping: (parseInt(looping, 10) || 0) === 1,
         loop_start: parseFloat(loopStart) || 0,
         loop_end: parseFloat(loopEnd) || 0,
         start_bar: Math.floor(st / 4) + 1,
@@ -236,14 +236,14 @@ async function getArrangementClipNotes(params) {
     const clipIndex = parseInt(params.clip_index);
 
     const trackPath = `live_set tracks ${trackIndex}`;
-    const clipCount = await liveGetCount(trackPath, "arrangement_clips");
+    const clipCount = parseInt(await liveGetCount(trackPath, "arrangement_clips"), 10) || 0;
 
     if (clipIndex < 0 || clipIndex >= clipCount) {
         throw new Error(`clip_index ${clipIndex} out of range (${clipCount} arrangement clips on track ${trackIndex})`);
     }
 
     const clipPath = `live_set tracks ${trackIndex} arrangement_clips ${clipIndex}`;
-    const isMidi = await liveGet(clipPath, "is_midi_clip");
+    const isMidi = parseInt(await liveGet(clipPath, "is_midi_clip"), 10) || 0;
 
     if (isMidi !== 1) {
         throw new Error(`Arrangement clip ${clipIndex} on track ${trackIndex} is not a MIDI clip`);
@@ -290,14 +290,14 @@ async function setArrangementClipNotes(params) {
     const notes = params.notes || [];
 
     const trackPath = `live_set tracks ${trackIndex}`;
-    const clipCount = await liveGetCount(trackPath, "arrangement_clips");
+    const clipCount = parseInt(await liveGetCount(trackPath, "arrangement_clips"), 10) || 0;
 
     if (clipIndex < 0 || clipIndex >= clipCount) {
         throw new Error(`clip_index ${clipIndex} out of range (${clipCount} arrangement clips on track ${trackIndex})`);
     }
 
     const clipPath = `live_set tracks ${trackIndex} arrangement_clips ${clipIndex}`;
-    const isMidi = await liveGet(clipPath, "is_midi_clip");
+    const isMidi = parseInt(await liveGet(clipPath, "is_midi_clip"), 10) || 0;
     if (isMidi !== 1) throw new Error("Clip is not a MIDI clip");
 
     const clipLength = parseFloat(await liveGet(clipPath, "length")) || 0;
@@ -393,12 +393,12 @@ async function getArrangementOverview(params) {
 
 async function getDetailClip(params) {
     const clipPath = "live_set view detail_clip";
-    const isMidi = await liveGet(clipPath, "is_midi_clip");
+    const isMidi = parseInt(await liveGet(clipPath, "is_midi_clip"), 10) || 0;
     const name = await liveGet(clipPath, "name");
     const length = parseFloat(await liveGet(clipPath, "length")) || 0;
     const startTime = parseFloat(await liveGet(clipPath, "start_time")) || 0;
     const endTime = parseFloat(await liveGet(clipPath, "end_time")) || 0;
-    const looping = await liveGet(clipPath, "looping");
+    const looping = parseInt(await liveGet(clipPath, "looping"), 10) || 0;
     const loopStart = parseFloat(await liveGet(clipPath, "loop_start")) || 0;
     const loopEnd = parseFloat(await liveGet(clipPath, "loop_end")) || 0;
 
