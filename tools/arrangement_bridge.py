@@ -268,31 +268,6 @@ def m4l_get_arrangement_overview() -> dict:
 
 
 @mcp.tool()
-def m4l_get_detail_clip() -> dict:
-    """
-    Read the clip currently open in Live's Detail View (the piano roll at the bottom).
-
-    This is a fallback for when arrangement clip indexing fails — it reads whatever
-    clip the user has open in the editor without needing to know its track/clip index.
-
-    Requires AMCPX_Bridge.amxd to be loaded on a track in your Live set.
-
-    Returns:
-        name: str
-        length: float (beats)
-        is_midi_clip: bool
-        start_time: float (beats — arrangement position)
-        end_time: float (beats)
-        loop_start: float (beats)
-        loop_end: float (beats)
-        looping: bool
-        notes: list of {pitch, start_time, duration, velocity, mute} (empty for audio clips)
-        note_count: int
-    """
-    return _send_m4l("get_detail_clip", {})
-
-
-@mcp.tool()
 def m4l_find_clip_by_name(name: str, track_index: int | None = None) -> dict:
     """
     Find arrangement clips by name (case-insensitive substring match).
