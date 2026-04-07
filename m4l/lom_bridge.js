@@ -13,6 +13,11 @@
 outlets = 1;
 inlets = 1;
 
+// Delay (ms) given to the LiveAPI callback chain for get_notes_extended to complete
+// before the collected results are emitted.  Live fires the callback asynchronously
+// and may invoke it multiple times (once per chunk), so a brief deferral is required.
+var GET_NOTES_CALLBACK_DELAY_MS = 200;
+
 function live_get() {
     var args = arrayfromargs(arguments);
     var id = args[0];
@@ -67,6 +72,44 @@ function live_call() {
             }
         });
         t.schedule(0);
+    } catch (e) {
+        outlet(0, "live_error", id, String(e));
+    }
+}
+
+// Dedicated handler for get_notes_extended.
+// live_call() cannot reliably capture the note data returned by get_notes_extended
+// because that method fires its LiveAPI callback asynchronously — potentially multiple
+// times, once per note chunk.  Using Task.schedule(200) gives all callback invocations
+// time to complete before the collected results are emitted.
+//
+// Message format: live_get_notes_extended <id> <path> <from_time> <time_span> <from_pitch> <pitch_span>
+function live_get_notes_extended() {
+    var args = arrayfromargs(arguments);
+    var id = args[0];
+    var path = args[1];
+    var fromTime = args[2];
+    var timeSpan = args[3];
+    var fromPitch = args[4];
+    var pitchSpan = args[5];
+
+    var noteData = [];
+
+    try {
+        var api = new LiveAPI(function() {
+            var results = arrayfromargs(arguments);
+            for (var i = 0; i < results.length; i++) {
+                noteData.push(results[i]);
+            }
+        }, path);
+
+        api.call("get_notes_extended", fromTime, timeSpan, fromPitch, pitchSpan);
+
+        var t = new Task(function() {
+            var resp = [0, "live_result", id].concat(noteData);
+            outlet.apply(null, resp);
+        });
+        t.schedule(GET_NOTES_CALLBACK_DELAY_MS);
     } catch (e) {
         outlet(0, "live_error", id, String(e));
     }

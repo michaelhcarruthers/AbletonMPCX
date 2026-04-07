@@ -213,6 +213,34 @@ def m4l_set_arrangement_clip_notes(
 
 
 @mcp.tool()
+def m4l_get_detail_clip() -> dict:
+    """
+    Read the clip currently open in Live's Detail View (the clip you last double-clicked).
+
+    Returns full metadata and all MIDI notes for the clip in the Detail View without
+    needing to know its track or clip index.  For arrangement clips you must double-click
+    the clip in Live first to bring it into the Detail View.
+
+    Requires AMCPX_Bridge.amxd to be loaded on a track in your Live set.
+
+    Returns:
+        clip_name: str
+        start_time: float   -- position in arrangement (beats), 0 for session clips
+        end_time: float
+        length: float       -- clip length in beats
+        is_midi_clip: bool
+        looping: bool
+        loop_start: float
+        loop_end: float
+        notes: list of {pitch, start_time, duration, velocity, mute}
+        note_count: int
+        start_bar: int
+        length_bars: float
+    """
+    return _send_m4l("get_detail_clip", {})
+
+
+@mcp.tool()
 def m4l_get_arrangement_overview() -> dict:
     """
     Return a high-level structural overview of the entire arrangement.
