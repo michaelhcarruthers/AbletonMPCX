@@ -117,6 +117,7 @@ session_state.json         # Persisted AI handoff state (written each significan
 | M3 | `tools/arrangement_bridge.py` — 9 MCP tools connecting to port 9878 | ✅ Done |
 | M4 | Detail Clip Bridge — `get_detail_clip` command + `m4l_get_detail_clip()` tool | ✅ Done |
 | M5 | Clip Finder — `find_clip_by_name` + `find_clips_at_bar` commands + Python tools | ✅ Done |
+| M6 | Atomic set_notes — `replace_all_notes` fast path + `begin/end_undo_step` fallback | ✅ Done |
 | O1 | `m4l/AMCPX_Observer.maxpat` + `amcpx_observer_server.js` + `tools/observer_bridge.py` — live.observer state push on port 9879 | ✅ Done |
 | M4 | `get_notes_extended` uses dedicated `live_get_notes_extended` handler in `lom_bridge.js` with Task-deferred callback collection — bypasses the broken sync/async ambiguity in `live_call` | ✅ Done |
 
@@ -126,6 +127,9 @@ session_state.json         # Persisted AI handoff state (written each significan
 
 - **Transport**: JSON over TCP on `localhost:9877`. Each message is length-prefixed (4-byte big-endian header + UTF-8 JSON body). Ableton-side plugin listens; MCP server is the client.
 - **M4L Bridge**: The `AMCPX_Bridge.amxd` Max for Live device exposes a second TCP server on `localhost:9878` using the same length-prefixed JSON protocol. It runs via `node.script` (Node for Max) executing `amcpx_node_server.js`. The server uses **stream buffering** (persistent per-connection buffer) to correctly handle TCP framing — a single `data` listener accumulates chunks and processes complete messages. It provides full Arrangement View access via `LiveAPI` — something the Python Remote Script API cannot do. Tools in `tools/arrangement_bridge.py` connect to port 9878 independently.
+- **MIDI note writes**: `setArrangementClipNotes` first attempts `clip.replace_all_notes()` (atomic, Live 11.1+).
+  If that API is unavailable it wraps `remove_notes` + `set_notes` inside `song.begin_undo_step()`/`song.end_undo_step()`
+  so Live never processes the transient zero-note state that can trigger auto-deletion in some Live versions.
 - **MCP pattern**: FastMCP (`mcp.server.fastmcp`). Every public action is a `@mcp.tool()` function. The server runs over stdio (Claude connects via `mcp` CLI or MCP config JSON).
 - **Vocabulary system**: Natural-language magnitude words ("a little", "a lot", "drenched") map to normalised deltas (0.0–1.0) via `helpers/vocabulary.py`. Time words ("fast", "gradually") map to seconds.
 - **Module layout**: One concern per file. `helpers/__init__.py` owns the shared FastMCP instance and TCP primitives; `tools/*.py` own the business logic. No circular imports.
