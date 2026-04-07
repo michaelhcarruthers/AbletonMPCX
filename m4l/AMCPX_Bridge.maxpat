@@ -8,7 +8,7 @@
 			"architecture" : "x64",
 			"modernui" : 1
 		},
-		"rect" : [ 100, 100, 640, 300 ],
+		"rect" : [ 100, 100, 700, 320 ],
 		"bglocked" : 0,
 		"openinpresentation" : 0,
 		"default_fontsize" : 12.0,
@@ -52,9 +52,20 @@
 					"id" : "obj-3",
 					"maxclass" : "newobj",
 					"text" : "print amcpx",
-					"patching_rect" : [ 30.0, 130.0, 100.0, 22.0 ],
+					"patching_rect" : [ 30.0, 200.0, 100.0, 22.0 ],
 					"numinlets" : 1,
 					"numoutlets" : 0
+				}
+			},
+			{
+				"box" : {
+					"id" : "obj-4",
+					"maxclass" : "newobj",
+					"text" : "js lom_bridge.js",
+					"patching_rect" : [ 310.0, 80.0, 160.0, 22.0 ],
+					"numinlets" : 1,
+					"numoutlets" : 1,
+					"outlettype" : [ "" ]
 				}
 			}
 		],
@@ -63,6 +74,18 @@
 				"patchline" : {
 					"source" : [ "obj-1", 0 ],
 					"destination" : [ "obj-3", 0 ]
+				}
+			},
+			{
+				"patchline" : {
+					"source" : [ "obj-1", 0 ],
+					"destination" : [ "obj-4", 0 ]
+				}
+			},
+			{
+				"patchline" : {
+					"source" : [ "obj-4", 0 ],
+					"destination" : [ "obj-1", 0 ]
 				}
 			}
 		]
