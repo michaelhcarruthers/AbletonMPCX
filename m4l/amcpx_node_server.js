@@ -20,39 +20,61 @@ const MAX_MESSAGE_SIZE_BYTES = 10 * 1024 * 1024;
 maxApi.post(`AMCPX Bridge starting on port ${PORT}...`);
 
 // ---------------------------------------------------------------------------
-// LiveAPI helpers — call Max messages that use the live.path / LiveAPI system
-// We use maxApi.call to invoke Max functions and get results back
+// LiveAPI helpers — outlet/handler RPC bridge to lom_bridge.js (Max js object)
+//
+// Node sends:  live_get / live_getcount / live_call  out of outlet 0
+// Max routes the message to lom_bridge.js which uses LiveAPI to query the LOM
+// and sends back:  live_result <id> [<value>...]  or  live_error <id> <msg>
 // ---------------------------------------------------------------------------
 
-/**
- * Call a Live API path and get a property value.
- * Uses Max's "live.object" style messaging via node.script outlet.
- */
-async function liveGet(path, prop) {
+let _reqId = 0;
+const _pending = new Map();
+
+maxApi.addHandler("live_result", (...args) => {
+    const id = args[0];
+    const values = args.slice(1);
+    const entry = _pending.get(id);
+    if (entry) {
+        _pending.delete(id);
+        clearTimeout(entry.timeout);
+        entry.resolve(values.length === 1 ? values[0] : values);
+    }
+});
+
+maxApi.addHandler("live_error", (...args) => {
+    const id = args[0];
+    const msg = args.slice(1).join(" ");
+    const entry = _pending.get(id);
+    if (entry) {
+        _pending.delete(id);
+        clearTimeout(entry.timeout);
+        entry.reject(new Error(msg));
+    }
+});
+
+function liveRPC(type, ...args) {
     return new Promise((resolve, reject) => {
-        const timeout = setTimeout(() => reject(new Error(`Timeout getting ${prop} from ${path}`)), API_TIMEOUT_MS);
-        maxApi.call("live_get", path, prop)
-            .then(result => { clearTimeout(timeout); resolve(result); })
-            .catch(err => { clearTimeout(timeout); reject(err); });
+        _reqId = (_reqId >= Number.MAX_SAFE_INTEGER) ? 1 : _reqId + 1;
+        const id = _reqId;
+        const timeout = setTimeout(() => {
+            _pending.delete(id);
+            reject(new Error(`Timeout: ${type} ${args.join(" ")}`));
+        }, API_TIMEOUT_MS);
+        _pending.set(id, { resolve, reject, timeout });
+        maxApi.outlet(type, id, ...args);
     });
+}
+
+async function liveGet(path, prop) {
+    return liveRPC("live_get", path, prop);
 }
 
 async function liveGetCount(path, prop) {
-    return new Promise((resolve, reject) => {
-        const timeout = setTimeout(() => reject(new Error(`Timeout getcount ${prop} from ${path}`)), API_TIMEOUT_MS);
-        maxApi.call("live_getcount", path, prop)
-            .then(result => { clearTimeout(timeout); resolve(result); })
-            .catch(err => { clearTimeout(timeout); reject(err); });
-    });
+    return liveRPC("live_getcount", path, prop);
 }
 
 async function liveCall(path, method, ...args) {
-    return new Promise((resolve, reject) => {
-        const timeout = setTimeout(() => reject(new Error(`Timeout calling ${method} on ${path}`)), API_TIMEOUT_MS);
-        maxApi.call("live_call", path, method, ...args)
-            .then(result => { clearTimeout(timeout); resolve(result); })
-            .catch(err => { clearTimeout(timeout); reject(err); });
-    });
+    return liveRPC("live_call", path, method, ...args);
 }
 
 // ---------------------------------------------------------------------------
