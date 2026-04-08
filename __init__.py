@@ -2026,6 +2026,63 @@ class AbletonMPCX(ControlSurface):
         self._run_on_main_thread(fn)
         return {}
 
+    def _cmd_set_device_parameters_batch(self, params):
+        """
+        Set multiple device parameters in a single main-thread call.
+        One round trip, one device resolve, one optional UI refresh, N writes.
+        """
+        track_index = int(params["track_index"])
+        device_index = int(params["device_index"])
+        updates = params["updates"]  # list of {parameter_index, value}
+        is_return_track = bool(params.get("is_return_track", False))
+        visual_refresh = bool(params.get("visual_refresh", True))
+        skip_unchanged = bool(params.get("skip_unchanged", True))
+        clamp_values = bool(params.get("clamp_values", True))
+
+        def fn():
+            track = self._resolve_track(track_index, is_return_track)
+            device = list(track.devices)[device_index]
+            param_list = list(device.parameters)
+
+            if visual_refresh:
+                self._song.appointed_device = device
+                self.application().view.show_view("Detail/DeviceChain")
+
+            changed = []
+            errors = []
+
+            for update in updates:
+                idx = int(update["parameter_index"])
+                value = float(update["value"])
+                try:
+                    if idx < 0 or idx >= len(param_list):
+                        raise IndexError("parameter_index {} out of range (valid: 0-{})".format(idx, len(param_list) - 1))
+                    param = param_list[idx]
+                    if clamp_values:
+                        value = max(param.min, min(param.max, value))
+                    if skip_unchanged and param.value == value:
+                        continue
+                    param.value = value
+                    changed.append({
+                        "parameter_index": idx,
+                        "name": param.name,
+                        "value": param.value,
+                    })
+                except Exception as e:
+                    errors.append({
+                        "parameter_index": idx,
+                        "error": str(e),
+                    })
+
+            return {
+                "device": device.name,
+                "applied": len(changed),
+                "changed": changed,
+                "errors": errors,
+            }
+
+        return self._run_on_main_thread(fn)
+
     def _cmd_set_device_parameter_human(self, params):
         """
         Set a device parameter using human-readable units.
