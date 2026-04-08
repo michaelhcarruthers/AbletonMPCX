@@ -2,8 +2,6 @@
 from __future__ import annotations
 
 import logging
-import time
-from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -11,15 +9,6 @@ from helpers import (
     mcp,
     _send,
 )
-
-
-# ---------------------------------------------------------------------------
-# Internal helpers
-# ---------------------------------------------------------------------------
-
-def _lerp(a: float, b: float, t: float) -> float:
-    """Linear interpolation between a and b at position t (0.0–1.0)."""
-    return a + (b - a) * t
 
 
 # ---------------------------------------------------------------------------
@@ -36,19 +25,26 @@ def morph_scene_volumes(
 ) -> dict:
     """Linearly interpolate track volumes between two scene states.
 
+    Fire-and-forget: returns immediately after dispatching a single
+    ``set_mixer_snapshot`` call that jumps all relevant tracks to their
+    target volumes in one audio cycle.  Stepped interpolation is not
+    currently available via the Remote Script; ``stepped_morph`` in the
+    return dict will be ``False`` when executed.
+
     Reads the volumes of all tracks that have clips in either scene,
-    then interpolates from the 'from' state to the 'to' state over
-    `steps` increments.
+    then builds a plan mapping each track from its 'from' volume to its
+    'to' volume.  In dry_run mode the plan is returned without touching Live.
 
     Args:
         from_scene_index: Source scene index (volume start state).
         to_scene_index: Target scene index (volume end state).
-        steps: Number of interpolation steps (default 10).
-        interval_ms: Milliseconds to wait between steps (default 100).
+        steps: Number of interpolation steps (reserved for future use).
+        interval_ms: Milliseconds between steps (reserved for future use).
         dry_run: If True (default), returns the plan without touching Live.
 
     Returns:
-        dict with steps_applied, track_count, scene indices, dry_run flag, and plan.
+        dict with steps_scheduled, track_count, scene indices, stepped_morph,
+        dry_run flag, and plan.
     """
     snapshot = _send("get_session_snapshot")
     tracks = snapshot.get("tracks", []) if isinstance(snapshot, dict) else []
@@ -99,27 +95,21 @@ def morph_scene_volumes(
             "steps": steps,
         })
 
-    steps_applied = 0
+    stepped_morph = False
     if not dry_run and plan:
         _send("begin_undo_step", {"name": "morph_scene_volumes"})
         try:
-            for step in range(1, steps + 1):
-                t_val = step / steps
-                for item in plan:
-                    vol = _lerp(item["from_volume"], item["to_volume"], t_val)
-                    _send("set_track_volume", {"track_index": item["track_index"], "value": vol})
-                time.sleep(interval_ms / 1000.0)
-                steps_applied += 1
+            states = [{"track_index": item["track_index"], "volume": item["to_volume"]} for item in plan]
+            _send("set_mixer_snapshot", {"states": states})
         finally:
             _send("end_undo_step")
-    elif dry_run:
-        steps_applied = steps
 
     return {
-        "steps_applied": steps_applied,
+        "steps_scheduled": 0 if dry_run else 1,
         "track_count": len(plan),
         "from_scene_index": from_scene_index,
         "to_scene_index": to_scene_index,
+        "stepped_morph": stepped_morph,
         "dry_run": dry_run,
         "plan": plan,
     }
@@ -137,33 +127,35 @@ def morph_tempo(
     interval_ms: float = 100.0,
     dry_run: bool = True,
 ) -> dict:
-    """Linearly interpolate the session tempo from `from_bpm` to `to_bpm`.
+    """Linearly interpolate the session tempo from ``from_bpm`` to ``to_bpm``.
+
+    Fire-and-forget: returns immediately.  A single ``set_tempo`` call
+    jumps the session to ``to_bpm``; stepped interpolation is not currently
+    available via the Remote Script (``stepped_morph`` will be ``False``
+    when executed).  The ``steps`` and ``interval_ms`` parameters are
+    accepted for API compatibility and reflected in the return dict.
 
     Args:
         from_bpm: Starting BPM value.
         to_bpm: Ending BPM value.
-        steps: Number of interpolation steps (default 10).
-        interval_ms: Milliseconds to wait between steps (default 100).
+        steps: Number of interpolation steps (reserved for future use).
+        interval_ms: Milliseconds between steps (reserved for future use).
         dry_run: If True (default), returns the plan without touching Live.
 
     Returns:
-        dict with steps_applied, from_bpm, to_bpm, steps, and dry_run flag.
+        dict with steps_scheduled, from_bpm, to_bpm, steps, stepped_morph,
+        and dry_run flag.
     """
-    steps_applied = 0
+    stepped_morph = False
     if not dry_run:
-        for step in range(1, steps + 1):
-            current_bpm = _lerp(from_bpm, to_bpm, step / steps)
-            _send("set_tempo", {"tempo": current_bpm})
-            time.sleep(interval_ms / 1000.0)
-            steps_applied += 1
-    else:
-        steps_applied = steps
+        _send("set_tempo", {"tempo": to_bpm})
 
     return {
-        "steps_applied": steps_applied,
+        "steps_scheduled": 0 if dry_run else 1,
         "from_bpm": from_bpm,
         "to_bpm": to_bpm,
         "steps": steps,
+        "stepped_morph": stepped_morph,
         "dry_run": dry_run,
     }
 
@@ -183,10 +175,16 @@ def morph_device_parameter(
     interval_ms: float = 100.0,
     dry_run: bool = True,
 ) -> dict:
-    """Linearly interpolate a single device parameter from `from_value` to `to_value`.
+    """Animate a single device parameter from ``from_value`` to ``to_value``.
 
-    Reads the parameter's min/max via `get_device_parameters` and clamps
-    the interpolated values to that range before sending.
+    Fire-and-forget: delegates to ``perform_device_parameter_moves`` so all
+    stepping happens inside Live's main thread via ``schedule_message`` — no
+    blocking, no polling, returns immediately while the animation runs in the
+    background.
+
+    Reads the parameter's min/max via ``get_device_parameters`` and clamps
+    the from/to values to that range before scheduling.  In dry_run mode the
+    moves plan is returned without touching Live.
 
     Args:
         track_index: Zero-based track index.
@@ -195,11 +193,12 @@ def morph_device_parameter(
         from_value: Starting parameter value.
         to_value: Ending parameter value.
         steps: Number of interpolation steps (default 10).
-        interval_ms: Milliseconds to wait between steps (default 100).
+        interval_ms: Milliseconds between steps (default 100).
         dry_run: If True (default), returns the plan without touching Live.
 
     Returns:
-        dict with steps_applied, parameter_name, from_value, to_value, steps, and dry_run.
+        dict with steps_scheduled, parameter_name, from_value, to_value,
+        steps, moves, and dry_run.
     """
     # Read parameter metadata to get min/max and name
     param_name = ""
@@ -220,27 +219,37 @@ def morph_device_parameter(
     clamped_from = max(p_min, min(p_max, from_value))
     clamped_to = max(p_min, min(p_max, to_value))
 
-    steps_applied = 0
+    duration_ms = steps * interval_ms
+    moves = [
+        {
+            "parameter_index": parameter_index,
+            "target": clamped_to,
+            "duration_ms": duration_ms,
+            "curve": "linear",
+        }
+    ]
+
     if not dry_run:
-        for step in range(1, steps + 1):
-            v = _lerp(clamped_from, clamped_to, step / steps)
-            _send("set_device_parameter", {
-                "track_index": track_index,
-                "device_index": device_index,
-                "parameter_index": parameter_index,
-                "value": v,
-            })
-            time.sleep(interval_ms / 1000.0)
-            steps_applied += 1
-    else:
-        steps_applied = steps
+        # Snap the parameter to the starting value before scheduling the animation
+        _send("set_device_parameter", {
+            "track_index": track_index,
+            "device_index": device_index,
+            "parameter_index": parameter_index,
+            "value": clamped_from,
+        })
+        _send("perform_device_parameter_moves", {
+            "track_index": track_index,
+            "device_index": device_index,
+            "moves": moves,
+        })
 
     return {
-        "steps_applied": steps_applied,
+        "steps_scheduled": 0 if dry_run else steps,
         "parameter_name": param_name,
         "from_value": clamped_from,
         "to_value": clamped_to,
         "steps": steps,
+        "moves": moves,
         "dry_run": dry_run,
     }
 
@@ -253,6 +262,9 @@ def morph_device_parameter(
 def morph_plan(transitions: list[dict], dry_run: bool = True) -> dict:
     """Execute a sequence of morph transitions.
 
+    Fire-and-forget: all child morph tools return immediately; the actual
+    parameter motion runs in the background inside Live's main thread.
+
     Each transition dict must have a `type` key. Supported types:
     - `"volume"`: calls `morph_scene_volumes` (params: from_scene_index, to_scene_index, steps, interval_ms)
     - `"tempo"`: calls `morph_tempo` (params: from_bpm, to_bpm, steps, interval_ms)
@@ -264,7 +276,7 @@ def morph_plan(transitions: list[dict], dry_run: bool = True) -> dict:
         dry_run: If True (default), all child morphs run in dry_run mode.
 
     Returns:
-        dict with transitions_executed, results list, and dry_run flag.
+        dict with transitions_scheduled, results list, and dry_run flag.
     """
     results = []
     for transition in transitions:
@@ -284,7 +296,7 @@ def morph_plan(transitions: list[dict], dry_run: bool = True) -> dict:
         results.append({"type": t_type, "result": result})
 
     return {
-        "transitions_executed": len(results),
+        "transitions_scheduled": len(results),
         "results": results,
         "dry_run": dry_run,
     }
