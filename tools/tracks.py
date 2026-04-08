@@ -291,7 +291,12 @@ def group_tracks(track_indices: list[int]) -> dict:
         status: "ok" on success
         grouped_count: number of tracks grouped
     """
-    return _send("group_tracks", {"track_indices": track_indices})
+    _send("begin_undo_step", {"name": "group_tracks"})
+    try:
+        result = _send("group_tracks", {"track_indices": track_indices})
+    finally:
+        _send("end_undo_step", {})
+    return result
 
 
 @mcp.tool()
@@ -307,7 +312,54 @@ def ungroup_tracks(track_index: int) -> dict:
     Returns:
         status: "ok" on success
     """
-    return _send("ungroup_tracks", {"track_index": track_index})
+    _send("begin_undo_step", {"name": "ungroup_tracks"})
+    try:
+        result = _send("ungroup_tracks", {"track_index": track_index})
+    finally:
+        _send("end_undo_step", {})
+    return result
+
+
+@mcp.tool()
+def clone_track(
+    track_index: int,
+    new_name: str | None = None,
+    insert_after: bool = True,
+) -> dict:
+    """
+    Duplicate a track and optionally rename the clone.
+
+    Wraps duplicate_track() with optional rename and undo grouping.
+
+    Args:
+        track_index: Track to clone.
+        new_name: If provided, rename the cloned track. If None, keeps Live's default name.
+        insert_after: If True (default), the clone is inserted after the original.
+            Live always inserts duplicates immediately after the source track.
+
+    Returns:
+        original_track_index, new_track_index, new_track_name, applied (bool)
+    """
+    _send("begin_undo_step", {"name": "clone_track"})
+    try:
+        result = _send("duplicate_track", {"track_index": track_index})
+        # Live always inserts the duplicate immediately after the source; fall back to track_index + 1
+        new_track_index = result.get("new_track_index", track_index + 1)
+
+        if new_name is not None:
+            _send("set_track_name", {"track_index": new_track_index, "name": new_name})
+            resolved_name = new_name
+        else:
+            resolved_name = result.get("new_track_name", "")
+    finally:
+        _send("end_undo_step", {})
+
+    return {
+        "original_track_index": track_index,
+        "new_track_index": new_track_index,
+        "new_track_name": resolved_name,
+        "applied": True,
+    }
 
 
 @mcp.tool()

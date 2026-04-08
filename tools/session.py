@@ -2409,6 +2409,161 @@ def get_full_session_state() -> dict:
 
 
 # ---------------------------------------------------------------------------
+# Session health check
+# ---------------------------------------------------------------------------
+
+def _db_from_linear(linear: float) -> float:
+    """Convert linear gain (0.0–1.0 nominal) to dB."""
+    if linear <= 0:
+        return -math.inf
+    return 20.0 * math.log10(max(linear, 1e-10))
+
+
+@mcp.tool()
+def get_session_health() -> dict:
+    """
+    Return a single structured health summary of the current session.
+
+    Combines track state, mix levels, routing issues, and device chain checks
+    into one call. Nothing is modified.
+
+    Checks performed:
+    - Tracks with default/unnamed names
+    - Tracks currently armed for recording
+    - Tracks above 0 dBFS (volume clipping)
+    - Tracks with no devices
+    - Soloed tracks (easy to forget)
+    - Master bus level
+    - Tracks with all sends at zero (possible routing oversight)
+
+    Returns:
+        issues: list of {severity ("warn"|"flag"|"info"), category, description, track_index (optional)}
+        issue_count: int
+        health: "clean" | "warnings" | "critical"
+        session_name: str
+        tempo: float
+        track_count: int
+    """
+    snapshot = _send("get_session_snapshot")
+    tracks = snapshot.get("tracks", []) if isinstance(snapshot, dict) else []
+    master = snapshot.get("master_track", {}) if isinstance(snapshot, dict) else {}
+
+    issues: list[dict] = []
+
+    DEFAULT_NAME_PATTERNS = {"audio", "midi", "1-audio", "1-midi", "audio track", "midi track"}
+
+    for track in tracks:
+        idx = track.get("index", track.get("track_index"))
+        name = track.get("name", "")
+        name_lower = name.lower().strip()
+        mixer = track.get("mixer_device", {}) or {}
+        devices = track.get("devices", []) or []
+        sends = mixer.get("sends", []) or []
+
+        # Unnamed / default name
+        if not name or name_lower in DEFAULT_NAME_PATTERNS or name_lower.startswith(("audio ", "midi ")):
+            issues.append({
+                "severity": "info",
+                "category": "naming",
+                "description": "Track has a default/unnamed name: '{}'".format(name),
+                "track_index": idx,
+            })
+
+        # Armed tracks
+        if track.get("arm"):
+            issues.append({
+                "severity": "warn",
+                "category": "recording",
+                "description": "Track '{}' is armed for recording".format(name),
+                "track_index": idx,
+            })
+
+        # Volume clipping (above 0 dBFS)
+        volume = mixer.get("volume")
+        if volume is not None:
+            db = _db_from_linear(volume)
+            if db > 0:
+                issues.append({
+                    "severity": "warn",
+                    "category": "levels",
+                    "description": "Track '{}' volume is above 0 dBFS ({:+.1f} dB)".format(name, db),
+                    "track_index": idx,
+                })
+
+        # No devices
+        if len(devices) == 0:
+            issues.append({
+                "severity": "info",
+                "category": "devices",
+                "description": "Track '{}' has no devices".format(name),
+                "track_index": idx,
+            })
+
+        # Soloed
+        if track.get("solo"):
+            issues.append({
+                "severity": "flag",
+                "category": "monitoring",
+                "description": "Track '{}' is soloed".format(name),
+                "track_index": idx,
+            })
+
+        # All sends at zero — sends may be plain floats or dicts with a "value" key
+        if sends:
+            def _send_value(s: object) -> float:
+                if isinstance(s, (int, float)):
+                    return float(s)
+                if isinstance(s, dict):
+                    return float(s.get("value", 0))
+                return 0.0
+            if all(_send_value(s) == 0.0 for s in sends):
+                issues.append({
+                    "severity": "info",
+                    "category": "routing",
+                    "description": "Track '{}' has all sends at zero".format(name),
+                    "track_index": idx,
+                })
+
+    # Master bus level
+    master_mixer = master.get("mixer_device", {}) or {}
+    master_vol = master_mixer.get("volume") if isinstance(master_mixer, dict) else master.get("volume")
+    if master_vol is not None:
+        db = _db_from_linear(master_vol)
+        if db > 0:
+            issues.append({
+                "severity": "warn",
+                "category": "levels",
+                "description": "Master bus volume is above 0 dBFS ({:+.1f} dB)".format(db),
+                "track_index": -1,
+            })
+        else:
+            issues.append({
+                "severity": "info",
+                "category": "levels",
+                "description": "Master bus: {:+.1f} dB".format(db),
+                "track_index": -1,
+            })
+
+    # Determine overall health
+    severities = {i["severity"] for i in issues}
+    if "warn" in severities or "critical" in severities:
+        health = "warnings"
+    elif "flag" in severities:
+        health = "warnings"
+    else:
+        health = "clean"
+
+    return {
+        "issues": issues,
+        "issue_count": len(issues),
+        "health": health,
+        "session_name": snapshot.get("name", "") if isinstance(snapshot, dict) else "",
+        "tempo": snapshot.get("tempo", 0.0) if isinstance(snapshot, dict) else 0.0,
+        "track_count": len(tracks),
+    }
+
+
+# ---------------------------------------------------------------------------
 # Render / Print to audio
 # ---------------------------------------------------------------------------
 
