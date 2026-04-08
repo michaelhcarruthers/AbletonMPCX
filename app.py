@@ -66,7 +66,6 @@ def _get_openai_client() -> OpenAI:
         _openai_client = OpenAI(api_key=api_key)
     return _openai_client
 
-
 # ---------------------------------------------------------------------------
 # Tool definitions — group-based routing to stay under OpenAI's 128-tool cap
 # ---------------------------------------------------------------------------
@@ -119,17 +118,17 @@ def _group_selector_tool() -> list[dict]:
             "function": {
                 "name": "select_tool_group",
                 "description": (
-                    "Select the tool group that best matches the user's request. "
-                    "Call this first to get access to the right set of Ableton tools.\n"
-                    "Groups:\n"
-                    "- session: tempo, time signature, snapshots, recording, project memory\n"
-                    "- mixer: track volumes, panning, sends, mute/solo, routing\n"
-                    "- clips: fire/stop clips, notes, quantize, chop, slice\n"
-                    "- devices: device parameters, batch set, morph, staging\n"
-                    "- arrangement: arrangement clips, automation, loop/punch points\n"
-                    "- performance: macros, sidechain, resampling, scenes, observers\n"
-                    "- analysis: LUFS, peak, RMS, spectrum, real-time analyzer\n"
-                    "- diagnostics: logs, audit, health checks, validation\n"
+                    "Select the tool group that best matches the user's request. 
+                    Call this first to get access to the right set of Ableton tools.
+                    Groups:
+                    - session: tempo, time signature, snapshots, recording, project memory
+                    - mixer: track volumes, panning, sends, mute/solo, routing
+                    - clips: fire/stop clips, notes, quantize, chop, slice
+                    - devices: device parameters, batch set, morph, staging
+                    - arrangement: arrangement clips, automation, loop/punch points
+                    - performance: macros, sidechain, resampling, scenes, observers
+                    - analysis: LUFS, peak, RMS, spectrum, real-time analyzer
+                    - diagnostics: logs, audit, health checks, validation
                 ),
                 "parameters": {
                     "type": "object",
@@ -145,7 +144,6 @@ def _group_selector_tool() -> list[dict]:
             },
         }
     ]
-
 
 # ---------------------------------------------------------------------------
 # System prompt
@@ -172,7 +170,6 @@ app.mount("/static", StaticFiles(directory=str(_STATIC_DIR)), name="static")
 async def index():
     return FileResponse(str(_STATIC_DIR / "index.html"))
 
-
 # ---------------------------------------------------------------------------
 # Request / response models
 # ---------------------------------------------------------------------------
@@ -196,7 +193,6 @@ class ToolCallResult(BaseModel):
 class ChatResponse(BaseModel):
     reply: str
     tool_calls: list[ToolCallResult] = []
-
 
 # ---------------------------------------------------------------------------
 # /chat endpoint
@@ -296,7 +292,6 @@ async def chat(req: ChatRequest):
             reply = msg.content or ""
             visible_calls = [t for t in executed_tool_calls if t.tool != "select_tool_group"]
             return ChatResponse(reply=reply, tool_calls=visible_calls)
-
 
 # ---------------------------------------------------------------------------
 # Entry point
