@@ -114,6 +114,36 @@ def set_track_send(track_index: int, send_index: int, value: float) -> dict:
     return _send("set_track_send", {"track_index": track_index, "send_index": send_index, "value": value})
 
 @mcp.tool()
+def set_track_send_batch(
+    updates: list[dict],
+) -> dict:
+    """
+    Set send levels on multiple tracks in a single round trip.
+
+    Much more efficient than calling set_track_send() per track.
+    All changes are applied in the same main-thread call.
+
+    Each update dict requires:
+        track_index (int): track to update
+        send_index (int): send slot index (0-based)
+        value (float): send level 0.0–1.0
+
+    Example:
+        set_track_send_batch([
+            {"track_index": 0, "send_index": 0, "value": 0.6},
+            {"track_index": 1, "send_index": 0, "value": 0.4},
+            {"track_index": 2, "send_index": 0, "value": 0.0},
+            {"track_index": 3, "send_index": 1, "value": 0.3},
+        ])
+
+    Returns:
+        applied: int (number of sends set)
+        errors: list of {track_index, send_index, error}
+    """
+    return _send("set_track_send_batch", {"updates": updates})
+
+
+@mcp.tool()
 def stop_track_clips(track_index: int) -> dict:
     """Stop all clips on the track at track_index."""
     return _send("stop_track_clips", {"track_index": track_index})
