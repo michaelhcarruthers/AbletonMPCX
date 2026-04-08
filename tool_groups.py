@@ -1,16 +1,11 @@
 """
 Tool group definitions for AMCPX chat UI.
-Maps group names to the tool module names they belong to,
-so the chat UI can route requests to the right subset of tools
-without exceeding OpenAI's 128-tool limit.
+Maps group names to tool name prefixes so the chat UI can route requests
+to the right subset of tools without exceeding OpenAI's 128-tool limit.
 """
 
-# Map of group_name -> list of tool module attribute names (used to filter
-# the full MCP tool list by matching tool names against known prefixes).
 TOOL_GROUPS: dict[str, list[str]] = {
     "session": [
-        # tools/session.py, tools/session_snapshots.py,
-        # tools/session_recording.py, tools/session_suggestions.py
         "get_session", "set_session", "load_", "save_", "snapshot",
         "recall_snapshot", "diff_snapshot", "list_snapshot",
         "delete_snapshot", "capture_snapshot", "restore_snapshot",
@@ -20,7 +15,6 @@ TOOL_GROUPS: dict[str, list[str]] = {
         "get_tempo", "get_time_signature",
     ],
     "mixer": [
-        # tracks.py mixer-related
         "set_track_volume", "get_track_volume", "set_track_pan",
         "get_track_pan", "set_track_mute", "get_track_mute",
         "set_track_solo", "get_track_solo", "set_track_send",
@@ -33,7 +27,6 @@ TOOL_GROUPS: dict[str, list[str]] = {
         "get_return_tracks",
     ],
     "clips": [
-        # tools/clips.py, tools/chop.py
         "fire_clip", "stop_clip", "get_clip", "set_clip", "create_clip",
         "delete_clip", "duplicate_clip", "move_clip", "get_notes",
         "set_notes", "add_notes", "remove_notes", "get_notes_extended",
@@ -42,7 +35,6 @@ TOOL_GROUPS: dict[str, list[str]] = {
         "get_playing_clip", "list_clips", "chop_", "slice_",
     ],
     "devices": [
-        # tools/devices.py, tools/morph.py, tools/staging.py, tools/reference.py
         "get_device", "set_device", "get_devices", "add_device",
         "delete_device", "set_device_parameter", "get_device_parameter",
         "set_device_parameters_batch", "perform_device_parameter_moves",
@@ -52,7 +44,6 @@ TOOL_GROUPS: dict[str, list[str]] = {
         "get_reference", "delete_reference",
     ],
     "arrangement": [
-        # tools/arrangement_bridge.py
         "get_arrangement", "set_arrangement", "create_arrangement_clip",
         "delete_arrangement_clip", "move_arrangement_clip",
         "get_arrangement_automation", "set_arrangement_automation",
@@ -61,22 +52,19 @@ TOOL_GROUPS: dict[str, list[str]] = {
         "set_punch_", "get_punch_",
     ],
     "performance": [
-        # tools/performance.py, tools/observer_bridge.py
         "perform_macro", "perform_macro_live", "setup_sidechain",
         "teardown_sidechain", "setup_resampling", "teardown_resampling",
         "get_observer", "set_observer", "subscribe_", "unsubscribe_",
         "fire_scene", "stop_all_clips", "jump_to_", "set_follow_action",
     ],
     "analysis": [
-        # tools/analysis.py, tools/realtime_analyzer.py, tools/spectrum.py
         "analyze_", "get_lufs", "get_peak", "get_rms", "get_spectrum",
         "start_analyzer", "stop_analyzer", "get_analyzer",
         "measure_", "detect_", "estimate_",
     ],
     "diagnostics": [
-        # tools/diagnostics.py, tools/audit.py
         "get_log", "get_operation_log", "get_audit", "run_diagnostic",
         "check_", "validate_", "inspect_", "get_health",
-        "export_audit", "clear_log",
+        "get_session_health", "export_audit", "clear_log",
     ],
 }
