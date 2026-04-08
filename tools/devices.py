@@ -512,3 +512,70 @@ def set_device_parameters_batch(
         "clamp_values": clamp_values,
     })
 
+
+@mcp.tool()
+def perform_device_parameter_moves(
+    track_index: int,
+    device_index: int,
+    moves: list,
+    is_return_track: bool = False,
+    visual_refresh: bool = True,
+    step_ms: int = 30,
+) -> dict:
+    """
+    Animate one or more device parameters to target values over time.
+
+    Fire-and-forget: one MCP call starts the motion, all stepping happens
+    inside Live's main thread via schedule_message — no polling, no extra
+    round trips. Returns immediately while the animation runs in the background.
+
+    Args:
+        track_index: Track index (use -1 for master track).
+        device_index: Device index on the track.
+        moves: List of move dicts. Each requires:
+            parameter_index (int): parameter to move
+            target (float): destination value
+            duration_ms (float): how long the move takes in milliseconds (default 500)
+            curve (str): "linear" | "ease_in" | "ease_out" | "ease_in_out" (default "linear")
+        is_return_track: Set True to target a return track.
+        visual_refresh: If True (default), appoints the device so the plugin
+            UI updates visibly as parameters move.
+        step_ms: Milliseconds between animation steps (default 30 ≈ 33fps).
+
+    Returns:
+        dict with key:
+            moves_scheduled (int): number of moves queued
+
+    Example — sweep EQ band 2 frequency from current to 800 Hz over 1.2 seconds:
+        perform_device_parameter_moves(
+            track_index=2,
+            device_index=0,
+            moves=[
+                {
+                    "parameter_index": 5,
+                    "target": 800.0,
+                    "duration_ms": 1200,
+                    "curve": "ease_out"
+                }
+            ]
+        )
+
+    Example — slow attack/release ride while listening:
+        perform_device_parameter_moves(
+            track_index=0,
+            device_index=1,
+            moves=[
+                {"parameter_index": 3, "target": 50.0, "duration_ms": 800, "curve": "ease_in_out"},
+                {"parameter_index": 4, "target": 200.0, "duration_ms": 800, "curve": "ease_in_out"},
+            ]
+        )
+    """
+    return _send("perform_device_parameter_moves", {
+        "track_index": track_index,
+        "device_index": device_index,
+        "moves": moves,
+        "is_return_track": is_return_track,
+        "visual_refresh": visual_refresh,
+        "step_ms": step_ms,
+    })
+

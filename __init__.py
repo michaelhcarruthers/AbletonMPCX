@@ -2083,6 +2083,99 @@ class AbletonMPCX(ControlSurface):
 
         return self._run_on_main_thread(fn)
 
+    def _cmd_perform_device_parameter_moves(self, params):
+        """
+        Animate one or more device parameters to target values over time.
+        Fire-and-forget: one MCP call, all stepping happens inside Live via
+        schedule_message — no extra round trips required.
+        """
+        track_index = int(params["track_index"])
+        device_index = int(params["device_index"])
+        moves = params["moves"]  # list of {parameter_index, target, duration_ms, curve}
+        is_return_track = bool(params.get("is_return_track", False))
+        visual_refresh = bool(params.get("visual_refresh", True))
+        step_ms = int(params.get("step_ms", 30))
+
+        def fn():
+            track = self._resolve_track(track_index, is_return_track)
+            device = list(track.devices)[device_index]
+            param_list = list(device.parameters)
+
+            if visual_refresh:
+                self._song.appointed_device = device
+                self.application().view.show_view("Detail/DeviceChain")
+
+            move_plans = []
+            for move in moves:
+                idx = int(move["parameter_index"])
+                target = float(move["target"])
+                duration_ms = float(move.get("duration_ms", 500))
+                curve = str(move.get("curve", "linear"))
+
+                if idx < 0 or idx >= len(param_list):
+                    continue
+                param = param_list[idx]
+                start_val = param.value
+                target_val = max(param.min, min(param.max, target))
+                steps = max(1, int(duration_ms / step_ms))
+
+                move_plans.append({
+                    "param": param,
+                    "start_val": start_val,
+                    "target_val": target_val,
+                    "steps": steps,
+                    "curve": curve,
+                    "current_step": 0,
+                })
+
+            if move_plans:
+                self._schedule_move_tick(move_plans, step_ms)
+
+            return len(move_plans)
+
+        moves_scheduled = self._run_on_main_thread(fn)
+        return {"moves_scheduled": moves_scheduled}
+
+    def _schedule_move_tick(self, move_plans, step_ms):
+        """Schedule the next animation tick for all active moves."""
+        def tick():
+            still_active = []
+            for plan in move_plans:
+                plan["current_step"] += 1
+                i = plan["current_step"]
+                steps = plan["steps"]
+                t = i / steps
+
+                # Apply curve
+                curve = plan["curve"]
+                if curve == "ease_out":
+                    t = 1.0 - (1.0 - t) ** 2
+                elif curve == "ease_in":
+                    t = t ** 2
+                elif curve == "ease_in_out":
+                    if t < 0.5:
+                        t = 2.0 * t * t
+                    else:
+                        t = 1.0 - (-2.0 * t + 2.0) ** 2 / 2.0
+                # else: linear — t unchanged
+
+                val = plan["start_val"] + (plan["target_val"] - plan["start_val"]) * t
+                param = plan["param"]
+                val = max(param.min, min(param.max, val))
+                try:
+                    param.value = val
+                except Exception:
+                    pass  # parameter may have become invalid; skip silently
+
+                if i < steps:
+                    still_active.append(plan)
+
+            if still_active:
+                # schedule_message delay is in milliseconds
+                self.schedule_message(step_ms, lambda sa=still_active, sm=step_ms: self._schedule_move_tick(sa, sm))
+
+        tick()
+
     def _cmd_set_device_parameter_human(self, params):
         """
         Set a device parameter using human-readable units.
