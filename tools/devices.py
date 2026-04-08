@@ -579,3 +579,42 @@ def perform_device_parameter_moves(
         "step_ms": step_ms,
     })
 
+
+@mcp.tool()
+def randomize_device_parameters(
+    track_index: int,
+    device_index: int,
+    parameter_indices: list[int] | None = None,
+    min_value: float = 0.0,
+    max_value: float = 1.0,
+    seed: int | None = None,
+    is_return_track: bool = False,
+) -> dict:
+    """
+    Randomize device parameters within a specified range.
+
+    Args:
+        track_index: Track index (use -1 for master track).
+        device_index: Device index on the track.
+        parameter_indices: List of parameter indices to randomize. If None, randomizes all.
+        min_value: Minimum normalised value (0.0-1.0, default 0.0).
+        max_value: Maximum normalised value (0.0-1.0, default 1.0).
+        seed: Optional random seed for reproducible results.
+        is_return_track: Set True to target a return track.
+
+    Returns:
+        device: str — device name
+        randomized: list of {parameter_index, name, previous_value, new_value}
+        seed_used: int or null
+    """
+    return _send("randomize_device_parameters", {
+        "track_index": track_index,
+        "device_index": device_index,
+        "parameter_indices": parameter_indices,
+        "min_value": min_value,
+        "max_value": max_value,
+        "seed": seed,
+        "is_return_track": is_return_track,
+    })
+
+

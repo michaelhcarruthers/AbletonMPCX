@@ -1,6 +1,12 @@
 """Session tools — song, transport, project memory, snapshots, auto-naming, session collaborator, and contextual suggestion tools."""
 from __future__ import annotations
 
+# AGENT WORKFLOW NOTE:
+# Use get_session_diff() as the default monitoring call during active sessions.
+# Only call get_session_snapshot() or get_full_session_state() for initial
+# orientation or after major structural changes. get_session_diff() is token-efficient
+# and returns only what changed since the last snapshot.
+
 import collections
 import copy
 import datetime
