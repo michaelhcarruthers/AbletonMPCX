@@ -1,11 +1,12 @@
 /**
  * amcpx_analyzer_server.js
  * Node for Max — AMCPX Analyzer TCP server
- * Runs inside node.script in AMCPX_Analyzer.maxpat
  *
- * Receives peak/RMS metering data from live.meter~ via Max handlers,
- * maintains rolling LUFS approximations, and exposes measurements over TCP.
+ * Receives named meter messages from Max:
+ *   meter_peak <db>
+ *   meter_rms <db>
  *
+ * Opens a TCP server on port 9880 using Node's built-in net module.
  * Protocol: 4-byte big-endian length prefix + UTF-8 JSON body
  */
 
@@ -13,12 +14,12 @@ const maxApi = require("max-api");
 const net = require("net");
 
 const PORT = 9880;
-const VERSION = "1.0.0";
+const VERSION = "1.1.0";
 const MAX_MESSAGE_SIZE_BYTES = 10 * 1024 * 1024;
 
-// live.meter~ outputs at ~10 Hz (interval 100 ms)
-const LUFS_SHORT_WINDOW = 30;       // 3-second short-term window  (30 × 100 ms)
-const LUFS_INTEGRATED_WINDOW = 400; // ~40-second integrated window (400 × 100 ms)
+const LUFS_SHORT_WINDOW = 30;
+const LUFS_INTEGRATED_WINDOW = 400;
+const CLIP_THRESHOLD_DB = 0;
 
 maxApi.post(`AMCPX Analyzer starting on port ${PORT}...`);
 
@@ -31,84 +32,76 @@ const measurements = {
     rms_db: -Infinity,
     lufs_short: -Infinity,
     lufs_integrated: -Infinity,
-    crest_factor_db: 0,
+    crest_factor_db: -Infinity,
     clip_count: 0,
     last_updated: null,
-    measuring: false,
+    measuring: true, // default on, since the Max patch metro starts automatically
 };
 
-const rmsBuffer = [];        // rolling RMS values — LUFS short-term window
-const intBuffer = [];        // rolling RMS values — LUFS integrated window
+const rmsBuffer = [];
+let lastPeakWasClipping = false;
 
 function resetMeasurements() {
     measurements.peak_db = -Infinity;
     measurements.rms_db = -Infinity;
     measurements.lufs_short = -Infinity;
     measurements.lufs_integrated = -Infinity;
-    measurements.crest_factor_db = 0;
+    measurements.crest_factor_db = -Infinity;
     measurements.clip_count = 0;
     measurements.last_updated = null;
-    measurements.measuring = false;
     rmsBuffer.length = 0;
-    intBuffer.length = 0;
+    lastPeakWasClipping = false;
+    // Note: measuring flag is intentionally preserved across reset so that
+    // clearing data does not interrupt an active measurement session.
+}
+
+function safeNum(val) {
+    return Number.isFinite(val) ? val : null;
+}
+
+function stampUpdated() {
+    measurements.last_updated = new Date().toISOString();
+}
+
+function updateCrestFactor() {
+    if (Number.isFinite(measurements.peak_db) && Number.isFinite(measurements.rms_db)) {
+        measurements.crest_factor_db = measurements.peak_db - measurements.rms_db;
+    } else {
+        measurements.crest_factor_db = -Infinity;
+    }
 }
 
 function updateLufs(rmsDb) {
+    if (!Number.isFinite(rmsDb)) return;
+
     rmsBuffer.push(rmsDb);
-    if (rmsBuffer.length > LUFS_SHORT_WINDOW) rmsBuffer.shift();
+    if (rmsBuffer.length > LUFS_INTEGRATED_WINDOW) rmsBuffer.shift();
 
-    intBuffer.push(rmsDb);
-    if (intBuffer.length > LUFS_INTEGRATED_WINDOW) intBuffer.shift();
+    const shortSlice = rmsBuffer.slice(-LUFS_SHORT_WINDOW);
 
-    // Convert each dB value to linear power, average across the window, then
-    // convert back to dB — this gives an RMS-based LUFS approximation.
-    const shortPower = rmsBuffer.reduce((s, db) => s + Math.pow(10, db / 10), 0) / rmsBuffer.length;
-    measurements.lufs_short = 10 * Math.log10(shortPower);
+    if (shortSlice.length > 0) {
+        const shortPower =
+            shortSlice.reduce((sum, db) => sum + Math.pow(10, db / 10), 0) / shortSlice.length;
+        measurements.lufs_short = shortPower > 0 ? 10 * Math.log10(shortPower) : -Infinity;
+    } else {
+        measurements.lufs_short = -Infinity;
+    }
 
-    const intPower = intBuffer.reduce((s, db) => s + Math.pow(10, db / 10), 0) / intBuffer.length;
-    measurements.lufs_integrated = 10 * Math.log10(intPower);
+    if (rmsBuffer.length > 0) {
+        const intPower =
+            rmsBuffer.reduce((sum, db) => sum + Math.pow(10, db / 10), 0) / rmsBuffer.length;
+        measurements.lufs_integrated = intPower > 0 ? 10 * Math.log10(intPower) : -Infinity;
+    } else {
+        measurements.lufs_integrated = -Infinity;
+    }
 }
 
-// ---------------------------------------------------------------------------
-// Max handlers — receive metering data from live.meter~ (via prepend objects)
-// ---------------------------------------------------------------------------
-
-maxApi.addHandler("meter_peak", (peakDb) => {
-    const val = parseFloat(peakDb);
-    if (!isFinite(val)) return;
-
-    measurements.peak_db = isFinite(measurements.peak_db) ? Math.max(measurements.peak_db, val) : val;
-    measurements.last_updated = new Date().toISOString();
-
-    if (val >= 0) {
-        measurements.clip_count++;
+function updateClipCount(peakDb) {
+    const isClipping = Number.isFinite(peakDb) && peakDb >= CLIP_THRESHOLD_DB;
+    if (isClipping && !lastPeakWasClipping) {
+        measurements.clip_count += 1;
     }
-
-    if (isFinite(measurements.rms_db)) {
-        measurements.crest_factor_db = measurements.peak_db - measurements.rms_db;
-    }
-});
-
-maxApi.addHandler("meter_rms", (rmsDb) => {
-    const val = parseFloat(rmsDb);
-    if (!isFinite(val)) return;
-
-    measurements.rms_db = val;
-    measurements.last_updated = new Date().toISOString();
-
-    if (isFinite(measurements.peak_db)) {
-        measurements.crest_factor_db = measurements.peak_db - measurements.rms_db;
-    }
-
-    updateLufs(val);
-});
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-function safeNum(val) {
-    return isFinite(val) ? val : null;
+    lastPeakWasClipping = isClipping;
 }
 
 function getMeasurementsForJson() {
@@ -123,6 +116,50 @@ function getMeasurementsForJson() {
         measuring: measurements.measuring,
     };
 }
+
+// ---------------------------------------------------------------------------
+// Max message handlers
+// ---------------------------------------------------------------------------
+
+maxApi.addHandler("meter_peak", (...args) => {
+    const val = Number(args[0]);
+
+    if (!Number.isFinite(val)) {
+        maxApi.post(`AMCPX Analyzer: invalid meter_peak payload: ${JSON.stringify(args)}`);
+        return;
+    }
+
+    if (!measurements.measuring) return;
+
+    measurements.peak_db = val;
+    updateClipCount(val);
+    updateCrestFactor();
+    stampUpdated();
+});
+
+maxApi.addHandler("meter_rms", (...args) => {
+    const val = Number(args[0]);
+
+    if (!Number.isFinite(val)) {
+        maxApi.post(`AMCPX Analyzer: invalid meter_rms payload: ${JSON.stringify(args)}`);
+        return;
+    }
+
+    if (!measurements.measuring) return;
+
+    measurements.rms_db = val;
+    updateLufs(val);
+    updateCrestFactor();
+    stampUpdated();
+});
+
+maxApi.addHandler("debug_state", () => {
+    maxApi.post(`AMCPX Analyzer state: ${JSON.stringify(getMeasurementsForJson())}`);
+});
+
+maxApi.addHandler("debug_handlers", () => {
+    maxApi.post("AMCPX Analyzer: handlers loaded for meter_peak, meter_rms, debug_state, debug_handlers");
+});
 
 // ---------------------------------------------------------------------------
 // Command handlers
@@ -157,14 +194,18 @@ async function handleCommand(command) {
 
         case "reset":
             resetMeasurements();
-            return { reset: true };
+            return { reset: true, measuring: measurements.measuring };
 
         case "start_measuring":
             measurements.measuring = true;
+            maxApi.outlet("set_measuring", 1);
+            stampUpdated();
             return { measuring: true };
 
         case "stop_measuring":
             measurements.measuring = false;
+            maxApi.outlet("set_measuring", 0);
+            stampUpdated();
             return getMeasurementsForJson();
 
         default:
@@ -173,7 +214,7 @@ async function handleCommand(command) {
 }
 
 // ---------------------------------------------------------------------------
-// TCP Server — stream buffering approach (same as amcpx_node_server.js)
+// TCP Server
 // ---------------------------------------------------------------------------
 
 let server = null;
@@ -211,7 +252,10 @@ function handleConnection(socket) {
                 try {
                     request = JSON.parse(jsonStr);
                 } catch (e) {
-                    const errResp = JSON.stringify({ status: "error", error: `Invalid JSON: ${e.message}` });
+                    const errResp = JSON.stringify({
+                        status: "error",
+                        error: `Invalid JSON: ${e.message}`,
+                    });
                     sendResponse(socket, errResp);
                     continue;
                 }
@@ -236,7 +280,9 @@ function handleConnection(socket) {
 
     socket.on("data", (chunk) => {
         buf = Buffer.concat([buf, chunk]);
-        processBuffer().catch(err => maxApi.post(`AMCPX Analyzer: processBuffer error: ${err.message}`));
+        processBuffer().catch((err) => {
+            maxApi.post(`AMCPX Analyzer: processBuffer error: ${err.message}`);
+        });
     });
 
     socket.on("error", (err) => {
