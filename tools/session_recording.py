@@ -13,6 +13,10 @@ from helpers import (
     _send,
 )
 
+# Extra seconds added to the recording duration to ensure playback is fully
+# stopped after all clips have finished playing.
+_RECORDING_STOP_BUFFER_SECONDS = 0.5
+
 
 # ---------------------------------------------------------------------------
 # Resampling routing
@@ -444,3 +448,300 @@ def render_track_to_audio(
     if warnings:
         result["warnings"] = warnings
     return result
+
+
+# ---------------------------------------------------------------------------
+# Sidechain routing (Kickstart 2 / any sidechain-capable plugin)
+# ---------------------------------------------------------------------------
+
+@mcp.tool()
+def setup_sidechain_route(
+    source_track_index: int,
+    dest_track_index: int,
+    dest_device_index: int | None = None,
+    sidechain_amount_param_index: int | None = None,
+    sidechain_amount: float | None = None,
+) -> dict:
+    """
+    Automate Kickstart 2 (or any sidechain-capable plugin) sidechain setup.
+
+    Routes the Post FX output of the source track (e.g. kick) into the
+    destination track's input and sets Monitor to "In", so that a plugin
+    like Kickstart 2 on the destination track receives the kick signal as its
+    sidechain trigger.
+
+    Optionally sets a sidechain duck-amount parameter on the destination
+    device in the same call.
+
+    Workflow:
+    1. Look up the source track name via get_tracks.
+    2. Call setup_resampling_route (Post FX routing + Monitor In) from the
+       Remote Script, routing source → dest.
+    3. If dest_device_index, sidechain_amount_param_index, and
+       sidechain_amount are all supplied, set that parameter value.
+
+    Args:
+        source_track_index: Index of the kick (or any source) track.
+        dest_track_index: Index of the bass (or destination) track where the
+            sidechain plugin lives.
+        dest_device_index: Device index on the dest track for setting the
+            sidechain amount parameter (optional).
+        sidechain_amount_param_index: Parameter index on the sidechain plugin
+            that controls the duck amount (optional).
+        sidechain_amount: Normalized value 0.0–1.0 to set for the duck amount
+            parameter (optional). Only applied when dest_device_index and
+            sidechain_amount_param_index are also provided.
+
+    Returns:
+        source_track_index, source_track_name, dest_track_index,
+        routing_result (Remote Script response), parameter_set (bool),
+        instructions (human-readable summary)
+    """
+    try:
+        tracks = _send("get_tracks")
+    except RuntimeError as e:
+        return {"error": "Could not get tracks: {}".format(e)}
+
+    source_track = next(
+        (t for t in tracks if t.get("index", t.get("track_index")) == source_track_index),
+        None,
+    )
+    if source_track is None:
+        return {"error": "Source track index {} not found.".format(source_track_index)}
+
+    source_track_name = source_track.get("name", "Track {}".format(source_track_index + 1))
+
+    try:
+        routing_result = _send("setup_resampling_route", {
+            "dest_track_index": dest_track_index,
+            "source_track_name": source_track_name,
+        })
+    except RuntimeError as e:
+        return {"error": "Could not set up sidechain route: {}".format(e)}
+
+    parameter_set = False
+    parameter_error: str | None = None
+    if dest_device_index is not None and sidechain_amount_param_index is not None and sidechain_amount is not None:
+        try:
+            _send("set_device_parameter", {
+                "track_index": dest_track_index,
+                "device_index": dest_device_index,
+                "parameter_index": sidechain_amount_param_index,
+                "value": float(sidechain_amount),
+            })
+            parameter_set = True
+        except RuntimeError as e:
+            parameter_error = "Could not set sidechain amount parameter: {}".format(e)
+
+    instructions = (
+        "Sidechain route configured: '{}' (index {}) → track index {}. "
+        "Monitor is set to 'In' so the plugin receives the source signal. "
+        "Call teardown_sidechain_route({}) to reset routing when done.".format(
+            source_track_name, source_track_index, dest_track_index, dest_track_index
+        )
+    )
+
+    result: dict[str, Any] = {
+        "source_track_index": source_track_index,
+        "source_track_name": source_track_name,
+        "dest_track_index": dest_track_index,
+        "routing_result": routing_result,
+        "parameter_set": parameter_set,
+        "instructions": instructions,
+    }
+    if parameter_error:
+        result["parameter_error"] = parameter_error
+    return result
+
+
+@mcp.tool()
+def teardown_sidechain_route(dest_track_index: int) -> dict:
+    """
+    Reset arm and monitoring state on the sidechain destination track.
+
+    Reverses the routing set up by setup_sidechain_route by calling the
+    Remote Script's teardown_resampling_route command, which disarms the
+    destination track and resets its monitoring state to Auto.
+
+    Args:
+        dest_track_index: The destination track to reset.
+
+    Returns:
+        dest_track_index, teardown_result (Remote Script response)
+    """
+    try:
+        teardown_result = _send("teardown_resampling_route", {
+            "dest_track_index": dest_track_index,
+        })
+    except RuntimeError as e:
+        return {"error": "Could not teardown sidechain route: {}".format(e)}
+
+    return {
+        "dest_track_index": dest_track_index,
+        "teardown_result": teardown_result,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Session → Arrangement dump
+# ---------------------------------------------------------------------------
+
+@mcp.tool()
+def dump_session_to_arrangement(
+    slot_index: int = 0,
+    track_indices: list[int] | None = None,
+    stop_after_beats: float | None = None,
+    time_signature_numerator: int = 4,
+    disarm_after: bool = True,
+    reset_metronome: bool = True,
+) -> dict:
+    """
+    Fire all clips from a session scene slot and record them to the Arrangement.
+
+    All clips start at bar 1 (beat 0) in the Arrangement.  A background thread
+    automatically stops recording and cleans up after the longest clip finishes.
+
+    Workflow:
+    1. Determine which tracks have a clip at slot_index (or use track_indices).
+    2. Calculate the longest clip length to set the stop time.
+    3. Arm all target tracks.
+    4. Move playhead to beat 0 (bar 1).
+    5. Enable Arrangement record mode.
+    6. Stop any currently playing clips.
+    7. Fire all target clips simultaneously.
+    8. Start Arrangement playback.
+    9. A background thread stops playback, disables record mode, and optionally
+       disarms tracks and turns off the metronome after the clips finish.
+
+    Args:
+        slot_index: Which session row (scene slot) to fire. Default 0 = first
+            scene.
+        track_indices: Which tracks to include. None = all tracks that have a
+            clip at slot_index.
+        stop_after_beats: Override stop time in beats. If None, auto-calculated
+            from the longest clip in the target slot.
+        time_signature_numerator: Beats per bar, used only for the default
+            fallback stop time. Default 4.
+        disarm_after: If True (default), disarm all target tracks after
+            recording stops.
+        reset_metronome: If True (default), turn off the metronome after
+            recording stops.
+
+    Returns:
+        status ("recording_started"), slot_index, tracks_firing, track_count,
+        stop_after_beats, duration_seconds, tempo, note
+    """
+    # 1. Get song info for tempo
+    try:
+        song_info = _send("get_song_info")
+    except RuntimeError as e:
+        return {"error": "Could not get song info: {}".format(e)}
+
+    tempo = float(song_info.get("tempo", 120.0))
+
+    # 2. Get all tracks
+    try:
+        tracks = _send("get_tracks")
+    except RuntimeError as e:
+        return {"error": "Could not get tracks: {}".format(e)}
+
+    # 3. Determine which tracks have a clip at slot_index
+    if track_indices is None:
+        track_indices = []
+        for t in tracks:
+            ti = t.get("index", t.get("track_index", 0))
+            try:
+                _send("get_clip_info", {"track_index": ti, "slot_index": slot_index})
+                track_indices.append(ti)
+            except RuntimeError:
+                pass  # no clip there
+
+    if not track_indices:
+        return {"error": "No clips found at slot_index {}".format(slot_index)}
+
+    # 4. Calculate longest clip length
+    if stop_after_beats is None:
+        longest = 0.0
+        for ti in track_indices:
+            try:
+                clip_info = _send("get_clip_info", {"track_index": ti, "slot_index": slot_index})
+                length = float(clip_info.get("length", 0.0))
+                if length > longest:
+                    longest = length
+            except RuntimeError:
+                pass
+        stop_after_beats = longest if longest > 0 else float(time_signature_numerator * 8)
+
+    duration_seconds = (stop_after_beats / tempo) * 60.0
+
+    # 5. Arm all target tracks
+    for ti in track_indices:
+        try:
+            _send("set_track_arm", {"track_index": ti, "arm": True})
+        except RuntimeError:
+            pass
+
+    # 6. Reset playhead to beat 0 (bar 1)
+    _send("set_arrangement_position", {"position": 0.0})
+
+    # 7. Enable arrangement record mode
+    _send("set_record_mode", {"record_mode": True})
+
+    # 8. Stop any currently playing clips
+    try:
+        _send("stop_all_clips", {"quantized": 0})
+    except RuntimeError:
+        pass
+
+    # 9. Fire all target clips simultaneously
+    for ti in track_indices:
+        try:
+            _send("fire_clip_slot", {"track_index": ti, "slot_index": slot_index})
+        except RuntimeError:
+            pass
+
+    # 10. Start arrangement playback from beat 0.  The position is set again here
+    #     because firing clips (step 9) can shift the playhead on some Live versions.
+    _send("set_arrangement_position", {"position": 0.0})
+    _send("start_playing")
+
+    # 11. Launch background thread to stop after duration
+    _track_indices_copy = list(track_indices)
+
+    def _stop_after_delay():
+        time.sleep(duration_seconds + _RECORDING_STOP_BUFFER_SECONDS)
+        try:
+            _send("stop_playing")
+        except RuntimeError:
+            pass
+        try:
+            _send("set_record_mode", {"record_mode": False})
+        except RuntimeError:
+            pass
+        if disarm_after:
+            for ti in _track_indices_copy:
+                try:
+                    _send("set_track_arm", {"track_index": ti, "arm": False})
+                except RuntimeError:
+                    pass
+        if reset_metronome:
+            try:
+                _send("set_metronome", {"metronome": False})
+            except RuntimeError:
+                pass
+
+    t = threading.Thread(target=_stop_after_delay, daemon=True)
+    t.start()
+
+    return {
+        "status": "recording_started",
+        "slot_index": slot_index,
+        "tracks_firing": track_indices,
+        "track_count": len(track_indices),
+        "stop_after_beats": stop_after_beats,
+        "duration_seconds": round(duration_seconds, 2),
+        "tempo": tempo,
+        "note": "Recording will stop automatically after {:.1f} seconds. All clips start at bar 1.".format(
+            duration_seconds + _RECORDING_STOP_BUFFER_SECONDS
+        ),
+    }
