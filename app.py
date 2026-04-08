@@ -23,6 +23,8 @@ import os
 from pathlib import Path
 from typing import Any
 
+from tool_groups import TOOL_GROUPS
+
 from dotenv import load_dotenv
 from fastapi import FastAPI
 from fastapi.responses import FileResponse, JSONResponse
@@ -72,9 +74,17 @@ def _get_openai_client() -> OpenAI:
 # Build OpenAI tool definitions from the FastMCP instance
 # ---------------------------------------------------------------------------
 
-async def _get_tool_definitions() -> list[dict]:
-    """Convert FastMCP tool list to OpenAI function-calling format."""
-    tools_list = await mcp.list_tools()
+_all_tools_cache: list[Any] | None = None
+
+
+async def _get_all_tools_cached():
+    global _all_tools_cache
+    if _all_tools_cache is None:
+        _all_tools_cache = await mcp.list_tools()
+    return _all_tools_cache
+
+
+def _tools_to_openai_format(tools_list) -> list[dict]:
     definitions = []
     for tool in tools_list:
         # Strip the wrapping title key that FastMCP adds; OpenAI wants a plain
@@ -90,6 +100,55 @@ async def _get_tool_definitions() -> list[dict]:
             },
         })
     return definitions
+
+
+async def _get_tool_definitions_for_group(group: str) -> list[dict]:
+    all_tools = await _get_all_tools_cached()
+    prefixes = TOOL_GROUPS.get(group, [])
+    filtered = [
+        t for t in all_tools
+        if any(t.name == p or t.name.startswith(p) for p in prefixes)
+    ]
+    # Safety fallback: if the group matched nothing, return first 120 tools
+    # (120 leaves headroom below OpenAI's hard 128-tool limit)
+    if not filtered:
+        filtered = all_tools[:120]
+    # Safety cap: never exceed OpenAI's 128-tool limit
+    filtered = filtered[:128]
+    return _tools_to_openai_format(filtered)
+
+
+def _group_selector_tool() -> list[dict]:
+    return [{
+        "type": "function",
+        "function": {
+            "name": "select_tool_group",
+            "description": (
+                "Select the tool group that best matches the user's request. "
+                "Call this first to get access to the right set of Ableton tools.\n"
+                "Groups:\n"
+                "- session: tempo, time signature, snapshots, recording, project memory\n"
+                "- mixer: track volumes, panning, sends, mute/solo, routing\n"
+                "- clips: fire/stop clips, notes, quantize, chop, slice\n"
+                "- devices: device parameters, batch set, morph, staging\n"
+                "- arrangement: arrangement clips, automation, loop/punch points\n"
+                "- performance: macros, sidechain, resampling, scenes, observers\n"
+                "- analysis: LUFS, peak, RMS, spectrum, real-time analyzer\n"
+                "- diagnostics: logs, audit, health checks, validation\n"
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "group": {
+                        "type": "string",
+                        "enum": list(TOOL_GROUPS.keys()),
+                        "description": "The tool group to load."
+                    }
+                },
+                "required": ["group"],
+            },
+        },
+    }]
 
 
 # ---------------------------------------------------------------------------
@@ -180,9 +239,7 @@ async def _execute_tool(name: str, args: dict) -> str:
 @app.post("/chat", response_model=ChatResponse)
 async def chat(req: ChatRequest):
     client = _get_openai_client()
-    tool_definitions = await _get_tool_definitions()
 
-    # Build the messages array
     messages: list[dict[str, Any]] = [{"role": "system", "content": SYSTEM_PROMPT}]
     for msg in req.history:
         messages.append({"role": msg.role, "content": msg.content})
@@ -190,7 +247,35 @@ async def chat(req: ChatRequest):
 
     executed_tool_calls: list[ToolCallResult] = []
 
-    # Agentic loop — keep going until the model stops calling tools
+    # --- Phase 1: group selection ---
+    response = client.chat.completions.create(
+        model="gpt-4o",
+        messages=messages,
+        tools=_group_selector_tool(),
+        tool_choice={"type": "function", "function": {"name": "select_tool_group"}},
+    )
+    choice = response.choices[0]
+    msg = choice.message
+    messages.append(msg.model_dump(exclude_none=True))
+
+    selected_group = "session"  # sensible default
+    if msg.tool_calls:
+        tc = msg.tool_calls[0]
+        try:
+            args = json.loads(tc.function.arguments)
+            selected_group = args.get("group", "session")
+        except Exception:
+            pass
+        # Feed the group selection result back
+        messages.append({
+            "role": "tool",
+            "tool_call_id": tc.id,
+            "content": f"Tool group '{selected_group}' loaded. You now have access to its tools.",
+        })
+
+    # --- Phase 2+: agentic tool execution loop with selected group's tools ---
+    tool_definitions = await _get_tool_definitions_for_group(selected_group)
+
     while True:
         response = client.chat.completions.create(
             model="gpt-4o",
@@ -198,15 +283,11 @@ async def chat(req: ChatRequest):
             tools=tool_definitions if tool_definitions else None,
             tool_choice="auto" if tool_definitions else None,
         )
-
         choice = response.choices[0]
         msg = choice.message
-
-        # Append the assistant turn to the running messages list
         messages.append(msg.model_dump(exclude_none=True))
 
         if choice.finish_reason == "tool_calls" and msg.tool_calls:
-            # Execute each tool call and feed results back
             for tc in msg.tool_calls:
                 fn = tc.function
                 try:
@@ -215,19 +296,21 @@ async def chat(req: ChatRequest):
                     args = {}
 
                 result_str = await _execute_tool(fn.name, args)
-
                 executed_tool_calls.append(
                     ToolCallResult(tool=fn.name, args=args, result=result_str)
                 )
-
                 messages.append({
                     "role": "tool",
                     "tool_call_id": tc.id,
                     "content": result_str,
                 })
         else:
-            # Model is done — extract final text reply
             reply = msg.content or ""
+            # Defensive filter: ensure the internal routing call is never
+            # surfaced in the UI even if future refactoring routes it here.
+            executed_tool_calls = [
+                t for t in executed_tool_calls if t.tool != "select_tool_group"
+            ]
             return ChatResponse(reply=reply, tool_calls=executed_tool_calls)
 
 
