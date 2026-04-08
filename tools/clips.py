@@ -92,6 +92,23 @@ def set_clip_color(track_index: int, slot_index: int, color: int) -> dict:
     """Set the clip color as an RGB integer (0x00rrggbb)."""
     return _send("set_clip_color", {"track_index": track_index, "slot_index": slot_index, "color": color})
 
+
+@mcp.tool()
+def set_clip_color_batch(updates: list) -> dict:
+    """
+    Set the color of multiple clips in a single round trip.
+
+    Each update dict requires:
+        track_index (int)
+        slot_index (int)
+        color (int): RGB color as integer (0x00rrggbb)
+
+    Returns:
+        applied: int
+        errors: list of {track_index, slot_index, error}
+    """
+    return _send("set_clip_color_batch", {"updates": updates})
+
 @mcp.tool()
 def set_clip_loop(track_index: int, slot_index: int, looping: bool | None = None, loop_start: float | None = None, loop_end: float | None = None) -> dict:
     """Set loop state and/or loop start/end (in beats) for the clip."""

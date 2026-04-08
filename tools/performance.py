@@ -1025,4 +1025,140 @@ def set_macro_intensity(
     }
 
 
+@mcp.tool()
+def perform_macro_live(
+    track_index: int,
+    macro_name: str,
+    duration_ms: float = 2000.0,
+    intensity: float = 1.0,
+    curve: str = "ease_in_out",
+) -> dict:
+    """
+    Animate a named performance macro on a track in real time — no automation written.
+
+    Uses perform_device_parameter_moves() (fire-and-forget) to sweep all macro
+    parameters from their start-curve values to their end-curve values over
+    duration_ms milliseconds. Returns immediately while the animation runs inside
+    Live's main thread.
+
+    Unlike perform_macro() (which writes arrangement automation), this is for
+    live session performance — no arrangement clips are touched.
+
+    Args:
+        track_index: Track to apply to.
+        macro_name: Macro name (see list_macro_definitions()).
+        duration_ms: Total duration of the sweep in milliseconds (default 2000).
+        intensity: Scales end values (0.0–1.0, default 1.0).
+        curve: Animation curve for all moves — "linear", "ease_in", "ease_out",
+               "ease_in_out" (default "ease_in_out").
+
+    Returns:
+        macro_name, track_index, duration_ms, intensity,
+        moves_scheduled: int,
+        skipped: list of {device, param, reason}
+    """
+    if macro_name not in _MACRO_DEFINITIONS:
+        raise ValueError(
+            "Unknown macro '{}'. Available: {}".format(macro_name, sorted(_MACRO_DEFINITIONS.keys()))
+        )
+
+    valid_curves = {"linear", "ease_in", "ease_out", "ease_in_out"}
+    if curve not in valid_curves:
+        raise ValueError("Invalid curve '{}'. Valid options: {}".format(curve, sorted(valid_curves)))
+
+    intensity = max(0.0, min(1.0, intensity))
+    steps = _MACRO_DEFINITIONS[macro_name]
+
+    try:
+        devices_result = _send("get_devices", {"track_index": track_index, "is_return_track": False})
+    except Exception as e:
+        raise RuntimeError("Could not get devices for track {}: {}".format(track_index, e))
+
+    # Group moves by device so we can call perform_device_parameter_moves once per device
+    moves_by_device: dict[int, list[dict]] = {}
+    device_map: dict[int, dict] = {}
+    skipped = []
+
+    for step in steps:
+        device_name_pattern = step["device"].lower()
+        param_name_pattern = step["param"].lower()
+
+        matched_device = None
+        for d in devices_result:
+            if device_name_pattern in d["name"].lower():
+                matched_device = d
+                break
+
+        if matched_device is None:
+            skipped.append({
+                "device": step["device"],
+                "param": step["param"],
+                "reason": "No device matching '{}' found on track {}".format(
+                    step["device"], track_index),
+            })
+            continue
+
+        try:
+            params_result = _send("get_device_parameters", {
+                "track_index": track_index,
+                "device_index": matched_device["index"],
+                "is_return_track": False,
+            })
+        except Exception as e:
+            skipped.append({
+                "device": step["device"],
+                "param": step["param"],
+                "reason": "Could not read parameters: {}".format(str(e)),
+            })
+            continue
+
+        matched_param = None
+        for p in params_result.get("parameters", []):
+            if param_name_pattern in p["name"].lower():
+                matched_param = p
+                break
+
+        if matched_param is None:
+            skipped.append({
+                "device": step["device"],
+                "param": step["param"],
+                "reason": "Parameter '{}' not found on '{}'".format(
+                    step["param"], matched_device["name"]),
+            })
+            continue
+
+        # Use the end value from the curve, scaled by intensity
+        curve_points = step["curve"]
+        end_val = curve_points[-1][1]
+        target = max(0.0, min(1.0, end_val * intensity))
+
+        dev_idx = matched_device["index"]
+        device_map[dev_idx] = matched_device
+        moves_by_device.setdefault(dev_idx, []).append({
+            "parameter_index": matched_param["index"],
+            "target": target,
+            "duration_ms": duration_ms,
+            "curve": curve,
+        })
+
+    moves_scheduled = 0
+    for dev_idx, moves in moves_by_device.items():
+        result = _send("perform_device_parameter_moves", {
+            "track_index": track_index,
+            "device_index": dev_idx,
+            "moves": moves,
+            "is_return_track": False,
+        })
+        moves_scheduled += result.get("moves_scheduled", len(moves))
+
+    return {
+        "macro_name": macro_name,
+        "track_index": track_index,
+        "duration_ms": duration_ms,
+        "intensity": intensity,
+        "moves_scheduled": moves_scheduled,
+        "skipped": skipped,
+    }
+
+
 
