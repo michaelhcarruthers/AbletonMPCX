@@ -1,8 +1,11 @@
 """Clip tools — clip slots, clips, scenes, clip notes, and automation envelopes."""
 from __future__ import annotations
 
+import logging
 import math
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 import helpers
 from helpers import mcp, _send, _send_silent
@@ -427,6 +430,12 @@ def set_clip_envelope_points(
 @mcp.tool()
 def get_notes(track_index: int, slot_index: int) -> dict:
     """Return all MIDI notes in the clip at (track_index, slot_index)."""
+    try:
+        clip_info = _send("get_clip_info", {"track_index": track_index, "slot_index": slot_index})
+        if not clip_info.get("is_midi_clip", False):
+            return {"notes": [], "note_count": 0}
+    except Exception as exc:
+        logger.debug("Could not check is_midi_clip for track %s slot %s: %s", track_index, slot_index, exc)
     return _send("get_notes", {"track_index": track_index, "slot_index": slot_index})
 
 @mcp.tool()
