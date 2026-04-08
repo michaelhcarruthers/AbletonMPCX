@@ -407,25 +407,35 @@ def render_track_to_audio(
             logger.debug("Could not disarm track during recording cleanup: %s", e2)
         return {"error": "Could not start playback: {}".format(e), "warnings": warnings}
 
-    # --- Step 8: Launch background thread to stop recording after duration ---
+    # --- Step 8: Schedule stop recording ---
+    _stop_delay = duration_seconds + _RECORDING_STOP_BUFFER_SECONDS
+    stop_method: str
+    try:
+        _send("schedule_stop_recording", {
+            "delay_seconds": _stop_delay,
+            "track_indices": [new_track_index],
+            "disable_record_mode": True,
+        })
+        stop_method = "scheduled"
+    except RuntimeError:
+        def _stop_recording_after_delay():
+            time.sleep(_stop_delay)
+            try:
+                _send("stop_playing")
+            except RuntimeError as e:
+                logger.warning("Could not stop playback after recording: %s", e)
+            try:
+                _send("set_record_mode", {"record_mode": False})
+            except RuntimeError as e:
+                logger.debug("Could not disable record mode after recording: %s", e)
+            try:
+                _send("set_track_arm", {"track_index": new_track_index, "arm": False})
+            except RuntimeError as e:
+                logger.warning("Could not disarm new track after recording: %s", e)
 
-    def _stop_recording_after_delay():
-        time.sleep(duration_seconds + 0.5)
-        try:
-            _send("stop_playing")
-        except RuntimeError as e:
-            logger.warning("Could not stop playback after recording: %s", e)
-        try:
-            _send("set_record_mode", {"record_mode": False})
-        except RuntimeError as e:
-            logger.debug("Could not disable record mode after recording: %s", e)
-        try:
-            _send("set_track_arm", {"track_index": new_track_index, "arm": False})
-        except RuntimeError as e:
-            logger.warning("Could not disarm new track after recording: %s", e)
-
-    _t = threading.Thread(target=_stop_recording_after_delay, daemon=True)
-    _t.start()
+        _t = threading.Thread(target=_stop_recording_after_delay, daemon=True)
+        _t.start()
+        stop_method = "threading_fallback"
 
     # --- Step 9–11: Return immediately; recording will stop automatically ---
     result: dict[str, Any] = {
@@ -443,7 +453,8 @@ def render_track_to_audio(
         "routing_channel_name": routing_channel_name,
         "routing_set": routing_set,
         "use_resampling": use_resampling,
-        "note": "Recording will stop automatically after {:.1f} seconds.".format(duration_seconds + 0.5),
+        "stop_method": stop_method,
+        "note": "Recording will stop automatically after {:.1f} seconds.".format(_stop_delay),
     }
     if warnings:
         result["warnings"] = warnings
@@ -705,33 +716,44 @@ def dump_session_to_arrangement(
     _send("set_arrangement_position", {"position": 0.0})
     _send("start_playing")
 
-    # 11. Launch background thread to stop after duration
+    # 11. Schedule stop after duration
     _track_indices_copy = list(track_indices)
-
-    def _stop_after_delay():
-        time.sleep(duration_seconds + _RECORDING_STOP_BUFFER_SECONDS)
-        try:
-            _send("stop_playing")
-        except RuntimeError:
-            pass
-        try:
-            _send("set_record_mode", {"record_mode": False})
-        except RuntimeError:
-            pass
-        if disarm_after:
-            for ti in _track_indices_copy:
-                try:
-                    _send("set_track_arm", {"track_index": ti, "arm": False})
-                except RuntimeError:
-                    pass
-        if reset_metronome:
+    _stop_delay = duration_seconds + _RECORDING_STOP_BUFFER_SECONDS
+    stop_method: str
+    try:
+        _send("schedule_stop_recording", {
+            "delay_seconds": _stop_delay,
+            "track_indices": _track_indices_copy if disarm_after else [],
+            "disable_record_mode": True,
+            "reset_metronome": reset_metronome,
+        })
+        stop_method = "scheduled"
+    except RuntimeError:
+        def _stop_after_delay():
+            time.sleep(_stop_delay)
             try:
-                _send("set_metronome", {"metronome": False})
+                _send("stop_playing")
             except RuntimeError:
                 pass
+            try:
+                _send("set_record_mode", {"record_mode": False})
+            except RuntimeError:
+                pass
+            if disarm_after:
+                for ti in _track_indices_copy:
+                    try:
+                        _send("set_track_arm", {"track_index": ti, "arm": False})
+                    except RuntimeError:
+                        pass
+            if reset_metronome:
+                try:
+                    _send("set_metronome", {"metronome": False})
+                except RuntimeError:
+                    pass
 
-    t = threading.Thread(target=_stop_after_delay, daemon=True)
-    t.start()
+        t = threading.Thread(target=_stop_after_delay, daemon=True)
+        t.start()
+        stop_method = "threading_fallback"
 
     return {
         "status": "recording_started",
@@ -741,7 +763,8 @@ def dump_session_to_arrangement(
         "stop_after_beats": stop_after_beats,
         "duration_seconds": round(duration_seconds, 2),
         "tempo": tempo,
+        "stop_method": stop_method,
         "note": "Recording will stop automatically after {:.1f} seconds. All clips start at bar 1.".format(
-            duration_seconds + _RECORDING_STOP_BUFFER_SECONDS
+            _stop_delay
         ),
     }
