@@ -791,6 +791,111 @@ def get_arrangement_clip_notes(
 
 
 @mcp.tool()
+def delete_arrangement_clip(track_index: int, clip_index: int) -> dict:
+    """
+    Delete a clip from the Arrangement View by track index and clip index.
+
+    Use list_arrangement_clips() first to discover track_index and clip_index values.
+
+    Args:
+        track_index: Zero-based track index.
+        clip_index: Zero-based index into the track's arrangement clips list
+                    (as returned by list_arrangement_clips()).
+
+    Returns:
+        track_index, clip_index, status ("ok")
+
+    Note:
+        If the clip cannot be deleted (Live API limitation on some versions),
+        returns an error key with a description.
+    """
+    return _send("delete_arrangement_clip", {
+        "track_index": track_index,
+        "clip_index": clip_index,
+    })
+
+
+@mcp.tool()
+def get_arrangement_automation(
+    track_index: int,
+    device_index: int | None,
+    parameter_index: int,
+    start_beat: float = 0.0,
+    end_beat: float | None = None,
+) -> dict:
+    """
+    Read automation points for a parameter in the Arrangement View.
+
+    Call get_device_parameters() first to discover parameter_index values.
+    For mixer parameters (volume, pan, sends), pass device_index=None.
+
+    Args:
+        track_index: Zero-based track index.
+        device_index: Device index on the track, or None for mixer parameters
+                      (e.g. volume, pan, sends).
+        parameter_index: Parameter index on the device (or mixer).
+        start_beat: Start of the time range to read (default 0.0 = beginning).
+        end_beat: End of the time range. None = read to end of arrangement.
+
+    Returns:
+        points: list of {time (beats), value}
+        parameter_name: str
+        track_index: int
+        device_index: int or None
+        parameter_index: int
+        point_count: int
+    """
+    params: dict = {
+        "track_index": track_index,
+        "parameter_index": parameter_index,
+        "start_beat": start_beat,
+    }
+    if device_index is not None:
+        params["device_index"] = device_index
+    if end_beat is not None:
+        params["end_beat"] = end_beat
+    result = _send("get_arrangement_automation", params)
+    if isinstance(result, dict):
+        result["point_count"] = len(result.get("points", []))
+    return result
+
+
+@mcp.tool()
+def clear_arrangement_automation(
+    track_index: int,
+    device_index: int | None,
+    parameter_index: int,
+    start_beat: float = 0.0,
+    end_beat: float | None = None,
+) -> dict:
+    """
+    Clear all automation points from a parameter in the Arrangement View
+    within the given time range.
+
+    Args:
+        track_index: Zero-based track index.
+        device_index: Device index, or None for mixer parameters
+                      (e.g. volume, pan, sends).
+        parameter_index: Parameter index.
+        start_beat: Start of the range to clear (default 0.0).
+        end_beat: End of the range. None = clear to end of arrangement.
+
+    Returns:
+        track_index, device_index, parameter_index, cleared (bool)
+    """
+    params: dict = {
+        "track_index": track_index,
+        "parameter_index": parameter_index,
+        "start_beat": start_beat,
+    }
+    if device_index is not None:
+        params["device_index"] = device_index
+    if end_beat is not None:
+        params["end_beat"] = end_beat
+    return _send("clear_arrangement_automation", params)
+
+
+@mcp.tool()
 def get_arrangement_overview() -> dict:
     """
     Return a high-level structural overview of the arrangement.
