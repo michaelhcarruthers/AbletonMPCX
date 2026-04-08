@@ -46,6 +46,7 @@ import tools.realtime_analyzer   # noqa: F401
 import tools.arrangement_bridge  # noqa: F401
 import tools.observer_bridge     # noqa: F401
 import tools.audit               # noqa: F401
+import tools.mix_templates       # noqa: F401
 
 # Start the background observer thread (defined in tools.audit)
 from tools.audit import _start_observer
@@ -118,17 +119,18 @@ def _group_selector_tool() -> list[dict]:
             "function": {
                 "name": "select_tool_group",
                 "description": (
-                    "Select the tool group that best matches the user's request. 
-                    Call this first to get access to the right set of Ableton tools.
-                    Groups:
-                    - session: tempo, time signature, snapshots, recording, project memory
-                    - mixer: track volumes, panning, sends, mute/solo, routing
-                    - clips: fire/stop clips, notes, quantize, chop, slice
-                    - devices: device parameters, batch set, morph, staging
-                    - arrangement: arrangement clips, automation, loop/punch points
-                    - performance: macros, sidechain, resampling, scenes, observers
-                    - analysis: LUFS, peak, RMS, spectrum, real-time analyzer
-                    - diagnostics: logs, audit, health checks, validation
+                    "Select the tool group that best matches the user's request. "
+                    "Call this first to get access to the right set of Ableton tools. "
+                    "Groups:\n"
+                    "- session: tempo, time signature, snapshots, recording, project memory\n"
+                    "- mixer: track volumes, panning, sends, mute/solo, routing\n"
+                    "- clips: fire/stop clips, notes, quantize, chop, slice\n"
+                    "- devices: device parameters, batch set, morph, staging\n"
+                    "- arrangement: arrangement clips, automation, loop/punch points\n"
+                    "- performance: macros, sidechain, resampling, scenes, observers\n"
+                    "- analysis: LUFS, peak, RMS, spectrum, real-time analyzer\n"
+                    "- diagnostics: logs, audit, health checks, validation\n"
+                    "- templates: classify tracks by role, apply genre mix templates, preview processing\n"
                 ),
                 "parameters": {
                     "type": "object",

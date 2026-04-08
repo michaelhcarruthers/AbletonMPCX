@@ -13,6 +13,7 @@ TOOL_GROUPS: dict[str, list[str]] = {
         "suggest_", "get_project", "set_project", "get_memory",
         "get_session_health", "set_tempo", "set_time_signature",
         "get_tempo", "get_time_signature",
+        "classify_tracks", "apply_mix_template",
     ],
     "mixer": [
         "set_track_volume", "get_track_volume", "set_track_pan",
@@ -66,5 +67,10 @@ TOOL_GROUPS: dict[str, list[str]] = {
         "get_log", "get_operation_log", "get_audit", "run_diagnostic",
         "check_", "validate_", "inspect_", "get_health",
         "get_session_health", "export_audit", "clear_log",
+    ],
+    "templates": [
+        "classify_tracks", "apply_mix_template", "preview_mix_template",
+        "list_mix_templates", "set_track_role", "get_track_roles",
+        "validate_track_roles", "clear_track_role",
     ],
 }
