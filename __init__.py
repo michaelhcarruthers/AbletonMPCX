@@ -806,6 +806,57 @@ class AbletonMPCX(ControlSurface):
             "fired_slot_index": self._safe(track, "fired_slot_index", -1),
         }
 
+    def _cmd_get_track_devices(self, params):
+        """Return device names and count for a track without fetching parameters."""
+        track_index = int(params.get("track_index", 0))
+        is_return = bool(params.get("is_return_track", False))
+        track = self._resolve_track(track_index, is_return)
+        devices = []
+        for i, d in enumerate(track.devices):
+            devices.append({
+                "index": i,
+                "name": d.name,
+                "type": int(d.type),
+                "is_active": d.is_active,
+            })
+        return {
+            "track_name": track.name,
+            "device_count": len(devices),
+            "devices": devices,
+        }
+
+    def _cmd_get_track_levels_all(self, params):
+        """Return volume and pan for all tracks in a single call."""
+        include_returns = bool(params.get("include_returns", True))
+        include_master = bool(params.get("include_master", True))
+        tracks = []
+        for i, t in enumerate(self._song.tracks):
+            tracks.append({
+                "index": i,
+                "name": t.name,
+                "volume": t.mixer_device.volume.value,
+                "pan": t.mixer_device.panning.value,
+                "mute": t.mute,
+                "solo": t.solo,
+            })
+        ret = []
+        if include_returns:
+            for i, t in enumerate(self._song.return_tracks):
+                ret.append({
+                    "index": i,
+                    "name": t.name,
+                    "volume": t.mixer_device.volume.value,
+                    "pan": t.mixer_device.panning.value,
+                    "mute": t.mute,
+                })
+        master = None
+        if include_master:
+            master = {
+                "volume": self._song.master_track.mixer_device.volume.value,
+                "pan": self._song.master_track.mixer_device.panning.value,
+            }
+        return {"tracks": tracks, "returns": ret, "master": master}
+
     def _cmd_get_return_tracks(self, params):
         result = []
         for i, track in enumerate(self._song.return_tracks):
@@ -1314,6 +1365,20 @@ class AbletonMPCX(ControlSurface):
         """Return the current playhead position within the clip (in beats)."""
         clip = self._get_clip(int(params["track_index"]), int(params["slot_index"]))
         return {"playing_position": self._safe(clip, "playing_position", 0.0)}
+
+    def _cmd_get_clip_playing_state(self, params):
+        """Return the playing state of a clip slot."""
+        track_index = int(params.get("track_index", 0))
+        slot_index = int(params.get("slot_index", 0))
+        slot = self._get_clip_slot(track_index, slot_index)
+        clip = slot.clip if slot.has_clip else None
+        return {
+            "has_clip": slot.has_clip,
+            "is_playing": clip.is_playing if clip else False,
+            "is_triggered": clip.is_triggered if clip else False,
+            "is_recording": clip.is_recording if clip else False,
+            "clip_name": clip.name if clip else None,
+        }
 
     def _cmd_get_notes(self, params):
         clip = self._get_clip(int(params["track_index"]), int(params["slot_index"]))
@@ -2044,7 +2109,14 @@ class AbletonMPCX(ControlSurface):
             device = list(track.devices)[device_index]
             param_list = list(device.parameters)
 
-            if visual_refresh:
+            # Guard: never appoint the AMCPX_Analyzer device — it can toggle the M4L device off
+            _ANALYZER_DEVICE_NAMES = ("AMCPX_Analyzer", "amcpx_analyzer_server", "AMCPX Analyzer")
+            _vr = visual_refresh
+            if _vr and device.name in _ANALYZER_DEVICE_NAMES:
+                self.log_message("set_device_parameters_batch: skipping visual_refresh for Analyzer device")
+                _vr = False
+
+            if _vr:
                 self._song.appointed_device = device
                 self.application().view.show_view("Detail/DeviceChain")
 
@@ -2532,6 +2604,50 @@ class AbletonMPCX(ControlSurface):
         self._run_on_main_thread(fn)
         return {}
 
+    def _cmd_randomize_device_parameters(self, params):
+        """Randomize device parameters within a specified normalised range with optional seed."""
+        import random
+        track_index = int(params.get("track_index", 0))
+        device_index = int(params.get("device_index", 0))
+        is_return = bool(params.get("is_return_track", False))
+        param_indices = params.get("parameter_indices")
+        min_val = float(params.get("min_value", 0.0))
+        max_val = float(params.get("max_value", 1.0))
+        seed = params.get("seed")
+
+        track = self._resolve_track(track_index, is_return)
+        device = list(track.devices)[device_index]
+        rng = random.Random(seed)
+
+        def fn():
+            randomized = []
+            parameters = list(device.parameters)
+            # Skip parameter index 0 — always the on/off toggle
+            for i, p in enumerate(parameters):
+                if i == 0:
+                    continue
+                if param_indices is not None and i not in param_indices:
+                    continue
+                prev = p.value
+                new_val = rng.uniform(min_val, max_val)
+                try:
+                    p.value = new_val
+                    randomized.append({
+                        "parameter_index": i,
+                        "name": p.name,
+                        "previous_value": prev,
+                        "new_value": new_val,
+                    })
+                except Exception:
+                    pass
+            return {
+                "device": device.name,
+                "randomized": randomized,
+                "seed_used": seed,
+            }
+
+        return self._run_on_main_thread(fn)
+
     # -------------------------------------------------------------------------
     # GroovePool
     # -------------------------------------------------------------------------
@@ -2741,6 +2857,18 @@ class AbletonMPCX(ControlSurface):
         device_name = str(params["device_name"]).lower()
         is_return = bool(params.get("is_return_track", False))
         track = self._resolve_track(track_index, is_return)
+
+        # Check for duplicates before loading
+        existing_names = [d.name.lower() for d in track.devices]
+        if any(device_name in name or name in device_name for name in existing_names):
+            return {
+                "status": "warning",
+                "message": "Device '{}' already exists on track '{}'. Use device_index to target the existing device.".format(
+                    params["device_name"], track.name
+                ),
+                "existing_devices": [{"index": i, "name": d.name} for i, d in enumerate(track.devices)],
+            }
+
         try:
             browser = self.application().browser
         except AttributeError:

@@ -51,6 +51,25 @@ def duplicate_clip_slot(track_index: int, slot_index: int) -> dict:
 # ---------------------------------------------------------------------------
 
 @mcp.tool()
+def get_clip_playing_state(track_index: int, slot_index: int) -> dict:
+    """
+    Return the playing state of a clip slot.
+
+    Args:
+        track_index: Track index.
+        slot_index: Clip slot index.
+
+    Returns:
+        has_clip: bool
+        is_playing: bool
+        is_triggered: bool
+        is_recording: bool
+        clip_name: str or null
+    """
+    return _send("get_clip_playing_state", {"track_index": track_index, "slot_index": slot_index})
+
+
+@mcp.tool()
 def get_clip_info(track_index: int, slot_index: int) -> dict:
     """Return full details for the clip at (track_index, slot_index)."""
     return _send("get_clip_info", {"track_index": track_index, "slot_index": slot_index})

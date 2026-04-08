@@ -344,6 +344,48 @@ def setup_resampling_route(dest_track_index: int, source_track_name: str) -> dic
 
 
 @mcp.tool()
+def get_track_devices(track_index: int, is_return_track: bool = False) -> dict:
+    """
+    Return the device names and count for a track without fetching parameters.
+
+    Much lighter than get_track_info() — use this for session orientation
+    to find device indices before calling get_device_parameters.
+
+    Args:
+        track_index: Track index (use -1 for master track).
+        is_return_track: If True, track_index refers to a return track.
+
+    Returns:
+        track_name: str
+        device_count: int
+        devices: list of {index: int, name: str, type: str, is_active: bool}
+    """
+    return _send("get_track_devices", {"track_index": track_index, "is_return_track": is_return_track})
+
+
+@mcp.tool()
+def get_track_levels_all(include_returns: bool = True, include_master: bool = True) -> dict:
+    """
+    Return volume and pan for all tracks in a single call.
+
+    Use for mix overview — much cheaper than calling get_mixer_device per track.
+
+    Args:
+        include_returns: Include return tracks (default True).
+        include_master: Include master track (default True).
+
+    Returns:
+        tracks: list of {index, name, volume, pan, mute, solo}
+        returns: list of {index, name, volume, pan, mute} (if include_returns)
+        master: {volume, pan} (if include_master)
+    """
+    return _send("get_track_levels_all", {
+        "include_returns": include_returns,
+        "include_master": include_master,
+    })
+
+
+@mcp.tool()
 def teardown_resampling_route(dest_track_index: int) -> dict:
     """
     Disarm the destination track and reset its monitoring state after resampling.
