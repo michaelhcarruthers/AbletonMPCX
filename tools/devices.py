@@ -453,3 +453,62 @@ def find_device_by_name(track_index: int, device_name: str) -> dict:
         "parameters": [],
     }
 
+
+@mcp.tool()
+def set_device_parameters_batch(
+    track_index: int,
+    device_index: int,
+    updates: list,
+    is_return_track: bool = False,
+    visual_refresh: bool = True,
+    skip_unchanged: bool = True,
+    clamp_values: bool = True,
+) -> dict:
+    """
+    Set multiple device parameters in a single round trip.
+
+    Executes all writes inside one Live main-thread call — one network hop,
+    one device resolve, one optional control-surface UI refresh, N writes.
+    Use this instead of calling set_device_parameter repeatedly.
+
+    Args:
+        track_index: Track index (use -1 for master track).
+        device_index: Device index on the track.
+        updates: List of {parameter_index: int, value: float} dicts.
+        is_return_track: Set True to target a return track.
+        visual_refresh: If True (default), appoints the device and shows
+            Detail/DeviceChain — forces third-party plugin UI to refresh
+            (Pro-Q 4, FabFilter, etc.), same as Push 3.
+        skip_unchanged: If True (default), skips writes where the parameter
+            already has the target value.
+        clamp_values: If True (default), clamps each value to the parameter's
+            min/max range.
+
+    Returns:
+        dict with keys:
+            device (str): device name
+            applied (int): number of parameters actually changed
+            changed (list): {parameter_index, name, value} for each write
+            errors (list): {parameter_index, error} for any failures
+
+    Example:
+        set_device_parameters_batch(
+            track_index=3,
+            device_index=0,
+            updates=[
+                {"parameter_index": 1, "value": 0.72},
+                {"parameter_index": 5, "value": 0.14},
+                {"parameter_index": 8, "value": 0.88},
+            ]
+        )
+    """
+    return _send("set_device_parameters_batch", {
+        "track_index": track_index,
+        "device_index": device_index,
+        "updates": updates,
+        "is_return_track": is_return_track,
+        "visual_refresh": visual_refresh,
+        "skip_unchanged": skip_unchanged,
+        "clamp_values": clamp_values,
+    })
+
