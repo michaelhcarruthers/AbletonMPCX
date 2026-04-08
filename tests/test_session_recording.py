@@ -17,6 +17,7 @@ from tools.session_recording import (
     setup_sidechain_route,
     teardown_sidechain_route,
     dump_session_to_arrangement,
+    render_track_to_audio,
 )
 
 _TRACKS = [
@@ -50,6 +51,14 @@ def mock_transport():
     mock.responses["fire_clip_slot"] = None
     mock.responses["start_playing"] = None
     mock.responses["set_device_parameter"] = None
+    mock.responses["schedule_stop_recording"] = None
+    mock.responses["create_audio_track"] = None
+    mock.responses["set_track_name"] = None
+    mock.responses["set_track_input_routing"] = None
+    mock.responses["set_loop"] = None
+    mock.responses["set_current_song_time"] = None
+    mock.responses["stop_playing"] = None
+    mock.responses["get_track_info"] = {"clip_slots": [{"has_clip": True}]}
     set_transport(mock)
     yield mock
     set_transport(None)
@@ -251,3 +260,126 @@ def test_dump_session_slot_index_passed_to_fire(mock_transport):
     dump_session_to_arrangement(slot_index=2, track_indices=[0])
     fire_calls = [(cmd, params) for cmd, params in mock_transport.calls if cmd == "fire_clip_slot"]
     assert all(p["slot_index"] == 2 for _, p in fire_calls)
+
+
+# ---------------------------------------------------------------------------
+# schedule_stop_recording — dump_session_to_arrangement
+# ---------------------------------------------------------------------------
+
+def test_dump_session_uses_schedule_stop_recording(mock_transport):
+    """schedule_stop_recording is called with correct params when available."""
+    result = dump_session_to_arrangement(slot_index=0, track_indices=[0, 1])
+    sched_calls = [(cmd, params) for cmd, params in mock_transport.calls
+                   if cmd == "schedule_stop_recording"]
+    assert len(sched_calls) == 1
+    _, p = sched_calls[0]
+    assert p["disable_record_mode"] is True
+    assert 0 in p["track_indices"] and 1 in p["track_indices"]
+
+
+def test_dump_session_stop_method_scheduled(mock_transport):
+    """Return dict contains stop_method='scheduled' when Remote Script is available."""
+    result = dump_session_to_arrangement(slot_index=0, track_indices=[0])
+    assert result["stop_method"] == "scheduled"
+
+
+def test_dump_session_stop_method_fallback(mock_transport):
+    """Falls back to threading when schedule_stop_recording raises RuntimeError."""
+    def raising_send(command, params=None):
+        if command == "schedule_stop_recording":
+            raise RuntimeError("command not found")
+        return mock_transport.responses.get(command)
+
+    mock_transport.send = raising_send
+    result = dump_session_to_arrangement(slot_index=0, track_indices=[0])
+    assert result["stop_method"] == "threading_fallback"
+
+
+def test_dump_session_schedule_passes_reset_metronome(mock_transport):
+    """reset_metronome is forwarded to schedule_stop_recording."""
+    dump_session_to_arrangement(slot_index=0, track_indices=[0], reset_metronome=True)
+    sched_calls = [(cmd, params) for cmd, params in mock_transport.calls
+                   if cmd == "schedule_stop_recording"]
+    assert len(sched_calls) == 1
+    _, p = sched_calls[0]
+    assert p["reset_metronome"] is True
+
+
+def test_dump_session_schedule_empty_track_indices_when_no_disarm(mock_transport):
+    """When disarm_after=False, schedule_stop_recording receives empty track_indices."""
+    dump_session_to_arrangement(slot_index=0, track_indices=[0, 1], disarm_after=False)
+    sched_calls = [(cmd, params) for cmd, params in mock_transport.calls
+                   if cmd == "schedule_stop_recording"]
+    assert len(sched_calls) == 1
+    _, p = sched_calls[0]
+    assert p["track_indices"] == []
+
+
+def test_dump_session_schedule_delay_includes_buffer(mock_transport):
+    """delay_seconds passed to schedule_stop_recording includes the stop buffer."""
+    # clip length=16 beats, tempo=120 → 8s; buffer=0.5 → delay=8.5
+    result = dump_session_to_arrangement(slot_index=0, track_indices=[0])
+    sched_calls = [(cmd, params) for cmd, params in mock_transport.calls
+                   if cmd == "schedule_stop_recording"]
+    _, p = sched_calls[0]
+    assert abs(p["delay_seconds"] - (result["duration_seconds"] + 0.5)) < 0.01
+
+
+# ---------------------------------------------------------------------------
+# schedule_stop_recording — render_track_to_audio
+# ---------------------------------------------------------------------------
+
+_TRACKS_AFTER = [
+    {"index": 0, "name": "Kick"},
+    {"index": 1, "name": "Kick [Rendered]"},
+    {"index": 2, "name": "Bass"},
+]
+
+
+def test_render_track_uses_schedule_stop_recording(mock_transport):
+    """schedule_stop_recording is called with correct params when available."""
+    mock_transport.responses["get_tracks"] = [
+        {"index": 0, "name": "Kick"},
+        {"index": 1, "name": "Bass"},
+    ]
+    # Provide a second get_tracks response for after insert (return 3 tracks)
+    _call_counts = {"get_tracks": 0}
+    _base_send = mock_transport.send.__func__ if hasattr(mock_transport.send, "__func__") else None
+
+    def _send_with_track_list(command, params=None):
+        if command == "get_tracks":
+            _call_counts["get_tracks"] += 1
+            if _call_counts["get_tracks"] == 1:
+                return [{"index": 0, "name": "Kick"}, {"index": 1, "name": "Bass"}]
+            return _TRACKS_AFTER
+        mock_transport.calls.append((command, params or {}))
+        return mock_transport.responses.get(command)
+
+    mock_transport.send = _send_with_track_list
+    result = render_track_to_audio(source_track_index=0, start_bar=1, end_bar=3)
+    sched_calls = [(cmd, params) for cmd, params in mock_transport.calls
+                   if cmd == "schedule_stop_recording"]
+    assert len(sched_calls) == 1
+    _, p = sched_calls[0]
+    assert p["disable_record_mode"] is True
+    assert isinstance(p["track_indices"], list)
+    assert len(p["track_indices"]) == 1
+
+
+def test_render_track_stop_method_scheduled(mock_transport):
+    """Return dict contains stop_method='scheduled' when Remote Script is available."""
+    result = render_track_to_audio(source_track_index=0, start_bar=1, end_bar=3)
+    assert result.get("stop_method") == "scheduled"
+
+
+def test_render_track_stop_method_fallback(mock_transport):
+    """Falls back to threading when schedule_stop_recording raises RuntimeError."""
+    def raising_send(command, params=None):
+        if command == "schedule_stop_recording":
+            raise RuntimeError("command not found")
+        return mock_transport.responses.get(command)
+
+    mock_transport.send = raising_send
+    result = render_track_to_audio(source_track_index=0, start_bar=1, end_bar=3)
+    assert result.get("stop_method") == "threading_fallback"
+
