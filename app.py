@@ -248,37 +248,8 @@ async def chat(req: ChatRequest):
 
     executed_tool_calls: list[ToolCallResult] = []
 
-    # --- Phase 1: group selection ---
-    response = client.chat.completions.create(
-        model="gpt-4o",
-        messages=messages,
-        tools=_group_selector_tool(),
-        tool_choice={"type": "function", "function": {"name": "select_tool_group"}},
-    )
-    choice = response.choices[0]
-    msg = choice.message
-    messages.append(msg.model_dump(exclude_none=True))
-
-    selected_groups = ["session"]  # default
-    if msg.tool_calls:
-        tc = msg.tool_calls[0]
-        try:
-            args = json.loads(tc.function.arguments)
-            selected_groups = args.get("groups", ["session"])
-            if isinstance(selected_groups, str):
-                selected_groups = [selected_groups]  # handle model returning string instead of array
-            selected_groups = selected_groups[:2]  # enforce max 2
-        except Exception:
-            pass
-        groups_str = " + ".join(f"'{g}'" for g in selected_groups)
-        messages.append({
-            "role": "tool",
-            "tool_call_id": tc.id,
-            "content": f"Tool groups {groups_str} loaded. You now have access to their tools.",
-        })
-
-    # --- Phase 2+: agentic tool execution loop with selected groups' tools ---
-    tool_definitions = await _get_tool_definitions_for_groups(selected_groups)
+    # tool_search disabled — full tool list injected directly
+    tool_definitions = _tools_to_openai_format((await _get_all_tools_cached())[:128])
 
     while True:
         response = client.chat.completions.create(
@@ -310,8 +281,7 @@ async def chat(req: ChatRequest):
                 })
         else:
             reply = msg.content or ""
-            visible_calls = [t for t in executed_tool_calls if t.tool != "select_tool_group"]
-            return ChatResponse(reply=reply, tool_calls=visible_calls)
+            return ChatResponse(reply=reply, tool_calls=executed_tool_calls)
 
 # ---------------------------------------------------------------------------
 # Entry point

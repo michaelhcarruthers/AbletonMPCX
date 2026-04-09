@@ -312,6 +312,26 @@ class AbletonMPCX(ControlSurface):
                 pass
         return info
 
+    def _cmd_get_song_info_minimal(self, params):
+        """Return only the fields needed for bar/beat calculations — no track or clip data."""
+        try:
+            song = self._song
+            # Count arrangement bars: total_length / beats_per_bar
+            beats_per_bar = song.signature_numerator
+            total_beats = song.song_length  # in beats
+            total_bars = int(total_beats / beats_per_bar) if beats_per_bar else 0
+            return {
+                "tempo": song.tempo,
+                "time_signature_numerator": song.signature_numerator,
+                "time_signature_denominator": song.signature_denominator,
+                "total_bars": total_bars,
+                "total_beats": total_beats,
+                "is_playing": song.is_playing,
+                "current_song_time": song.current_song_time,
+            }
+        except Exception as e:
+            return {"error": str(e)}
+
     # -------------------------------------------------------------------------
     # Song (write)
     # -------------------------------------------------------------------------
@@ -1462,16 +1482,18 @@ class AbletonMPCX(ControlSurface):
         track_index = params.get("track_index", 0)
         clip_index = params.get("clip_index", 0)
         target_time = float(params.get("target_time", 0.0))
-        track = self._song.tracks[track_index]
-        clip = track.arrangement_clips[clip_index]
-        # Live API: AudioClip and MidiClip both inherit duplicate_clip_to_time
-        clip.duplicate_clip_to_time(target_time)
-        return {
-            "success": True,
-            "track_index": track_index,
-            "source_clip_index": clip_index,
-            "target_time": target_time,
-        }
+        try:
+            track = self._song.tracks[track_index]
+            clip = track.arrangement_clips[clip_index]
+            track.duplicate_clip_to_arrangement(clip, target_time)
+            return {
+                "success": True,
+                "track_index": track_index,
+                "source_clip_index": clip_index,
+                "target_time": target_time,
+            }
+        except Exception as e:
+            return {"success": False, "error": str(e)}
 
     # -------------------------------------------------------------------------
     # Clip (read)
@@ -1681,6 +1703,7 @@ class AbletonMPCX(ControlSurface):
                                 "clip_index": c_idx,
                                 "start_time": clip.start_time,
                                 "length": clip.length,
+                                "name": clip.name,
                             })
                         else:
                             results.append({

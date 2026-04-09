@@ -449,6 +449,9 @@ def list_arrangement_clips(
             ),
         }
 
+    if slim:
+        return {"clips": all_clips, "total_clips": len(all_clips)}
+
     clips = []
     try:
         _tsn = int(_send("get_song_info", {}).get("time_signature_numerator", 4))
