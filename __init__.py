@@ -2248,42 +2248,56 @@ class AbletonMPCX(ControlSurface):
             param_name = target_param.name
 
         def fn():
-            if not hasattr(track, "automation_envelopes"):
+            # Arrangement automation is written through arrangement clips.
+            # track.automation_envelopes does not exist in Live's Remote Script
+            # API — the correct approach is clip.automation_envelope(param).
+            try:
+                arr_clips = list(track.arrangement_clips)
+            except AttributeError:
                 raise RuntimeError(
-                    "Arrangement automation requires Live 9+. "
-                    "track.automation_envelopes not available."
+                    "track.arrangement_clips not available — "
+                    "requires Live 9+ with arrangement support."
                 )
-            # Get or create the envelope for this parameter
-            env = None
-            if hasattr(track, "automation_envelope") and callable(track.automation_envelope):
-                try:
-                    env = track.automation_envelope(target_param)
-                except Exception:
-                    env = None
-            if env is None:
-                for candidate in track.automation_envelopes:
-                    try:
-                        if candidate.automation_parameter == target_param:
-                            env = candidate
-                            break
-                    except Exception:
-                        continue
+            if not arr_clips:
+                raise RuntimeError(
+                    "No arrangement clips on track {} — "
+                    "create an arrangement clip first, then write automation.".format(
+                        track_index
+                    )
+                )
+            # Pick the clip that covers the widest time range (most likely to
+            # span the requested automation points).
+            clip = max(arr_clips, key=lambda c: c.length)
+
+            if not hasattr(clip, "automation_envelope") or not callable(clip.automation_envelope):
+                raise RuntimeError(
+                    "clip.automation_envelope() not available in this Live version."
+                )
+            env = clip.automation_envelope(target_param)
             if env is None:
                 raise RuntimeError(
                     "Could not get or create arrangement automation envelope "
                     "for parameter '{}'.".format(param_name)
                 )
+            clip_start = clip.start_time
             if clear_range and points:
                 times = [float(pt["time"]) for pt in points]
                 start_time = min(times)
                 end_time = max(times)
+                # Adjust times to be relative to the clip's start_time
+                rel_start = max(0.0, start_time - clip_start)
+                rel_end = max(0.0, end_time - clip_start)
                 try:
-                    env.clear_envelope(start_time, end_time - start_time)
+                    env.clear_envelope(rel_start, rel_end - rel_start)
                 except AttributeError:
                     pass
             for pt in points:
+                abs_time = float(pt["time"])
+                rel_time = abs_time - clip_start
+                if rel_time < 0.0:
+                    continue  # point is before this clip — skip
                 try:
-                    env.insert_step(float(pt["time"]), 0.0, float(pt["value"]))
+                    env.insert_step(rel_time, 0.0, float(pt["value"]))
                 except AttributeError:
                     raise RuntimeError("insert_step not available in this Live version")
             return len(points)
