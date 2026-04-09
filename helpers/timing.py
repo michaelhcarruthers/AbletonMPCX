@@ -9,6 +9,8 @@ def bars_to_seconds(bar: int, tempo: float, time_sig_numerator: int = 4) -> floa
     """Convert a 1-based bar number to a position in seconds."""
     if tempo <= 0:
         raise ValueError(f"tempo must be positive, got {tempo}")
+    if time_sig_numerator <= 0:
+        raise ValueError(f"time_sig_numerator must be positive, got {time_sig_numerator}")
     beats = (bar - 1) * time_sig_numerator
     return beats * (60.0 / tempo)
 
@@ -30,6 +32,8 @@ def bar_range_to_seconds(
     time_sig_numerator: int = 4,
 ) -> tuple[float, float]:
     """Return (start_seconds, end_seconds) for a bar range."""
+    if bar_start > bar_end:
+        raise ValueError(f"bar_start ({bar_start}) must be <= bar_end ({bar_end})")
     return (
         bars_to_seconds(bar_start, tempo, time_sig_numerator),
         bars_to_seconds(bar_end, tempo, time_sig_numerator),
