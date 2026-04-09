@@ -1593,6 +1593,29 @@ class AbletonMPCX(ControlSurface):
 
         return self._run_on_main_thread(fn)
 
+    def _cmd_delete_arrangement_clip(self, params):
+        """Delete a clip from the Arrangement View by track and clip index."""
+        track_index = int(params["track_index"])
+        clip_index = int(params["clip_index"])
+
+        def fn():
+            track = self._get_track(track_index)
+            try:
+                arr_clips = list(track.arrangement_clips)
+            except AttributeError:
+                raise RuntimeError("Track {} does not support arrangement_clips".format(track_index))
+            if clip_index < 0 or clip_index >= len(arr_clips):
+                raise IndexError(
+                    "clip_index {} out of range for track {} ({} arrangement clips)".format(
+                        clip_index, track_index, len(arr_clips)
+                    )
+                )
+            clip = arr_clips[clip_index]
+            clip.delete()
+            return {"success": True, "track_index": track_index, "clip_index": clip_index}
+
+        return self._run_on_main_thread(fn)
+
     # -------------------------------------------------------------------------
     # Clip (write)
     # -------------------------------------------------------------------------

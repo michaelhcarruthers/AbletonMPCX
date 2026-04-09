@@ -506,6 +506,12 @@ def dump_session_to_arrangement(
     reset_metronome: bool = True,
 ) -> dict:
     """Fire all clips from a session scene slot and record them to the Arrangement."""
+    # Reset playhead to bar 1 before recording
+    try:
+        _send("set_arrangement_position", {"position": 0.0})
+    except RuntimeError:
+        pass
+
     # 1. Get song info for tempo
     try:
         song_info = _send("get_song_info")
@@ -554,9 +560,6 @@ def dump_session_to_arrangement(
         _send("stop_all_clips", {"quantized": 0})
     except RuntimeError:
         pass
-
-    # 6. Reset playhead to beat 0 (bar 1)
-    _send("set_arrangement_position", {"position": 0.0})
 
     # 7. Enable arrangement record mode
     _send("set_record_mode", {"record_mode": True})
