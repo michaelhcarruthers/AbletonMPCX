@@ -312,6 +312,26 @@ class AbletonMPCX(ControlSurface):
                 pass
         return info
 
+    def _cmd_get_song_info_minimal(self, params):
+        """Return only the fields needed for bar/beat calculations — no track or clip data."""
+        try:
+            song = self._song
+            # Count arrangement bars: total_length / beats_per_bar
+            beats_per_bar = song.signature_numerator
+            total_beats = song.song_length  # in beats
+            total_bars = int(total_beats / beats_per_bar) if beats_per_bar else 0
+            return {
+                "tempo": song.tempo,
+                "time_signature_numerator": song.signature_numerator,
+                "time_signature_denominator": song.signature_denominator,
+                "total_bars": total_bars,
+                "total_beats": total_beats,
+                "is_playing": song.is_playing,
+                "current_song_time": song.current_song_time,
+            }
+        except Exception as e:
+            return {"error": str(e)}
+
     # -------------------------------------------------------------------------
     # Song (write)
     # -------------------------------------------------------------------------
@@ -742,28 +762,39 @@ class AbletonMPCX(ControlSurface):
     # -------------------------------------------------------------------------
 
     def _cmd_get_tracks(self, params):
+        slim = bool(params.get("slim", False))
         result = []
         for i, track in enumerate(self._song.tracks):
-            mixer = track.mixer_device
-            try:
-                arm_val = track.arm
-            except (AttributeError, RuntimeError):
-                arm_val = False
-            result.append({
-                "index": i,
-                "name": track.name,
-                "color": self._color(track),
-                "mute": track.mute,
-                "solo": track.solo,
-                "arm": arm_val,
-                "volume": mixer.volume.value,
-                "pan": mixer.panning.value,
-                "is_midi_track": track.has_midi_input,
-                "is_audio_track": track.has_audio_input,
-                "is_group_track": track.is_foldable if hasattr(track, "is_foldable") else False,
-                "device_count": len(list(track.devices)),
-                "clip_slot_count": len(list(track.clip_slots)),
-            })
+            if slim:
+                # slim mode uses 'track_index' key per the slim API contract;
+                # non-slim mode preserves the legacy 'index' key for backwards compatibility
+                track_type = "midi" if track.has_midi_input else "audio"
+                result.append({
+                    "track_index": i,
+                    "name": track.name,
+                    "type": track_type,
+                })
+            else:
+                mixer = track.mixer_device
+                try:
+                    arm_val = track.arm
+                except (AttributeError, RuntimeError):
+                    arm_val = False
+                result.append({
+                    "index": i,
+                    "name": track.name,
+                    "color": self._color(track),
+                    "mute": track.mute,
+                    "solo": track.solo,
+                    "arm": arm_val,
+                    "volume": mixer.volume.value,
+                    "pan": mixer.panning.value,
+                    "is_midi_track": track.has_midi_input,
+                    "is_audio_track": track.has_audio_input,
+                    "is_group_track": track.is_foldable if hasattr(track, "is_foldable") else False,
+                    "device_count": len(list(track.devices)),
+                    "clip_slot_count": len(list(track.clip_slots)),
+                })
         return result
 
     def _cmd_get_track_names(self, params):
@@ -1551,6 +1582,7 @@ class AbletonMPCX(ControlSurface):
     def _cmd_get_arrangement_clips(self, params):
         """Return all clips placed in the Arrangement View across all tracks."""
         track_index_filter = params.get("track_index")  # optional int filter
+        slim = bool(params.get("slim", False))
 
         def fn():
             results = []
@@ -1564,21 +1596,29 @@ class AbletonMPCX(ControlSurface):
                     continue  # track type doesn't support arrangement clips
                 for c_idx, clip in enumerate(arr_clips):
                     try:
-                        results.append({
-                            "track_index": t_idx,
-                            "track_name": track.name,
-                            "clip_index": c_idx,
-                            "clip_name": clip.name,
-                            "start_time": clip.start_time,
-                            "end_time": clip.end_time,
-                            "length": clip.length,
-                            "is_midi_clip": clip.is_midi_clip,
-                            "color": self._color(clip),
-                            "muted": clip.muted,
-                            "looping": clip.looping,
-                            "loop_start": clip.loop_start,
-                            "loop_end": clip.loop_end,
-                        })
+                        if slim:
+                            results.append({
+                                "clip_index": c_idx,
+                                "start_time": clip.start_time,
+                                "length": clip.length,
+                                "name": clip.name,
+                            })
+                        else:
+                            results.append({
+                                "track_index": t_idx,
+                                "track_name": track.name,
+                                "clip_index": c_idx,
+                                "clip_name": clip.name,
+                                "start_time": clip.start_time,
+                                "end_time": clip.end_time,
+                                "length": clip.length,
+                                "is_midi_clip": clip.is_midi_clip,
+                                "color": self._color(clip),
+                                "muted": clip.muted,
+                                "looping": clip.looping,
+                                "loop_start": clip.loop_start,
+                                "loop_end": clip.loop_end,
+                            })
                     except Exception as exc:
                         self.log_message("AbletonMPCX: error reading arrangement clip {} on track {}: {}".format(c_idx, t_idx, exc))
             return results

@@ -13,6 +13,7 @@ TOOL_GROUPS: dict[str, list[str]] = {
         "suggest_", "get_project", "set_project", "get_memory",
         "get_session_health", "set_tempo", "set_time_signature",
         "get_tempo", "get_time_signature",
+        "get_song_info_minimal",
     ],
     "mixer": [
         "set_track_volume", "get_track_volume", "set_track_pan",
