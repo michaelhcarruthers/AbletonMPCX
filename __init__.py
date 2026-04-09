@@ -1534,9 +1534,8 @@ class AbletonMPCX(ControlSurface):
                 from_slot.duplicate_clip_to(to_slot)
                 from_slot.delete_clip()
             else:
-                # Fallback: use track.duplicate_clip_slot which places copy at from_slot_index+1,
-                # then swap clips between from_slot_index+1 and to_slot_index is not directly
-                # possible — raise a clear error instead so the caller knows why it failed.
+                # Neither duplicate method is available in this Live version —
+                # raise a clear error so the caller knows why the move failed.
                 raise RuntimeError(
                     "move_clip_slot: ClipSlot has no duplicate_clip_to_slot or duplicate_clip_to method "
                     "in this Live version. Cannot move audio clip slot {} to {}.".format(
@@ -2260,7 +2259,9 @@ class AbletonMPCX(ControlSurface):
         elif parameter_type == "device_parameter":
             parameter_index = params.get("parameter_index")  # optional — not required for volume/panning
             if device_index is None or parameter_index is None:
-                raise ValueError("device_parameter type requires both device_index and parameter_index")
+                raise ValueError(
+                    "parameter_type 'device_parameter' requires both device_index and parameter_index"
+                )
             device = self._get_device(track_index, int(device_index))
             parameters = list(device.parameters)
             if int(parameter_index) < 0 or int(parameter_index) >= len(parameters):
