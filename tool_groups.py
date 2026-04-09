@@ -67,6 +67,7 @@ TOOL_GROUPS: dict[str, list[str]] = {
         "get_log", "get_operation_log", "get_audit", "run_diagnostic",
         "check_", "validate_", "inspect_", "get_health",
         "get_session_health", "export_audit", "clear_log",
+        "get_latency_report",
     ],
     "templates": [
         "classify_tracks", "apply_mix_template", "preview_mix_template",

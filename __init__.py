@@ -3156,6 +3156,62 @@ class AbletonMPCX(ControlSurface):
 
         return snapshot
 
+    def _cmd_get_latency_report(self, params):
+        """
+        Return per-device and per-track latency data from Ableton's LOM.
+
+        Reads device.latency_in_samples for every device on every track,
+        return track, and master track. Converts to milliseconds using the
+        session sample rate.
+        """
+        s = self._song
+
+        try:
+            sample_rate = s.sample_rate
+        except AttributeError:
+            sample_rate = 44100
+
+        def _device_entry(device_index, device):
+            try:
+                latency_samples = device.latency_in_samples
+            except AttributeError:
+                latency_samples = 0
+            latency_ms = round(latency_samples / sample_rate * 1000.0, 4) if sample_rate else 0.0
+            return {
+                "device_index": device_index,
+                "device_name": device.name,
+                "class_name": device.class_name,
+                "is_active": device.is_active,
+                "latency_samples": latency_samples,
+                "latency_ms": latency_ms,
+            }
+
+        def _track_entry(track_index, track, track_type):
+            devices = [_device_entry(i, d) for i, d in enumerate(track.devices)]
+            total_samples = sum(d["latency_samples"] for d in devices)
+            total_ms = round(total_samples / sample_rate * 1000.0, 4) if sample_rate else 0.0
+            return {
+                "track_index": track_index,
+                "track_name": track.name,
+                "track_type": track_type,
+                "devices": devices,
+                "total_latency_samples": total_samples,
+                "total_latency_ms": total_ms,
+            }
+
+        tracks_out = []
+        for i, track in enumerate(s.tracks):
+            track_type = "midi" if track.has_midi_input else "audio"
+            tracks_out.append(_track_entry(i, track, track_type))
+        for i, track in enumerate(s.return_tracks):
+            tracks_out.append(_track_entry(i, track, "return"))
+        tracks_out.append(_track_entry(-1, s.master_track, "master"))
+
+        return {
+            "sample_rate": sample_rate,
+            "tracks": tracks_out,
+        }
+
     # -------------------------------------------------------------------------
     # Missing media
     # -------------------------------------------------------------------------

@@ -60,6 +60,7 @@ session_state.json         # Persisted AI handoff state (written each significan
 | #52 | Plugins P1–P3: spectrum peak hold, dynamics telemetry, stereo field analyser |
 | #53 | Fix 8 bundled code review issues: broken imports, clip duplication bug, schema drift, dead imports, stale docs |
 | #54 | M4L bridge: `AMCPX_Bridge.amxd` + `tools/arrangement_bridge.py` — full Arrangement View access via port 9878 |
+| #121 | Latency report tool — per-device latency_in_samples via LOM, ranked report with recommendations |
 
 ---
 

@@ -1256,3 +1256,109 @@ def diagnose_mix() -> dict:
         "tracks_checked": len(tracks),
     }
 
+
+# ---------------------------------------------------------------------------
+# Latency report
+# ---------------------------------------------------------------------------
+
+_DEVICE_LATENCY_THRESHOLD_MS: float = 5.0   # flag individual devices above this
+_TRACK_LATENCY_THRESHOLD_MS: float = 10.0   # flag tracks with total chain above this
+_TOTAL_PDC_THRESHOLD_MS: float = 50.0       # suggest freezing when total load exceeds this
+
+@mcp.tool()
+def get_latency_report() -> dict:
+    """
+    Report per-device and per-track latency from Ableton's LOM.
+
+    Reads device.latency_in_samples for every device on every track,
+    return track, and the master track. Converts samples to milliseconds
+    using the session sample rate.
+
+    Use this to identify which plugins are introducing the most latency
+    and understand how PDC (Plugin Delay Compensation) is being loaded.
+
+    Returns:
+        sample_rate: int — session sample rate in Hz
+        tracks: list of per-track dicts containing device latency info
+        highest_latency_track: name of track with most total latency
+        highest_latency_device: name of device with most latency across all tracks
+        total_pdc_load_ms: sum of all device latencies across all tracks (ms)
+        recommendations: list of natural-language strings
+    """
+    raw = _send("get_latency_report")
+
+    sample_rate = raw.get("sample_rate", 44100)
+    tracks = raw.get("tracks", [])
+
+    # Find the track with the highest total latency
+    highest_latency_track = None
+    highest_track_ms = 0.0
+    for t in tracks:
+        total_ms = t.get("total_latency_ms", 0.0)
+        if total_ms > highest_track_ms:
+            highest_track_ms = total_ms
+            highest_latency_track = t.get("track_name")
+
+    # Find the device with the highest individual latency
+    highest_latency_device = None
+    highest_device_ms = 0.0
+    highest_device_track = None
+    for t in tracks:
+        for d in t.get("devices", []):
+            dev_ms = d.get("latency_ms", 0.0)
+            if dev_ms > highest_device_ms:
+                highest_device_ms = dev_ms
+                highest_latency_device = d.get("device_name")
+                highest_device_track = t.get("track_name")
+
+    # Sum all device latencies across all tracks
+    total_pdc_load_ms = round(
+        sum(d.get("latency_ms", 0.0) for t in tracks for d in t.get("devices", [])),
+        4,
+    )
+
+    # Build recommendations
+    recommendations: list[str] = []
+    all_zero = total_pdc_load_ms == 0.0
+
+    if all_zero:
+        recommendations.append(
+            "All device latencies are 0. Either no latency-introducing plugins are loaded, "
+            "or device.latency_in_samples is not supported on this Live version."
+        )
+    else:
+        for t in tracks:
+            for d in t.get("devices", []):
+                if d.get("latency_ms", 0.0) > _DEVICE_LATENCY_THRESHOLD_MS:
+                    recommendations.append(
+                        "{} on '{}' is reporting {:.1f} ms latency — consider checking PDC settings "
+                        "or replacing with a lower-latency alternative.".format(
+                            d.get("device_name", "Unknown device"),
+                            t.get("track_name", "Unknown track"),
+                            d.get("latency_ms", 0.0),
+                        )
+                    )
+        for t in tracks:
+            if t.get("total_latency_ms", 0.0) > _TRACK_LATENCY_THRESHOLD_MS:
+                recommendations.append(
+                    "Track '{}' has a total chain latency of {:.1f} ms — review PDC settings "
+                    "and consider reducing the device chain length.".format(
+                        t.get("track_name", "Unknown track"),
+                        t.get("total_latency_ms", 0.0),
+                    )
+                )
+        if total_pdc_load_ms > _TOTAL_PDC_THRESHOLD_MS:
+            recommendations.append(
+                "Total PDC load across all tracks is {:.1f} ms. Consider freezing high-latency "
+                "tracks to reduce processing overhead.".format(total_pdc_load_ms)
+            )
+
+    return {
+        "sample_rate": sample_rate,
+        "tracks": tracks,
+        "highest_latency_track": highest_latency_track,
+        "highest_latency_device": highest_latency_device,
+        "total_pdc_load_ms": total_pdc_load_ms,
+        "recommendations": recommendations,
+    }
+
