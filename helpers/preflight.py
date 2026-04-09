@@ -15,8 +15,8 @@ def get_session_state(force_refresh: bool = False) -> dict:
         result = _send("get_song_info")
         _session_cache = {
             "tempo": float(result.get("tempo", 120.0)),
-            "time_sig_numerator": int(result.get("time_sig_numerator", 4)),
-            "time_sig_denominator": int(result.get("time_sig_denominator", 4)),
+            "time_sig_numerator": int(result.get("time_signature_numerator", 4)),
+            "time_sig_denominator": int(result.get("time_signature_denominator", 4)),
         }
     return _session_cache
 
