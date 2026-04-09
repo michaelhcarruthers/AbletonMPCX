@@ -3,7 +3,6 @@ Pre-flight helpers that fetch Live session state once per request
 and cache results locally. Reduces round-trips to Live.
 """
 from __future__ import annotations
-import functools
 from helpers import _send
 
 _session_cache: dict = {}

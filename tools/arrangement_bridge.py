@@ -37,20 +37,19 @@ def _send_m4l(command: str, params: dict[str, Any] | None = None) -> Any:
     """Send a command to the AMCPX_Bridge M4L device on port 9878."""
     payload = json.dumps({"command": command, "params": params or {}}).encode("utf-8")
     try:
-        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        sock.settimeout(M4L_TIMEOUT)
-        sock.connect((M4L_HOST, M4L_PORT))
-        sock.sendall(len(payload).to_bytes(4, "big") + payload)
-        header = _recv_exactly_m4l(sock, 4)
-        if not header:
-            raise RuntimeError("M4L bridge closed connection before response header")
-        msg_len = int.from_bytes(header, "big")
-        if msg_len > _MAX_M4L_RESPONSE_BYTES:
-            raise RuntimeError("M4L bridge response too large: {} bytes".format(msg_len))
-        data = _recv_exactly_m4l(sock, msg_len)
-        if data is None:
-            raise RuntimeError("M4L bridge closed connection before response body")
-        sock.close()
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+            sock.settimeout(M4L_TIMEOUT)
+            sock.connect((M4L_HOST, M4L_PORT))
+            sock.sendall(len(payload).to_bytes(4, "big") + payload)
+            header = _recv_exactly_m4l(sock, 4)
+            if not header:
+                raise RuntimeError("M4L bridge closed connection before response header")
+            msg_len = int.from_bytes(header, "big")
+            if msg_len > _MAX_M4L_RESPONSE_BYTES:
+                raise RuntimeError("M4L bridge response too large: {} bytes".format(msg_len))
+            data = _recv_exactly_m4l(sock, msg_len)
+            if data is None:
+                raise RuntimeError("M4L bridge closed connection before response body")
     except ConnectionRefusedError:
         raise RuntimeError(
             "Cannot connect to AMCPX_Bridge on port {}. "
@@ -166,6 +165,11 @@ def write_dynamic_automation(
     from helpers.preflight import get_session_state, get_track_index_by_name, get_device_index_by_name
     from helpers.timing import bar_range_to_seconds
 
+    # --- validate curve ---
+    VALID_CURVES = ("ease_in", "ease_out", "linear")
+    if curve not in VALID_CURVES:
+        raise ValueError(f"Invalid curve '{curve}'. Must be one of: {VALID_CURVES}")
+
     # --- resolve track ---
     track_index = get_track_index_by_name(track_name)
     if track_index is None:
@@ -234,11 +238,11 @@ def write_dynamic_automation(
 
     # --- attempt filter cutoff automation (graceful skip if no filter device) ---
     filter_result = None
-    filter_device_index = (
-        get_device_index_by_name(track_index, "eq")
-        or get_device_index_by_name(track_index, "filter")
-        or get_device_index_by_name(track_index, "auto filter")
-    )
+    filter_device_index = get_device_index_by_name(track_index, "eq")
+    if filter_device_index is None:
+        filter_device_index = get_device_index_by_name(track_index, "filter")
+    if filter_device_index is None:
+        filter_device_index = get_device_index_by_name(track_index, "auto filter")
 
     if filter_device_index is not None:
         try:
