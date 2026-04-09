@@ -50,6 +50,7 @@ TOOL_GROUPS: dict[str, list[str]] = {
         "clear_arrangement_automation", "dump_session_to_arrangement",
         "get_arrangement_length", "set_loop_", "get_loop_",
         "set_punch_", "get_punch_",
+        "write_dynamic_automation",
     ],
     "performance": [
         "perform_macro", "perform_macro_live", "setup_sidechain",

@@ -152,3 +152,119 @@ def m4l_find_clip_by_name(name: str, track_index: int | None = None) -> dict:
 def m4l_find_clips_at_bar(bar: int, track_index: int | None = None) -> dict:
     """Find all arrangement clips playing at a specific bar number (1-based)."""
     return _send_m4l("find_clips_at_bar", {"bar": bar, "track_index": track_index})
+
+
+@mcp.tool()
+def write_dynamic_automation(
+    track_name: str,
+    direction: str,
+    bar_start: int,
+    bar_end: int,
+    curve: str = "linear",
+) -> dict:
+    """Ramp track volume and filter cutoff up (louder) or down (softer) across a bar range in arrangement view."""
+    from helpers.preflight import get_session_state, get_track_index_by_name, get_device_index_by_name
+    from helpers.timing import bar_range_to_seconds
+
+    # --- resolve track ---
+    track_index = get_track_index_by_name(track_name)
+    if track_index is None:
+        return {"error": f"Track '{track_name}' not found.", "applied": False}
+
+    # --- resolve timing (all Python, no AI reasoning) ---
+    session = get_session_state()
+    tempo = session["tempo"]
+    time_sig_num = session["time_sig_numerator"]
+    start_secs, end_secs = bar_range_to_seconds(bar_start, bar_end, tempo, time_sig_num)
+
+    # --- direction config ---
+    direction_lower = direction.strip().lower()
+    if direction_lower not in ("louder", "softer"):
+        return {"error": f"direction must be 'louder' or 'softer', got '{direction}'", "applied": False}
+
+    going_up = direction_lower == "louder"
+
+    # Volume: louder = 0.5 → 0.85 range shift, softer = 0.85 → 0.5
+    # These are normalised Live mixer values (0.0–1.0 maps to -inf to +6dB)
+    # 0.85 ≈ 0dB, 0.5 ≈ -12dB
+    volume_start = 0.5 if going_up else 0.85
+    volume_end   = 0.85 if going_up else 0.5
+
+    # Filter cutoff: louder = open up, softer = close down
+    filter_start = 0.4 if going_up else 0.8
+    filter_end   = 0.8 if going_up else 0.4
+
+    # --- build automation points ---
+    def make_envelope(val_start: float, val_end: float) -> list[dict]:
+        """Build envelope points for a 2-point ramp with optional curve shaping."""
+        if curve == "ease_in":
+            mid_secs = start_secs + (end_secs - start_secs) * 0.7
+            mid_val = val_start + (val_end - val_start) * 0.2
+            return [
+                {"time": start_secs, "value": val_start},
+                {"time": mid_secs,   "value": mid_val},
+                {"time": end_secs,   "value": val_end},
+            ]
+        elif curve == "ease_out":
+            mid_secs = start_secs + (end_secs - start_secs) * 0.3
+            mid_val = val_start + (val_end - val_start) * 0.8
+            return [
+                {"time": start_secs, "value": val_start},
+                {"time": mid_secs,   "value": mid_val},
+                {"time": end_secs,   "value": val_end},
+            ]
+        else:
+            return [
+                {"time": start_secs, "value": val_start},
+                {"time": end_secs,   "value": val_end},
+            ]
+
+    applied_automations = []
+
+    # --- write volume automation ---
+    try:
+        vol_result = _send_m4l("set_arrangement_automation", {
+            "track_index": track_index,
+            "parameter_type": "volume",
+            "points": make_envelope(volume_start, volume_end),
+        })
+        applied_automations.append("volume")
+    except Exception as e:
+        vol_result = {"error": str(e)}
+
+    # --- attempt filter cutoff automation (graceful skip if no filter device) ---
+    filter_result = None
+    filter_device_index = (
+        get_device_index_by_name(track_index, "eq")
+        or get_device_index_by_name(track_index, "filter")
+        or get_device_index_by_name(track_index, "auto filter")
+    )
+
+    if filter_device_index is not None:
+        try:
+            filter_result = _send_m4l("set_arrangement_automation", {
+                "track_index": track_index,
+                "parameter_type": "device_parameter",
+                "device_index": filter_device_index,
+                "parameter_name": "Frequency",
+                "points": make_envelope(filter_start, filter_end),
+            })
+            applied_automations.append("filter_cutoff")
+        except Exception as e:
+            filter_result = {"error": str(e)}
+
+    return {
+        "applied": True,
+        "track_name": track_name,
+        "track_index": track_index,
+        "direction": direction_lower,
+        "bar_start": bar_start,
+        "bar_end": bar_end,
+        "start_seconds": round(start_secs, 3),
+        "end_seconds": round(end_secs, 3),
+        "tempo_used": tempo,
+        "curve": curve,
+        "automations_written": applied_automations,
+        "volume_result": vol_result,
+        "filter_result": filter_result,
+    }
