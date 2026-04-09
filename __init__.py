@@ -1468,10 +1468,39 @@ class AbletonMPCX(ControlSurface):
             track = self._song.tracks[track_index]
             clips = list(track.arrangement_clips)
             if clip_index < 0 or clip_index >= len(clips):
-                return {"success": False, "error": "clip_index {} out of range — track has {} arrangement clips".format(clip_index, len(clips))}
+                return {
+                    "success": False,
+                    "error": "clip_index {} out of range — track has {} arrangement clips".format(
+                        clip_index, len(clips)
+                    ),
+                }
             clip = clips[clip_index]
+
+            # Log what we're about to do for debugging
+            self.log_message(
+                "AbletonMPCX duplicate_clip_to_time: track={} clip={} is_midi={} target_time={}".format(
+                    track_index, clip_index,
+                    getattr(clip, "is_midi_clip", "unknown"),
+                    target_time,
+                )
+            )
+
             def fn():
-                track.duplicate_clip_to_arrangement(clip, target_time)
+                if hasattr(track, "duplicate_clip_to_arrangement"):
+                    track.duplicate_clip_to_arrangement(clip, target_time)
+                elif hasattr(clip, "duplicate_to"):
+                    clip.duplicate_to(target_time)
+                else:
+                    raise RuntimeError(
+                        "Neither track.duplicate_clip_to_arrangement nor clip.duplicate_to "
+                        "is available in this Live version. "
+                        "track type={} clip type={} is_midi={}".format(
+                            type(track).__name__,
+                            type(clip).__name__,
+                            getattr(clip, "is_midi_clip", "unknown"),
+                        )
+                    )
+
             self._run_on_main_thread(fn)
             return {
                 "success": True,
@@ -1480,6 +1509,7 @@ class AbletonMPCX(ControlSurface):
                 "target_time": target_time,
             }
         except Exception as e:
+            self.log_message("AbletonMPCX duplicate_clip_to_time error: {}".format(e))
             return {"success": False, "error": str(e)}
 
     def _cmd_move_clip_slot(self, params):
@@ -1494,9 +1524,25 @@ class AbletonMPCX(ControlSurface):
             raise IndexError("to_slot_index {} out of range".format(to_slot_index))
         from_slot = slots[from_slot_index]
         to_slot = slots[to_slot_index]
+
         def fn():
-            from_slot.duplicate_clip_to(to_slot)
-            from_slot.delete_clip()
+            # Try the native duplicate_clip_to_slot method first (Live 11+)
+            if hasattr(from_slot, "duplicate_clip_to_slot"):
+                from_slot.duplicate_clip_to_slot(to_slot)
+                from_slot.delete_clip()
+            elif hasattr(from_slot, "duplicate_clip_to"):
+                from_slot.duplicate_clip_to(to_slot)
+                from_slot.delete_clip()
+            else:
+                # Neither duplicate method is available in this Live version —
+                # raise a clear error so the caller knows why the move failed.
+                raise RuntimeError(
+                    "move_clip_slot: ClipSlot has no duplicate_clip_to_slot or duplicate_clip_to method "
+                    "in this Live version. Cannot move audio clip slot {} to {}.".format(
+                        from_slot_index, to_slot_index
+                    )
+                )
+
         self._run_on_main_thread(fn)
         return {"from_slot_index": from_slot_index, "to_slot_index": to_slot_index}
 
@@ -2211,22 +2257,17 @@ class AbletonMPCX(ControlSurface):
             target_param = track.mixer_device.panning
             param_name = "panning"
         elif parameter_type == "device_parameter":
-            parameter_name = params.get("parameter_name")
-            if device_index is None or parameter_name is None:
-                raise RuntimeError(
-                    "parameter_type 'device_parameter' requires both device_index and parameter_name"
+            parameter_index = params.get("parameter_index")  # optional — not required for volume/panning
+            if device_index is None or parameter_index is None:
+                raise ValueError(
+                    "parameter_type 'device_parameter' requires both device_index and parameter_index"
                 )
             device = self._get_device(track_index, int(device_index))
-            target_param = next(
-                (p for p in device.parameters if p.name == parameter_name), None
-            )
-            if target_param is None:
-                raise RuntimeError(
-                    "Parameter '{}' not found on device at index {}".format(
-                        parameter_name, device_index
-                    )
-                )
-            param_name = parameter_name
+            parameters = list(device.parameters)
+            if int(parameter_index) < 0 or int(parameter_index) >= len(parameters):
+                raise IndexError("parameter_index {} out of range".format(parameter_index))
+            target_param = parameters[int(parameter_index)]
+            param_name = target_param.name
         else:
             # Legacy path: look up by parameter_index
             if "parameter_index" not in params:
