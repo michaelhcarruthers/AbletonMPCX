@@ -3,27 +3,81 @@ AbletonMPCX MCP Server — entry point.
 
 Starts the FastMCP server and imports all domain tool modules so that every
 @mcp.tool() decorator registers against the shared ``mcp`` instance.
+
+Set AMCPX_TOOL_GROUPS in .env to load only specific groups, e.g.:
+    AMCPX_TOOL_GROUPS=base,session,mixer,clips,arrangement,devices
+
+If AMCPX_TOOL_GROUPS is not set, all tool modules are loaded.
 """
+from __future__ import annotations
+
+import importlib
+import logging
+import os
+
+from dotenv import load_dotenv
+load_dotenv()
+
 from helpers import mcp  # noqa: F401 — creates the FastMCP instance
 
-# Import all tool modules so their @mcp.tool() decorators fire
-import tools.session      # noqa: F401  (also imports session_snapshots, session_suggestions, session_recording)
-import tools.tracks       # noqa: F401
-import tools.clips        # noqa: F401
-import tools.devices      # noqa: F401
-import tools.audit        # noqa: F401
-import tools.performance  # noqa: F401
-import tools.diagnostics  # noqa: F401
-# import tools.analysis             # noqa: F401  # disabled: requires exported audio files
-import tools.arrangement_bridge   # noqa: F401
-import tools.observer_bridge      # noqa: F401
-import tools.realtime_analyzer    # noqa: F401
-import tools.mix_templates        # noqa: F401
-import tools.theory               # noqa: F401
+logger = logging.getLogger(__name__)
 
-# Start the background observer thread (defined in tools.audit)
-from tools.audit import _start_observer
-_start_observer()
+# ---------------------------------------------------------------------------
+# Selective tool module loading based on AMCPX_TOOL_GROUPS env var
+# ---------------------------------------------------------------------------
+
+# All modules in dependency/import order
+_ALL_MODULES = [
+    "tools.session",
+    "tools.session_snapshots",
+    "tools.session_suggestions",
+    "tools.session_recording",
+    "tools.tracks",
+    "tools.clips",
+    "tools.devices",
+    "tools.staging",
+    "tools.morph",
+    "tools.reference",
+    "tools.audit",
+    "tools.performance",
+    "tools.diagnostics",
+    "tools.arrangement_bridge",
+    "tools.observer_bridge",
+    "tools.realtime_analyzer",
+    "tools.mix_templates",
+    "tools.theory",
+    "tools.spectrum",
+]
+
+_groups_env = os.environ.get("AMCPX_TOOL_GROUPS", "").strip()
+
+if not _groups_env:
+    # No filter — load everything
+    _modules_to_load = _ALL_MODULES
+else:
+    from tool_groups import TOOL_GROUP_MODULES
+
+    requested_groups = [g.strip() for g in _groups_env.split(",") if g.strip()]
+
+    # Always include base
+    groups_to_load = list(dict.fromkeys(["base"] + requested_groups))
+
+    _modules_to_load_list: list[str] = []
+    for group in groups_to_load:
+        for mod in TOOL_GROUP_MODULES.get(group, []):
+            if mod not in _modules_to_load_list:
+                _modules_to_load_list.append(mod)
+    _modules_to_load = _modules_to_load_list
+
+    logger.info("AMCPX_TOOL_GROUPS=%s → loading modules: %s", _groups_env, _modules_to_load)
+
+for _mod in _modules_to_load:
+    importlib.import_module(_mod)
+
+# Start the background observer thread (defined in tools.audit) only if audit is loaded
+if "tools.audit" in _modules_to_load:
+    from tools.audit import _start_observer
+    _start_observer()
 
 if __name__ == "__main__":
     mcp.run()

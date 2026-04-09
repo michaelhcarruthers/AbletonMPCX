@@ -85,3 +85,47 @@ TOOL_GROUPS: dict[str, list[str]] = {
         "validate_track_roles", "clear_track_role",
     ],
 }
+
+TOOL_GROUP_MODULES: dict[str, list[str]] = {
+    "base": [
+        "tools.clips",                # list_arrangement_clips, get_arrangement_overview, set_clip_envelope_points, duplicate_arrangement_clip, duplicate_arrangement_clip_batch
+        "tools.arrangement_bridge",   # write_dynamic_automation, write_arrangement_volume_automation
+    ],
+    "session": [
+        "tools.session",
+        "tools.session_snapshots",
+        "tools.session_suggestions",
+        "tools.session_recording",
+    ],
+    "mixer": [
+        "tools.tracks",
+    ],
+    "clips": [
+        "tools.clips",                # already in base, safe to repeat (importlib won't re-execute)
+    ],
+    "devices": [
+        "tools.devices",
+        "tools.staging",
+        "tools.morph",
+        "tools.reference",
+    ],
+    "arrangement": [
+        "tools.arrangement_bridge",   # already in base, safe to repeat
+    ],
+    "performance": [
+        "tools.performance",
+    ],
+    "diagnostics": [
+        "tools.diagnostics",
+        "tools.audit",
+        "tools.realtime_analyzer",
+        "tools.spectrum",
+    ],
+    "templates": [
+        "tools.mix_templates",
+        "tools.theory",
+    ],
+    "observer": [
+        "tools.observer_bridge",
+    ],
+}
