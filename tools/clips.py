@@ -19,6 +19,12 @@ def get_clip_slots(track_index: int) -> list:
     """Return all clip slots for the track at track_index."""
     return _send("get_clip_slots", {"track_index": track_index})
 
+
+@mcp.tool()
+def get_session_clips(slim: bool = True) -> dict:
+    """Return all clip slots across all tracks in the Session View. slim=True (default) returns only slots that have clips, with track_index, slot_index, name, has_clip, length. Pass slim=False for full clip data on every slot."""
+    return _send("get_session_clips", {"slim": slim})
+
 @mcp.tool()
 def fire_clip_slot(track_index: int, slot_index: int, record_length: float | None = None, launch_quantization: int | None = None) -> dict:
     """Fire the clip slot at (track_index, slot_index)."""
@@ -310,6 +316,17 @@ def get_clip_envelope(track_index: int, slot_index: int, envelope_index: int) ->
 
 
 @mcp.tool()
+def get_automation_data(track_index: int, slot_index: int, envelope_index: int, slim: bool = True) -> dict:
+    """Return automation data for one envelope on a clip. slim=True (default) returns summary stats only (param_name, point_count, min_value, max_value, first_value, last_value). Pass slim=False for the full point list."""
+    return _send("get_automation_data", {
+        "track_index": track_index,
+        "slot_index": slot_index,
+        "envelope_index": envelope_index,
+        "slim": slim,
+    })
+
+
+@mcp.tool()
 def clear_clip_envelope(track_index: int, slot_index: int, envelope_index: int) -> dict:
     """Clear all automation points from a clip envelope."""
     return _send("clear_clip_envelope", {
@@ -353,9 +370,9 @@ def set_clip_envelope_points(
     })
 
 @mcp.tool()
-def get_notes(track_index: int, slot_index: int) -> dict:
-    """Return all MIDI notes in the clip at (track_index, slot_index)."""
-    return _send("get_notes", {"track_index": track_index, "slot_index": slot_index})
+def get_notes(track_index: int, slot_index: int, slim: bool = True) -> dict:
+    """Return MIDI notes in the clip at (track_index, slot_index). slim=True (default) returns note_count, pitch_classes, duration_beats only. Pass slim=False to get the full note list."""
+    return _send("get_notes", {"track_index": track_index, "slot_index": slot_index, "slim": slim})
 
 @mcp.tool()
 def add_notes(track_index: int, slot_index: int, notes: list[dict]) -> dict:
@@ -416,9 +433,9 @@ def list_arrangement_clips(
     track_index: int = None,
     start_bar: int = None,
     end_bar: int = None,
-    slim: bool = False,
+    slim: bool = True,
 ) -> dict:
-    """List all clips in the arrangement view, optionally filtered by track or time range. slim=True returns only clip_index, start_time, length, name per clip — use this when you don't need full clip details. Note: when slim=True, track_index filter is applied server-side; start_bar/end_bar filters are not applied in slim mode."""
+    """List all clips in the arrangement view, optionally filtered by track or time range. slim=True (default) returns only clip_index, start_time, length, name per clip — use this when you don't need full clip details. Pass slim=False for full clip data including loop, color and mute info. Note: when slim=True, track_index filter is applied server-side; start_bar/end_bar filters are not applied in slim mode."""
     server_params: dict[str, Any] = {"slim": slim}
     if slim and track_index is not None:
         # In slim mode the server applies the track filter since track_index is
