@@ -1401,7 +1401,7 @@ def duplicate_clip_to_scenes(
       - target_scene_indices (list[int]): destination slot indices
 
     Supports both MIDI and audio clips. MIDI clips are recreated with notes;
-    audio clips are duplicated using duplicate_clip_slot / copy_clip_slot.
+    audio clips are duplicated using duplicate_clip_slot then moved with move_clip_slot.
     """
     results = []
 
@@ -1451,18 +1451,24 @@ def duplicate_clip_to_scenes(
         else:
             for target_idx in target_scene_indices:
                 try:
+                    # Step 1: duplicate the source slot — Live places the copy
+                    # immediately after the source (at source_clip_index + 1).
+                    _send("duplicate_clip_slot", {
+                        "track_index": track_index,
+                        "slot_index": source_clip_index,
+                    })
+                    # Step 2: move the newly created copy to the intended target slot.
                     try:
-                        _send("duplicate_clip_slot", {
+                        _send("move_clip_slot", {
                             "track_index": track_index,
-                            "slot_index": source_clip_index,
-                            "target_slot_index": target_idx,
+                            "from_slot_index": source_clip_index + 1,
+                            "to_slot_index": target_idx,
                         })
                     except RuntimeError:
-                        _send("copy_clip_slot", {
-                            "track_index": track_index,
-                            "slot_index": source_clip_index,
-                            "target_slot_index": target_idx,
-                        })
+                        # move_clip_slot not available — record as skipped so
+                        # we never silently write to the wrong slot.
+                        skipped.append(target_idx)
+                        continue
                     if clip_name:
                         try:
                             _send("set_clip_name", {"track_index": track_index, "slot_index": target_idx, "name": clip_name})
