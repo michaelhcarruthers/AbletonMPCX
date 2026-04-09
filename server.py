@@ -19,6 +19,7 @@ import tools.arrangement_bridge   # noqa: F401
 import tools.observer_bridge      # noqa: F401
 import tools.realtime_analyzer    # noqa: F401
 import tools.mix_templates        # noqa: F401
+import tools.theory               # noqa: F401
 
 # Start the background observer thread (defined in tools.audit)
 from tools.audit import _start_observer

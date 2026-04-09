@@ -322,6 +322,30 @@ class AbletonMPCX(ControlSurface):
         self._run_on_main_thread(fn)
         return {}
 
+    def _cmd_insert_tempo_section(self, params):
+        """Insert a tempo change automation point at a specific beat position."""
+        position_beats = float(params.get("position_beats", 0.0))
+        tempo = float(params.get("tempo", 120.0))
+        try:
+            self._song.create_tempo_automation_point(position_beats, tempo)
+            return {"success": True, "position_beats": position_beats, "tempo": tempo}
+        except Exception as e:
+            self.log_message(
+                "AbletonMPCX: create_tempo_automation_point not available ({}); falling back to global tempo".format(e)
+            )
+        try:
+            def fn():
+                self._song.tempo = tempo
+            self._run_on_main_thread(fn)
+            return {
+                "success": True,
+                "position_beats": position_beats,
+                "tempo": tempo,
+                "note": "create_tempo_automation_point not available; tempo set globally",
+            }
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+
     def _cmd_set_time_signature(self, params):
         def fn():
             if "numerator" in params:
