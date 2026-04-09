@@ -1333,6 +1333,11 @@ def _get_time_sig_numerator(override: int | None = None) -> int:
         return 4
 
 
+def _bars_beats_to_song_time(start_bar: int, start_beat: float, time_sig_numerator: int) -> float:
+    """Convert 1-indexed bar + beat position to absolute song time in beats."""
+    return (start_bar - 1) * time_sig_numerator + (start_beat - 1)
+
+
 @mcp.tool()
 def place_clip_in_arrangement(
     track_index: int,
@@ -1386,41 +1391,105 @@ def place_clip_in_arrangement(
 
 @mcp.tool()
 def duplicate_clip_to_scenes(
-    track_index: int,
-    source_clip_index: int,
-    target_scene_indices: list[int],
+    operations: list[dict],
 ) -> dict:
-    """Duplicate a clip into multiple scene slots on the same track."""
-    copies_made = 0
-    skipped = []
+    """Duplicate clips into multiple scene slots across one or more tracks in a single call.
 
-    # Read source clip properties once before the loop
-    clip_info = _send("get_clip_info", {"track_index": track_index, "slot_index": source_clip_index})
-    length = clip_info.get("length", 4.0)
-    clip_name = clip_info.get("name", "")
-    clip_color = clip_info.get("color")
+    Each operation must be a dict with:
+      - track_index (int): the track to operate on
+      - source_clip_index (int): the source session slot index
+      - target_scene_indices (list[int]): destination slot indices
 
-    notes_result = _send("get_notes", {"track_index": track_index, "slot_index": source_clip_index})
-    notes = notes_result.get("notes", []) if isinstance(notes_result, dict) else notes_result
+    Supports both MIDI and audio clips. MIDI clips are recreated with notes;
+    audio clips are duplicated using duplicate_clip_slot / copy_clip_slot.
+    """
+    results = []
 
-    for target_idx in target_scene_indices:
+    for op in operations:
+        track_index = op["track_index"]
+        source_clip_index = op["source_clip_index"]
+        target_scene_indices = op["target_scene_indices"]
+        copies_made = 0
+        skipped = []
+
         try:
-            _send("create_clip", {"track_index": track_index, "slot_index": target_idx, "length": length})
-            if clip_name:
-                _send("set_clip_name", {"track_index": track_index, "slot_index": target_idx, "name": clip_name})
-            if clip_color is not None:
-                _send("set_clip_color", {"track_index": track_index, "slot_index": target_idx, "color": clip_color})
-            if notes:
-                _send("replace_all_notes", {"track_index": track_index, "slot_index": target_idx, "notes": notes})
-            copies_made += 1
-        except RuntimeError:
-            skipped.append(target_idx)
+            clip_info = _send("get_clip_info", {"track_index": track_index, "slot_index": source_clip_index})
+        except RuntimeError as e:
+            results.append({
+                "track_index": track_index,
+                "source_clip_index": source_clip_index,
+                "copies_made": 0,
+                "skipped": target_scene_indices,
+                "error": str(e),
+            })
+            continue
+
+        length = clip_info.get("length", 4.0)
+        clip_name = clip_info.get("name", "")
+        clip_color = clip_info.get("color")
+        is_midi = bool(clip_info.get("is_midi_clip", False))
+
+        if is_midi:
+            try:
+                notes_result = _send("get_notes", {"track_index": track_index, "slot_index": source_clip_index})
+                notes = notes_result.get("notes", []) if isinstance(notes_result, dict) else notes_result
+            except RuntimeError:
+                notes = []
+
+            for target_idx in target_scene_indices:
+                try:
+                    _send("create_clip", {"track_index": track_index, "slot_index": target_idx, "length": length})
+                    if clip_name:
+                        _send("set_clip_name", {"track_index": track_index, "slot_index": target_idx, "name": clip_name})
+                    if clip_color is not None:
+                        _send("set_clip_color", {"track_index": track_index, "slot_index": target_idx, "color": clip_color})
+                    if notes:
+                        _send("replace_all_notes", {"track_index": track_index, "slot_index": target_idx, "notes": notes})
+                    copies_made += 1
+                except RuntimeError:
+                    skipped.append(target_idx)
+        else:
+            for target_idx in target_scene_indices:
+                try:
+                    try:
+                        _send("duplicate_clip_slot", {
+                            "track_index": track_index,
+                            "slot_index": source_clip_index,
+                            "target_slot_index": target_idx,
+                        })
+                    except RuntimeError:
+                        _send("copy_clip_slot", {
+                            "track_index": track_index,
+                            "slot_index": source_clip_index,
+                            "target_slot_index": target_idx,
+                        })
+                    if clip_name:
+                        try:
+                            _send("set_clip_name", {"track_index": track_index, "slot_index": target_idx, "name": clip_name})
+                        except RuntimeError:
+                            pass
+                    if clip_color is not None:
+                        try:
+                            _send("set_clip_color", {"track_index": track_index, "slot_index": target_idx, "color": clip_color})
+                        except RuntimeError:
+                            pass
+                    copies_made += 1
+                except RuntimeError:
+                    skipped.append(target_idx)
+
+        results.append({
+            "track_index": track_index,
+            "source_clip_index": source_clip_index,
+            "clip_type": "midi" if is_midi else "audio",
+            "copies_made": copies_made,
+            "target_scenes": [i for i in target_scene_indices if i not in skipped],
+            "skipped": skipped,
+        })
 
     return {
-        "source_clip_index": source_clip_index,
-        "copies_made": copies_made,
-        "target_scenes": [i for i in target_scene_indices if i not in skipped],
-        "skipped": skipped,
+        "results": results,
+        "total_copies": sum(r["copies_made"] for r in results),
+        "operations_count": len(operations),
     }
 
 
