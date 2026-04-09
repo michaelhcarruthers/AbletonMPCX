@@ -97,17 +97,20 @@ def _tools_to_openai_format(tools_list) -> list[dict]:
     return definitions
 
 
-async def _get_tool_definitions_for_group(group: str) -> list[dict]:
+async def _get_tool_definitions_for_groups(groups: list[str]) -> list[dict]:
     from tool_groups import TOOL_GROUPS
     all_tools = await _get_all_tools_cached()
-    prefixes = TOOL_GROUPS.get(group, [])
-    filtered = [
-        t for t in all_tools
-        if any(t.name == p or t.name.startswith(p) for p in prefixes)
-    ]
+    seen: set[str] = set()
+    filtered: list = []
+    for group in groups:
+        prefixes = TOOL_GROUPS.get(group, [])
+        for t in all_tools:
+            if t.name not in seen and any(t.name == p or t.name.startswith(p) for p in prefixes):
+                filtered.append(t)
+                seen.add(t.name)
     if not filtered:
         filtered = all_tools[:120]
-    filtered = filtered[:128]
+    filtered = filtered[:128]  # stay under OpenAI's 128-tool cap
     return _tools_to_openai_format(filtered)
 
 
@@ -119,7 +122,9 @@ def _group_selector_tool() -> list[dict]:
             "function": {
                 "name": "select_tool_group",
                 "description": (
-                    "Select the tool group that best matches the user's request. "
+                    "Select 1 or 2 tool groups that best match the user's request. "
+                    "Pick 2 only if the task clearly spans both (e.g. mixer + arrangement). "
+                    "Otherwise pick 1. "
                     "Call this first to get access to the right set of Ableton tools. "
                     "Groups:\n"
                     "- session: tempo, time signature, snapshots, recording, project memory\n"
@@ -134,13 +139,18 @@ def _group_selector_tool() -> list[dict]:
                 "parameters": {
                     "type": "object",
                     "properties": {
-                        "group": {
-                            "type": "string",
-                            "enum": list(TOOL_GROUPS.keys()),
-                            "description": "The tool group to load.",
+                        "groups": {
+                            "type": "array",
+                            "items": {
+                                "type": "string",
+                                "enum": list(TOOL_GROUPS.keys()),
+                            },
+                            "minItems": 1,
+                            "maxItems": 2,
+                            "description": "One or two tool groups to load. Pick two only if the request clearly spans both.",
                         }
                     },
-                    "required": ["group"],
+                    "required": ["groups"],
                 },
             },
         }
@@ -244,22 +254,26 @@ async def chat(req: ChatRequest):
     msg = choice.message
     messages.append(msg.model_dump(exclude_none=True))
 
-    selected_group = "session"
+    selected_groups = ["session"]  # default
     if msg.tool_calls:
         tc = msg.tool_calls[0]
         try:
             args = json.loads(tc.function.arguments)
-            selected_group = args.get("group", "session")
+            selected_groups = args.get("groups", ["session"])
+            if isinstance(selected_groups, str):
+                selected_groups = [selected_groups]  # handle model returning string instead of array
+            selected_groups = selected_groups[:2]  # enforce max 2
         except Exception:
             pass
+        groups_str = " + ".join(f"'{g}'" for g in selected_groups)
         messages.append({
             "role": "tool",
             "tool_call_id": tc.id,
-            "content": f"Tool group '{selected_group}' loaded. You now have access to its tools.",
+            "content": f"Tool groups {groups_str} loaded. You now have access to their tools.",
         })
 
-    # --- Phase 2+: agentic tool execution loop with selected group's tools ---
-    tool_definitions = await _get_tool_definitions_for_group(selected_group)
+    # --- Phase 2+: agentic tool execution loop with selected groups' tools ---
+    tool_definitions = await _get_tool_definitions_for_groups(selected_groups)
 
     while True:
         response = client.chat.completions.create(
