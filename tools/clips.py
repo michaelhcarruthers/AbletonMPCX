@@ -45,6 +45,33 @@ def delete_clip(track_index: int, slot_index: int) -> dict:
     return _send("delete_clip", {"track_index": track_index, "slot_index": slot_index})
 
 @mcp.tool()
+def delete_clip_batch(clips: list[dict]) -> dict:
+    """Delete multiple clips in a single call.
+
+    Each entry in clips must be a dict with:
+      - track_index (int)
+      - slot_index (int)
+
+    Returns a summary of deleted and failed slots.
+    """
+    deleted = []
+    failed = []
+    for clip in clips:
+        track_index = clip["track_index"]
+        slot_index = clip["slot_index"]
+        try:
+            _send("delete_clip", {"track_index": track_index, "slot_index": slot_index})
+            deleted.append({"track_index": track_index, "slot_index": slot_index})
+        except RuntimeError as e:
+            failed.append({"track_index": track_index, "slot_index": slot_index, "error": str(e)})
+    return {
+        "deleted_count": len(deleted),
+        "failed_count": len(failed),
+        "deleted": deleted,
+        "failed": failed,
+    }
+
+@mcp.tool()
 def duplicate_clip_slot(track_index: int, slot_index: int) -> dict:
     """Duplicate the clip slot at (track_index, slot_index) to the next empty slot below."""
     return _send("duplicate_clip_slot", {"track_index": track_index, "slot_index": slot_index})
@@ -96,6 +123,43 @@ def set_clip_loop(track_index: int, slot_index: int, looping: bool | None = None
     if loop_end is not None:
         params["loop_end"] = loop_end
     return _send("set_clip_loop", params)
+
+@mcp.tool()
+def set_clip_loop_batch(updates: list[dict]) -> dict:
+    """Set loop properties on multiple clips in a single call.
+
+    Each entry in updates must be a dict with:
+      - track_index (int)
+      - slot_index (int)
+      - looping (bool, optional)
+      - loop_start (float, optional): loop start in beats
+      - loop_end (float, optional): loop end in beats
+
+    Returns a summary of updated and failed clips.
+    """
+    updated = []
+    failed = []
+    for u in updates:
+        track_index = u["track_index"]
+        slot_index = u["slot_index"]
+        params: dict[str, Any] = {"track_index": track_index, "slot_index": slot_index}
+        if "looping" in u:
+            params["looping"] = u["looping"]
+        if "loop_start" in u:
+            params["loop_start"] = u["loop_start"]
+        if "loop_end" in u:
+            params["loop_end"] = u["loop_end"]
+        try:
+            _send("set_clip_loop", params)
+            updated.append({"track_index": track_index, "slot_index": slot_index})
+        except RuntimeError as e:
+            failed.append({"track_index": track_index, "slot_index": slot_index, "error": str(e)})
+    return {
+        "updated_count": len(updated),
+        "failed_count": len(failed),
+        "updated": updated,
+        "failed": failed,
+    }
 
 @mcp.tool()
 def set_clip_markers(track_index: int, slot_index: int, start_marker: float | None = None, end_marker: float | None = None) -> dict:
@@ -451,6 +515,85 @@ def delete_arrangement_clip(track_index: int, clip_index: int) -> dict:
         "track_index": track_index,
         "clip_index": clip_index,
     })
+
+
+@mcp.tool()
+def place_clip_in_arrangement_batch(
+    placements: list[dict],
+    time_signature_numerator: int | None = None,
+) -> dict:
+    """Place multiple Session View clips into the Arrangement View in a single call.
+
+    Each entry in placements must be a dict with:
+      - track_index (int)
+      - clip_index (int)
+      - start_bar (int): 1-indexed bar number
+      - start_beat (float, optional): beat within the bar, default 1.0
+
+    time_signature_numerator: override the song time signature numerator (default: read from song).
+
+    Returns a summary of placed and failed clips.
+    """
+    from tools.session import _get_time_sig_numerator, _bars_beats_to_song_time
+
+    tsn = _get_time_sig_numerator(time_signature_numerator)
+
+    placed = []
+    failed = []
+
+    for p in placements:
+        track_index = p["track_index"]
+        clip_index = p["clip_index"]
+        start_bar = p["start_bar"]
+        start_beat = float(p.get("start_beat", 1.0))
+        start_time_beats = _bars_beats_to_song_time(start_bar, start_beat, tsn)
+
+        clip_name = ""
+        clip_length_beats = 0.0
+        try:
+            clip_info = _send("get_clip_info", {"track_index": track_index, "slot_index": clip_index})
+            clip_name = clip_info.get("name", "")
+            clip_length_beats = float(clip_info.get("length", 0.0))
+        except RuntimeError:
+            pass
+
+        try:
+            try:
+                _send("duplicate_clip_to_arrangement", {
+                    "track_index": track_index,
+                    "clip_index": clip_index,
+                    "time": start_time_beats,
+                })
+            except RuntimeError:
+                _send("copy_clip_to_arrangement", {
+                    "track_index": track_index,
+                    "clip_index": clip_index,
+                    "time": start_time_beats,
+                })
+            placed.append({
+                "track_index": track_index,
+                "clip_index": clip_index,
+                "clip_name": clip_name,
+                "start_bar": start_bar,
+                "start_beat": start_beat,
+                "start_time_beats": start_time_beats,
+                "clip_length_beats": clip_length_beats,
+            })
+        except RuntimeError as e:
+            failed.append({
+                "track_index": track_index,
+                "clip_index": clip_index,
+                "start_bar": start_bar,
+                "error": str(e),
+            })
+
+    return {
+        "placed_count": len(placed),
+        "failed_count": len(failed),
+        "placed": placed,
+        "failed": failed,
+        "time_signature_numerator": tsn,
+    }
 
 
 @mcp.tool()
