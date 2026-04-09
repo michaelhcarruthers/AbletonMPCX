@@ -61,7 +61,7 @@ def get_device_parameter_value(
         "track_index": track_index,
         "device_index": device_index,
     })
-    params = result if isinstance(result, list) else result.get("parameters", [])
+    params = result if isinstance(result, list) else (result.get("parameters", []) if isinstance(result, dict) else [])
     name_lower = parameter_name.strip().lower()
     for p in params:
         if name_lower in p.get("name", "").lower():
