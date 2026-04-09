@@ -376,6 +376,10 @@ def list_arrangement_clips(
         _tsn = 4
 
     clips = []
+    try:
+        _tsn = int(_send("get_song_info", {}).get("time_signature_numerator", 4))
+    except Exception:
+        _tsn = 4
     for clip in all_clips:
         t_idx = clip.get("track_index", clip.get("track_idx", 0))
         t_name = clip.get("track_name", "")
@@ -383,6 +387,7 @@ def list_arrangement_clips(
         c_name = clip.get("name", clip.get("clip_name", ""))
         start_time = float(clip.get("start_time", clip.get("start", 0.0)))
         end_time = float(clip.get("end_time", clip.get("end", start_time)))
+        # Convert beat times to bars using the actual time signature numerator
         clip_start_bar = int(start_time // _tsn) + 1
         length_beats = max(0.0, end_time - start_time)
         length_bars = length_beats / float(_tsn)
