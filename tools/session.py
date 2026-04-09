@@ -1592,6 +1592,81 @@ def arrange_from_scene_scaffold(
     }
 
 
+@mcp.tool()
+def insert_tempo_section(
+    position_bar: int,
+    tempo: float,
+    time_signature_numerator: int | None = None,
+    duplicate_material_from_bar: int | None = None,
+    duplicate_material_length_bars: int | None = None,
+) -> dict:
+    """Insert a new tempo section at a bar position in the Arrangement.
+
+    position_bar: 1-indexed bar where the tempo change happens
+    tempo: BPM for the new section
+    time_signature_numerator: current time sig numerator for bar→beat conversion (default: read from song)
+    duplicate_material_from_bar: if set, duplicate all arrangement clips from this bar range into the new section
+    duplicate_material_length_bars: length of the source material to duplicate (required if duplicate_material_from_bar is set)
+
+    Returns the beat position of the inserted tempo change and any duplicated clips.
+    """
+    tsn = _get_time_sig_numerator(time_signature_numerator)
+    position_beats = _bars_beats_to_song_time(position_bar, 1.0, tsn)
+
+    result = _send("insert_tempo_section", {
+        "position_beats": position_beats,
+        "tempo": tempo,
+    })
+
+    duplicated = []
+    if duplicate_material_from_bar is not None and duplicate_material_length_bars is not None:
+        source_start_beats = _bars_beats_to_song_time(duplicate_material_from_bar, 1.0, tsn)
+        source_end_beats = source_start_beats + (duplicate_material_length_bars * tsn)
+        offset_beats = position_beats - source_start_beats
+
+        try:
+            tracks_info = _send("get_tracks", {})
+            tracks = tracks_info if isinstance(tracks_info, list) else tracks_info.get("tracks", [])
+            for track in tracks:
+                track_index = track.get("index", track.get("track_index"))
+                if track_index is None:
+                    continue
+                try:
+                    clips_result = _send("get_arrangement_clips", {"track_index": track_index})
+                    clips = clips_result if isinstance(clips_result, list) else clips_result.get("clips", [])
+                    for i, clip in enumerate(clips):
+                        clip_start = float(clip.get("start_time", clip.get("position", 0.0)))
+                        clip_end = clip_start + float(clip.get("length", 0.0))
+                        if clip_start >= source_start_beats and clip_end <= source_end_beats:
+                            target_time = clip_start + offset_beats
+                            try:
+                                _send("duplicate_clip_to_time", {
+                                    "track_index": track_index,
+                                    "clip_index": i,
+                                    "target_time": target_time,
+                                })
+                                duplicated.append({
+                                    "track_index": track_index,
+                                    "clip_index": i,
+                                    "target_time": target_time,
+                                })
+                            except RuntimeError:
+                                pass
+                except RuntimeError:
+                    pass
+        except RuntimeError:
+            pass
+
+    return {
+        "position_bar": position_bar,
+        "position_beats": position_beats,
+        "tempo": tempo,
+        "tempo_insert_result": result,
+        "duplicated_clips": duplicated,
+        "duplicated_count": len(duplicated),
+    }
+
+
 # --- Feature 6: Resampling routing ---
 
 
