@@ -784,7 +784,7 @@ def clear_arrangement_automation(
 def get_arrangement_overview() -> dict:
     """Return a high-level structural overview of the arrangement."""
     # Fetch all arrangement clips (unfiltered)
-    clips_result = list_arrangement_clips()
+    clips_result = list_arrangement_clips(slim=False)
     all_clips = clips_result["clips"]
 
     # Tempo
