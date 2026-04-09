@@ -742,28 +742,38 @@ class AbletonMPCX(ControlSurface):
     # -------------------------------------------------------------------------
 
     def _cmd_get_tracks(self, params):
+        slim = bool(params.get("slim", False))
         result = []
         for i, track in enumerate(self._song.tracks):
-            mixer = track.mixer_device
             try:
                 arm_val = track.arm
             except (AttributeError, RuntimeError):
                 arm_val = False
-            result.append({
-                "index": i,
-                "name": track.name,
-                "color": self._color(track),
-                "mute": track.mute,
-                "solo": track.solo,
-                "arm": arm_val,
-                "volume": mixer.volume.value,
-                "pan": mixer.panning.value,
-                "is_midi_track": track.has_midi_input,
-                "is_audio_track": track.has_audio_input,
-                "is_group_track": track.is_foldable if hasattr(track, "is_foldable") else False,
-                "device_count": len(list(track.devices)),
-                "clip_slot_count": len(list(track.clip_slots)),
-            })
+            if slim:
+                result.append({
+                    "index": i,
+                    "name": track.name,
+                    "mute": track.mute,
+                    "solo": track.solo,
+                    "arm": arm_val,
+                })
+            else:
+                mixer = track.mixer_device
+                result.append({
+                    "index": i,
+                    "name": track.name,
+                    "color": self._color(track),
+                    "mute": track.mute,
+                    "solo": track.solo,
+                    "arm": arm_val,
+                    "volume": mixer.volume.value,
+                    "pan": mixer.panning.value,
+                    "is_midi_track": track.has_midi_input,
+                    "is_audio_track": track.has_audio_input,
+                    "is_group_track": track.is_foldable if hasattr(track, "is_foldable") else False,
+                    "device_count": len(list(track.devices)),
+                    "clip_slot_count": len(list(track.clip_slots)),
+                })
         return result
 
     def _cmd_get_track_names(self, params):
@@ -831,18 +841,40 @@ class AbletonMPCX(ControlSurface):
         }
 
     def _cmd_get_track_devices(self, params):
-        """Return device names and count for a track without fetching parameters."""
+        """Return devices for a track."""
         track_index = int(params.get("track_index", 0))
         is_return = bool(params.get("is_return_track", False))
+        slim = bool(params.get("slim", False))
         track = self._resolve_track(track_index, is_return)
         devices = []
         for i, d in enumerate(track.devices):
-            devices.append({
-                "index": i,
-                "name": d.name,
-                "type": int(d.type),
-                "is_active": d.is_active,
-            })
+            if slim:
+                devices.append({
+                    "device_index": i,
+                    "name": d.name,
+                    "type": int(d.type),
+                    "is_active": d.is_active,
+                })
+            else:
+                device_params = []
+                for pi, p in enumerate(d.parameters):
+                    device_params.append({
+                        "index": pi,
+                        "name": p.name,
+                        "value": p.value,
+                        "min": p.min,
+                        "max": p.max,
+                        "is_quantized": p.is_quantized,
+                        "value_string": str(p),
+                    })
+                devices.append({
+                    "device_index": i,
+                    "name": d.name,
+                    "class_name": d.class_name,
+                    "type": int(d.type),
+                    "is_active": d.is_active,
+                    "parameters": device_params,
+                })
         return {
             "track_name": track.name,
             "device_count": len(devices),
@@ -880,6 +912,47 @@ class AbletonMPCX(ControlSurface):
                 "pan": self._song.master_track.mixer_device.panning.value,
             }
         return {"tracks": tracks, "returns": ret, "master": master}
+
+    def _cmd_get_mix_snapshot(self, params):
+        """Return a snapshot of all track mixer values."""
+        slim = bool(params.get("slim", False))
+        result = []
+        for i, track in enumerate(self._song.tracks):
+            mixer = track.mixer_device
+            if slim:
+                result.append({
+                    "track_index": i,
+                    "name": track.name,
+                    "volume": mixer.volume.value,
+                    "pan": mixer.panning.value,
+                    "mute": track.mute,
+                    "solo": track.solo,
+                })
+            else:
+                sends = [{"index": si, "value": s.value} for si, s in enumerate(mixer.sends)]
+                devices_summary = [
+                    {"index": di, "name": d.name, "class_name": d.class_name, "is_active": d.is_active}
+                    for di, d in enumerate(track.devices)
+                ]
+                try:
+                    input_routing = str(track.input_routing_type)
+                    output_routing = str(track.output_routing_type)
+                except AttributeError:
+                    input_routing = None
+                    output_routing = None
+                result.append({
+                    "track_index": i,
+                    "name": track.name,
+                    "volume": mixer.volume.value,
+                    "pan": mixer.panning.value,
+                    "mute": track.mute,
+                    "solo": track.solo,
+                    "sends": sends,
+                    "devices": devices_summary,
+                    "input_routing": input_routing,
+                    "output_routing": output_routing,
+                })
+        return {"tracks": result}
 
     def _cmd_get_return_tracks(self, params):
         result = []
@@ -1308,6 +1381,45 @@ class AbletonMPCX(ControlSurface):
             result.append(entry)
         return result
 
+    def _cmd_get_session_clips(self, params):
+        """Return clips across all Session View tracks and slots."""
+        slim = bool(params.get("slim", False))
+        result = []
+        for t_idx, track in enumerate(self._song.tracks):
+            for s_idx, slot in enumerate(track.clip_slots):
+                if not slot.has_clip:
+                    if not slim:
+                        result.append({
+                            "track_index": t_idx,
+                            "slot_index": s_idx,
+                            "has_clip": False,
+                        })
+                    continue
+                clip = slot.clip
+                if slim:
+                    result.append({
+                        "track_index": t_idx,
+                        "slot_index": s_idx,
+                        "name": clip.name,
+                        "has_clip": True,
+                        "length": clip.length,
+                    })
+                else:
+                    result.append({
+                        "track_index": t_idx,
+                        "slot_index": s_idx,
+                        "has_clip": True,
+                        "name": clip.name,
+                        "length": clip.length,
+                        "is_midi_clip": clip.is_midi_clip,
+                        "is_playing": clip.is_playing,
+                        "is_recording": clip.is_recording,
+                        "color": self._color(clip),
+                        "muted": clip.muted,
+                        "looping": clip.looping,
+                    })
+        return {"clips": result, "total_clips": len(result)}
+
     def _cmd_fire_clip_slot(self, params):
         slot = self._get_clip_slot(int(params["track_index"]), int(params["slot_index"]))
         def fn():
@@ -1549,6 +1661,7 @@ class AbletonMPCX(ControlSurface):
     def _cmd_get_arrangement_clips(self, params):
         """Return all clips placed in the Arrangement View across all tracks."""
         track_index_filter = params.get("track_index")  # optional int filter
+        slim = bool(params.get("slim", False))
 
         def fn():
             results = []
@@ -1562,21 +1675,29 @@ class AbletonMPCX(ControlSurface):
                     continue  # track type doesn't support arrangement clips
                 for c_idx, clip in enumerate(arr_clips):
                     try:
-                        results.append({
-                            "track_index": t_idx,
-                            "track_name": track.name,
-                            "clip_index": c_idx,
-                            "clip_name": clip.name,
-                            "start_time": clip.start_time,
-                            "end_time": clip.end_time,
-                            "length": clip.length,
-                            "is_midi_clip": clip.is_midi_clip,
-                            "color": self._color(clip),
-                            "muted": clip.muted,
-                            "looping": clip.looping,
-                            "loop_start": clip.loop_start,
-                            "loop_end": clip.loop_end,
-                        })
+                        if slim:
+                            results.append({
+                                "track_index": t_idx,
+                                "clip_index": c_idx,
+                                "start_time": clip.start_time,
+                                "length": clip.length,
+                            })
+                        else:
+                            results.append({
+                                "track_index": t_idx,
+                                "track_name": track.name,
+                                "clip_index": c_idx,
+                                "clip_name": clip.name,
+                                "start_time": clip.start_time,
+                                "end_time": clip.end_time,
+                                "length": clip.length,
+                                "is_midi_clip": clip.is_midi_clip,
+                                "color": self._color(clip),
+                                "muted": clip.muted,
+                                "looping": clip.looping,
+                                "loop_start": clip.loop_start,
+                                "loop_end": clip.loop_end,
+                            })
                     except Exception as exc:
                         self.log_message("AbletonMPCX: error reading arrangement clip {} on track {}: {}".format(c_idx, t_idx, exc))
             return results
@@ -1913,6 +2034,47 @@ class AbletonMPCX(ControlSurface):
             "points": points,
         }
 
+    def _cmd_get_automation_data(self, params):
+        """Return automation envelope data for a clip, with optional slim summary."""
+        clip = self._get_clip(int(params["track_index"]), int(params["slot_index"]))
+        envelope_index = int(params["envelope_index"])
+        slim = bool(params.get("slim", False))
+        try:
+            envelopes = clip.automation_envelopes
+        except AttributeError:
+            raise RuntimeError("clip.automation_envelopes not available in this Live version")
+        env = envelopes[envelope_index]
+        param = getattr(env, "automation_parameter", None)
+        param_name = param.name if param else None
+        points = []
+        try:
+            for event in env.automation_events:
+                points.append({
+                    "time": float(event.start),
+                    "value": float(event.value),
+                    "in_tangent": float(getattr(event, "in_tangent_x", 0.0)),
+                    "out_tangent": float(getattr(event, "out_tangent_x", 0.0)),
+                })
+        except AttributeError:
+            pass
+        if slim:
+            if points:
+                values = [p["value"] for p in points]
+                return {
+                    "param_name": param_name,
+                    "point_count": len(points),
+                    "min_value": min(values),
+                    "max_value": max(values),
+                    "first_value": points[0]["value"],
+                    "last_value": points[-1]["value"],
+                }
+            return {"param_name": param_name, "point_count": 0}
+        return {
+            "envelope_index": envelope_index,
+            "parameter_name": param_name,
+            "points": points,
+        }
+
     def _cmd_clear_clip_envelope(self, params):
         """Clear all automation events from an envelope by index."""
         clip = self._get_clip(int(params["track_index"]), int(params["slot_index"]))
@@ -2076,16 +2238,25 @@ class AbletonMPCX(ControlSurface):
     # -------------------------------------------------------------------------
 
     def _cmd_get_devices(self, params):
+        slim = bool(params.get("slim", False))
         track = self._resolve_track(int(params["track_index"]), bool(params.get("is_return_track", False)))
         result = []
         for i, device in enumerate(track.devices):
-            result.append({
-                "index": i,
-                "name": device.name,
-                "class_name": device.class_name,
-                "type": int(device.type),
-                "is_active": device.is_active,
-            })
+            if slim:
+                result.append({
+                    "device_index": i,
+                    "name": device.name,
+                    "type": int(device.type),
+                    "is_active": device.is_active,
+                })
+            else:
+                result.append({
+                    "index": i,
+                    "name": device.name,
+                    "class_name": device.class_name,
+                    "type": int(device.type),
+                    "is_active": device.is_active,
+                })
         return result
 
     def _cmd_get_device_parameters(self, params):

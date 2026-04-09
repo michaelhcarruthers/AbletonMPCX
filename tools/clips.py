@@ -10,6 +10,8 @@ logger = logging.getLogger(__name__)
 import helpers
 from helpers import mcp, _send, _send_silent
 
+CHROMATIC = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"]
+
 # ---------------------------------------------------------------------------
 # ClipSlot
 # ---------------------------------------------------------------------------
@@ -353,9 +355,20 @@ def set_clip_envelope_points(
     })
 
 @mcp.tool()
-def get_notes(track_index: int, slot_index: int) -> dict:
-    """Return all MIDI notes in the clip at (track_index, slot_index)."""
-    return _send("get_notes", {"track_index": track_index, "slot_index": slot_index})
+def get_notes(track_index: int, slot_index: int, slim: bool = True) -> dict:
+    """Return MIDI notes in the clip at (track_index, slot_index).
+    slim=True (default) returns note_count, pitch_classes, duration_beats only. Pass slim=False to get the full note list."""
+    result = _send("get_notes", {"track_index": track_index, "slot_index": slot_index})
+    if not slim:
+        return result
+    notes = result.get("notes", []) if isinstance(result, dict) else []
+    pitch_classes = sorted(set(n["pitch"] % 12 for n in notes))
+    return {
+        "note_count": len(notes),
+        "pitch_classes": pitch_classes,
+        "pitch_class_names": [CHROMATIC[pc] for pc in pitch_classes],
+        "duration_beats": sum(n.get("duration", 0) for n in notes),
+    }
 
 @mcp.tool()
 def add_notes(track_index: int, slot_index: int, notes: list[dict]) -> dict:
@@ -416,10 +429,12 @@ def list_arrangement_clips(
     track_index: int = None,
     start_bar: int = None,
     end_bar: int = None,
+    slim: bool = True,
 ) -> dict:
-    """List all clips in the arrangement view, optionally filtered by track or time range."""
+    """List all clips in the arrangement view, optionally filtered by track or time range.
+    slim=True (default) returns track_index, clip_index, start_time, length only. Pass slim=False for full clip data."""
     try:
-        raw = _send("get_arrangement_clips", {})
+        raw = _send("get_arrangement_clips", {"slim": slim})
         all_clips = raw if isinstance(raw, list) else raw.get("clips", [])
     except Exception as e:
         return {
@@ -441,19 +456,10 @@ def list_arrangement_clips(
         _tsn = 4
     for clip in all_clips:
         t_idx = clip.get("track_index", clip.get("track_idx", 0))
-        t_name = clip.get("track_name", "")
         c_idx = clip.get("clip_index", clip.get("clip_idx", 0))
-        c_name = clip.get("name", clip.get("clip_name", ""))
         start_time = float(clip.get("start_time", clip.get("start", 0.0)))
         end_time = float(clip.get("end_time", clip.get("end", start_time)))
-        # Convert beat times to bars using the actual time signature numerator
         clip_start_bar = int(start_time // _tsn) + 1
-        length_beats = max(0.0, end_time - start_time)
-        length_bars = length_beats / float(_tsn)
-        is_midi = bool(clip.get("is_midi_clip", clip.get("is_midi", False)))
-        is_audio = not is_midi
-        color = clip.get("color", 0)
-        muted = bool(clip.get("muted", clip.get("mute", False)))
 
         # Apply filters
         if track_index is not None and t_idx != track_index:
@@ -463,20 +469,36 @@ def list_arrangement_clips(
         if end_bar is not None and clip_start_bar >= end_bar:
             continue
 
-        clips.append({
-            "track_index": t_idx,
-            "track_name": t_name,
-            "clip_index": c_idx,
-            "clip_name": c_name,
-            "start_time": start_time,
-            "end_time": end_time,
-            "start_bar": clip_start_bar,
-            "length_bars": length_bars,
-            "is_audio": is_audio,
-            "is_midi": is_midi,
-            "color": color,
-            "muted": muted,
-        })
+        if slim:
+            clips.append({
+                "track_index": t_idx,
+                "clip_index": c_idx,
+                "start_time": start_time,
+                "length": float(clip.get("length", max(0.0, end_time - start_time))),
+            })
+        else:
+            t_name = clip.get("track_name", "")
+            c_name = clip.get("name", clip.get("clip_name", ""))
+            length_beats = max(0.0, end_time - start_time)
+            length_bars = length_beats / float(_tsn)
+            is_midi = bool(clip.get("is_midi_clip", clip.get("is_midi", False)))
+            is_audio = not is_midi
+            color = clip.get("color", 0)
+            muted = bool(clip.get("muted", clip.get("mute", False)))
+            clips.append({
+                "track_index": t_idx,
+                "track_name": t_name,
+                "clip_index": c_idx,
+                "clip_name": c_name,
+                "start_time": start_time,
+                "end_time": end_time,
+                "start_bar": clip_start_bar,
+                "length_bars": length_bars,
+                "is_audio": is_audio,
+                "is_midi": is_midi,
+                "color": color,
+                "muted": muted,
+            })
 
     filtered_by: dict[str, Any] = {}
     if track_index is not None:
@@ -837,4 +859,28 @@ def get_arrangement_overview() -> dict:
         "total_clips": len(all_clips),
         "tempo": tempo,
     }
+
+
+@mcp.tool()
+def get_session_clips(slim: bool = True) -> dict:
+    """Return all clips across all Session View tracks and slots.
+    slim=True (default) returns only slots that have clips, with track_index, slot_index, name, and length only. Pass slim=False for full clip data."""
+    return _send("get_session_clips", {"slim": slim})
+
+
+@mcp.tool()
+def get_automation_data(
+    track_index: int,
+    slot_index: int,
+    envelope_index: int,
+    slim: bool = True,
+) -> dict:
+    """Return automation envelope data for a clip.
+    slim=True (default) returns summary stats only (param_name, point_count, min_value, max_value, first_value, last_value). Pass slim=False for the full point list."""
+    return _send("get_automation_data", {
+        "track_index": track_index,
+        "slot_index": slot_index,
+        "envelope_index": envelope_index,
+        "slim": slim,
+    })
 
