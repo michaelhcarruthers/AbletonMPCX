@@ -11,7 +11,7 @@ import json
 import socket
 from typing import Any
 
-from helpers import mcp
+from helpers import mcp, _send
 
 # ---------------------------------------------------------------------------
 # Transport — connects to the M4L device on port 9878
@@ -261,4 +261,74 @@ def write_dynamic_automation(
         "status": "ok",
         "direction": direction_lower,
         "automations_written": applied_automations,
+    }
+
+
+@mcp.tool()
+def write_arrangement_volume_automation(
+    track_index: int,
+    start_beat: float,
+    end_beat: float,
+    start_value: float,
+    end_value: float,
+    curve: str = "linear",
+) -> dict:
+    """Write volume automation to a track in arrangement view.
+
+    Uses the main socket (not M4L bridge) — works even when M4L bridge is inactive.
+
+    track_index: zero-based track index
+    start_beat: song position in beats where ramp starts (beat 0 = bar 1)
+    end_beat: song position in beats where ramp ends
+    start_value: normalised volume at start (0.0 = silence, 0.85 ≈ 0dB, 1.0 = +6dB)
+    end_value: normalised volume at end
+    curve: 'linear' (default), 'ease_in', or 'ease_out'
+    """
+    VALID_CURVES = ("linear", "ease_in", "ease_out")
+    if curve not in VALID_CURVES:
+        return {"error": f"curve must be one of {VALID_CURVES}", "applied": False}
+
+    duration = end_beat - start_beat
+    if duration <= 0:
+        return {"error": "end_beat must be greater than start_beat", "applied": False}
+
+    if curve == "ease_in":
+        mid_beat = start_beat + duration * 0.7
+        mid_val = start_value + (end_value - start_value) * 0.2
+        points = [
+            {"time": start_beat, "value": start_value},
+            {"time": mid_beat, "value": mid_val},
+            {"time": end_beat, "value": end_value},
+        ]
+    elif curve == "ease_out":
+        mid_beat = start_beat + duration * 0.3
+        mid_val = start_value + (end_value - start_value) * 0.8
+        points = [
+            {"time": start_beat, "value": start_value},
+            {"time": mid_beat, "value": mid_val},
+            {"time": end_beat, "value": end_value},
+        ]
+    else:
+        points = [
+            {"time": start_beat, "value": start_value},
+            {"time": end_beat, "value": end_value},
+        ]
+
+    result = _send("write_arrangement_automation", {
+        "track_index": track_index,
+        "parameter_type": "volume",
+        "points": points,
+    })
+    if isinstance(result, dict) and result.get("error"):
+        return {"error": result["error"], "applied": False}
+    return {
+        "status": "ok",
+        "track_index": track_index,
+        "start_beat": start_beat,
+        "end_beat": end_beat,
+        "start_value": start_value,
+        "end_value": end_value,
+        "curve": curve,
+        "points_written": len(points),
+        "result": result,
     }
