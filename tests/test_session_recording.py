@@ -49,6 +49,7 @@ def mock_transport():
     mock.responses["set_record_mode"] = None
     mock.responses["stop_all_clips"] = None
     mock.responses["fire_clip_slot"] = None
+    mock.responses["fire_scene"] = None
     mock.responses["start_playing"] = None
     mock.responses["set_device_parameter"] = None
     mock.responses["schedule_stop_recording"] = None
@@ -201,11 +202,11 @@ def test_dump_session_uses_override_beats(mock_transport):
     assert result["stop_after_beats"] == 32.0
 
 
-def test_dump_session_fires_all_target_clips(mock_transport):
+def test_dump_session_fires_scene_atomically(mock_transport):
     dump_session_to_arrangement(slot_index=0, track_indices=[0, 1, 2])
-    fire_calls = [(cmd, params) for cmd, params in mock_transport.calls if cmd == "fire_clip_slot"]
-    fired_tracks = {p["track_index"] for _, p in fire_calls}
-    assert fired_tracks == {0, 1, 2}
+    fire_scene_calls = [(cmd, params) for cmd, params in mock_transport.calls if cmd == "fire_scene"]
+    assert len(fire_scene_calls) == 1
+    assert fire_scene_calls[0][1]["scene_index"] == 0
 
 
 def test_dump_session_calls_record_mode(mock_transport):
@@ -258,8 +259,15 @@ def test_dump_session_contains_note_field(mock_transport):
 
 def test_dump_session_slot_index_passed_to_fire(mock_transport):
     dump_session_to_arrangement(slot_index=2, track_indices=[0])
-    fire_calls = [(cmd, params) for cmd, params in mock_transport.calls if cmd == "fire_clip_slot"]
-    assert all(p["slot_index"] == 2 for _, p in fire_calls)
+    fire_scene_calls = [(cmd, params) for cmd, params in mock_transport.calls if cmd == "fire_scene"]
+    assert len(fire_scene_calls) == 1
+    assert fire_scene_calls[0][1]["scene_index"] == 2
+
+
+def test_dump_session_sets_position_once(mock_transport):
+    dump_session_to_arrangement(slot_index=0, track_indices=[0])
+    position_calls = [cmd for cmd, _ in mock_transport.calls if cmd == "set_arrangement_position"]
+    assert len(position_calls) == 1
 
 
 # ---------------------------------------------------------------------------
