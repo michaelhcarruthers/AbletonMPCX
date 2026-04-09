@@ -685,12 +685,11 @@ def dump_session_to_arrangement(
 
     duration_seconds = (stop_after_beats / tempo) * 60.0
 
-    # 5. Arm all target tracks
-    for ti in track_indices:
-        try:
-            _send("set_track_arm", {"track_index": ti, "arm": True})
-        except RuntimeError:
-            pass
+    # 5. Stop any currently playing clips first
+    try:
+        _send("stop_all_clips", {"quantized": 0})
+    except RuntimeError:
+        pass
 
     # 6. Reset playhead to beat 0 (bar 1)
     _send("set_arrangement_position", {"position": 0.0})
@@ -698,22 +697,25 @@ def dump_session_to_arrangement(
     # 7. Enable arrangement record mode
     _send("set_record_mode", {"record_mode": True})
 
-    # 8. Stop any currently playing clips
-    try:
-        _send("stop_all_clips", {"quantized": 0})
-    except RuntimeError:
-        pass
-
-    # 9. Fire all target clips simultaneously
+    # 8. Arm all target tracks
     for ti in track_indices:
         try:
-            _send("fire_clip_slot", {"track_index": ti, "slot_index": slot_index})
+            _send("set_track_arm", {"track_index": ti, "arm": True})
         except RuntimeError:
             pass
 
-    # 10. Start arrangement playback from beat 0.  The position is set again here
-    #     because firing clips (step 9) can shift the playhead on some Live versions.
-    _send("set_arrangement_position", {"position": 0.0})
+    # 9. Fire all clips atomically via fire_scene
+    try:
+        _send("fire_scene", {"scene_index": slot_index})
+    except RuntimeError:
+        # fallback: fire individually if fire_scene not available
+        for ti in track_indices:
+            try:
+                _send("fire_clip_slot", {"track_index": ti, "slot_index": slot_index})
+            except RuntimeError:
+                pass
+
+    # 10. Start arrangement playback
     _send("start_playing")
 
     # 11. Schedule stop after duration
