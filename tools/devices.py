@@ -105,17 +105,17 @@ def extract_groove_from_clip(
 
 @mcp.tool()
 def get_browser_tree(category_type: str = "all") -> dict:
-    """Return the browser tree up to 2 levels deep. category_type: 'all', 'instruments', 'sounds', 'drums', 'audio_effects',..."""
+    """Return the Ableton browser tree up to 2 levels deep for the given category type."""
     return _send("get_browser_tree", {"category_type": category_type})
 
 @mcp.tool()
 def get_browser_items_at_path(path: str) -> dict:
-    """Return browser items at the given path (e.g. 'instruments/Drum Rack'). Root path segments: instruments, sounds, drums..."""
+    """Return browser items at the given path (e.g. 'instruments/Drum Rack')."""
     return _send("get_browser_items_at_path", {"path": path})
 
 @mcp.tool()
 def load_browser_item(uri: str, track_index: int = 0, is_return_track: bool = False) -> dict:
-    """Load a browser item by URI onto the track at track_index. Use get_browser_items_at_path to discover URIs. Set..."""
+    """Load a browser item by URI onto a track; use get_browser_items_at_path to discover valid URIs."""
     return _send("load_browser_item", {"uri": uri, "track_index": track_index, "is_return_track": is_return_track})
 
 @mcp.tool()

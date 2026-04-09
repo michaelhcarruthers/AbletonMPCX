@@ -402,7 +402,7 @@ def analyze_mix_balance(
 
 @mcp.tool()
 def scan_au_presets(force_rescan: bool = False) -> dict:
-    """Scan standard macOS AU preset locations for .aupreset and .prt_omni files, infer tonal descriptors from names and..."""
+    """Scan standard macOS AU preset locations for .aupreset and .prt_omni files and infer tonal descriptors from names."""
     scan_paths = [
         pathlib.Path.home() / "Library" / "Audio" / "Presets",
         pathlib.Path("/Library/Audio/Presets"),
@@ -495,7 +495,7 @@ def scan_splice_library(
     splice_path: str | None = None,
     force_rescan: bool = False,
 ) -> dict:
-    """Scan the Splice sample library and perform real audio analysis using librosa to measure actual frequency content,..."""
+    """Scan the Splice sample library and measure actual frequency content using librosa."""
     try:
         import librosa  # type: ignore[import]
         import numpy as np  # type: ignore[import]
@@ -654,7 +654,7 @@ def recommend_presets(
     top_n: int = 5,
     plugin_filter: str | None = None,
 ) -> dict:
-    """Rank sound library entries by fit score against target and avoid frequency bands and return best_fit / usable /..."""
+    """Rank sound library entries by fit score against target frequency bands and return best_fit / usable / avoid tiers."""
     cache = _load_cache()
     entries = cache.get("entries", [])
 
@@ -740,7 +740,7 @@ def audit_preset(
     preset_name: str,
     plugin_name: str | None = None,
 ) -> dict:
-    """Self-learning: analyse an exported audio file for a loaded preset and store the measured spectral descriptors back to..."""
+    """Analyse an exported audio file for a preset and store measured spectral descriptors back to the sound library cache."""
     from tools.analysis import get_spectral_descriptors
 
     try:
@@ -802,7 +802,7 @@ def audit_preset(
 
 @mcp.tool()
 def get_sound_library_stats() -> dict:
-    """Show statistics about the sound library cache: total entries, per-plugin breakdown, measured vs inferred counts, drum..."""
+    """Show statistics about the sound library cache: total entries, per-plugin breakdown, and measured vs inferred counts."""
     if not _CACHE_FILE.exists():
         return {
             "error": (

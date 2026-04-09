@@ -13,7 +13,6 @@ TOOL_GROUPS: dict[str, list[str]] = {
         "suggest_", "get_project", "set_project", "get_memory",
         "get_session_health", "set_tempo", "set_time_signature",
         "get_tempo", "get_time_signature",
-        "classify_tracks", "apply_mix_template",
     ],
     "mixer": [
         "set_track_volume", "get_track_volume", "set_track_pan",
@@ -58,15 +57,10 @@ TOOL_GROUPS: dict[str, list[str]] = {
         "get_observer", "set_observer", "subscribe_", "unsubscribe_",
         "fire_scene", "stop_all_clips", "jump_to_", "set_follow_action",
     ],
-    "analysis": [
-        "analyze_", "get_lufs", "get_peak", "get_rms", "get_spectrum",
-        "start_analyzer", "stop_analyzer", "get_analyzer",
-        "measure_", "detect_", "estimate_",
-    ],
     "diagnostics": [
         "get_log", "get_operation_log", "get_audit", "run_diagnostic",
         "check_", "validate_", "inspect_", "get_health",
-        "get_session_health", "export_audit", "clear_log",
+        "export_audit", "clear_log",
         "get_latency_report",
     ],
     "templates": [

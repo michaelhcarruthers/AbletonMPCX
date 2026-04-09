@@ -88,7 +88,7 @@ def m4l_observer_ping() -> dict:
 
 @mcp.tool()
 def m4l_get_observer_state() -> dict:
-    """Return the full current observer state snapshot — selected track, device, parameter, and playhead position — as..."""
+    """Return the full current observer state snapshot: selected track, device, parameter, and playhead position."""
     return _send_observer("get_state")
 
 

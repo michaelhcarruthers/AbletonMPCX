@@ -41,7 +41,7 @@ import tools.clips               # noqa: F401
 import tools.devices             # noqa: F401
 import tools.performance         # noqa: F401
 import tools.diagnostics         # noqa: F401
-import tools.analysis            # noqa: F401
+# import tools.analysis            # noqa: F401  # disabled: requires exported audio files
 import tools.realtime_analyzer   # noqa: F401
 import tools.arrangement_bridge  # noqa: F401
 import tools.observer_bridge     # noqa: F401
@@ -128,7 +128,6 @@ def _group_selector_tool() -> list[dict]:
                     "- devices: device parameters, batch set, morph, staging\n"
                     "- arrangement: arrangement clips, automation, loop/punch points\n"
                     "- performance: macros, sidechain, resampling, scenes, observers\n"
-                    "- analysis: LUFS, peak, RMS, spectrum, real-time analyzer\n"
                     "- diagnostics: logs, audit, health checks, validation\n"
                     "- templates: classify tracks by role, apply genre mix templates, preview processing\n"
                 ),

@@ -44,7 +44,7 @@ def get_track_info(track_index: int) -> dict:
 
 @mcp.tool()
 def get_track_playing_state(track_index: int) -> dict:
-    """Return the currently playing and queued slot indices for a track. playing_slot_index: index of the currently playing..."""
+    """Return the currently playing and queued slot indices for a track."""
     return _send("get_track_playing_state", {"track_index": track_index})
 
 @mcp.tool()
@@ -122,7 +122,7 @@ def get_return_tracks() -> list:
 
 @mcp.tool()
 def get_track_routing(track_index: int) -> dict:
-    """Return the full routing state for a track: input/output type and channel, plus the list of available options for each..."""
+    """Return the full routing state for a track: input/output type, channel, and lists of available options."""
     return _send("get_track_routing", {"track_index": track_index})
 
 

@@ -301,7 +301,7 @@ def get_notes(track_index: int, slot_index: int) -> dict:
 
 @mcp.tool()
 def add_notes(track_index: int, slot_index: int, notes: list[dict]) -> dict:
-    """Add MIDI notes to the clip. Each note dict requires: pitch (int 0-127), start_time (float beats), duration (float..."""
+    """Add MIDI notes to a clip slot."""
     try:
         clip_info = _send("get_clip_info", {"track_index": track_index, "slot_index": slot_index})
         if not clip_info.get("is_midi_clip", False):
@@ -479,7 +479,7 @@ def move_device(
 
 @mcp.tool()
 def get_detail_clip(include_notes: bool = True) -> dict:
-    """Return info and MIDI notes for the clip currently open in Live's Detail View (the clip editor at the bottom of the..."""
+    """Return info and MIDI notes for the clip currently open in Live's Detail View."""
     result = _send_silent("get_detail_clip", {"include_notes": include_notes})
     return result
 

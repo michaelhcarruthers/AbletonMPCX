@@ -384,7 +384,7 @@ def set_draw_mode(draw_mode: bool) -> dict:
 
 @mcp.tool()
 def focus_view(view_name: str) -> dict:
-    """Focus a named view in Ableton Live. Common view names: 'Session', 'Arranger', 'Detail', 'Detail/Clip',..."""
+    """Focus a named view in Ableton Live (e.g. 'Session', 'Arranger', 'Detail', 'Detail/Clip')."""
     return _send("focus_view", {"view_name": view_name})
 
 @mcp.tool()
@@ -449,7 +449,7 @@ def get_protocol_version() -> dict:
 
 @mcp.tool()
 def get_selected_context() -> dict:
-    """Return everything currently selected/focused in Live: selected_track, selected_scene, detail_clip (open in Detail..."""
+    """Return everything currently selected/focused in Live: selected track, scene, and detail clip."""
     return _send("get_selected_context")
 
 
@@ -1650,7 +1650,7 @@ def mix_correction_loop(
     snapshot_after: bool = False,
     snapshot_name: str | None = None,
 ) -> dict:
-    """Iteratively adjust a device parameter to improve a frequency band balance, reading the analyzer after each step to..."""
+    """Iteratively adjust a device parameter to improve a frequency band balance, reading the analyzer after each step."""
     if direction not in ("reduce", "boost"):
         return {"error": "direction must be 'reduce' or 'boost'"}
 
