@@ -923,17 +923,6 @@ def take_screenshot(region: str = "full", save_path: str = None) -> dict:
 
 
 # ---------------------------------------------------------------------------
-# I — Compact session summary
-# ---------------------------------------------------------------------------
-
-@mcp.tool()
-def get_compact_session_summary() -> str:
-    """Return the entire session state as a compact human-readable summary."""
-    snapshot = _send("get_session_snapshot")
-    return summarize_session(snapshot)
-
-
-# ---------------------------------------------------------------------------
 # J — Diagnostic tools per question
 # ---------------------------------------------------------------------------
 
