@@ -70,17 +70,7 @@ def _send_analyzer(command: str, params: dict[str, Any] | None = None) -> Any:
 
 @mcp.tool()
 def m4l_analyzer_ping() -> dict:
-    """
-    Check if the AMCPX_Analyzer Max for Live device is running and reachable.
-
-    Returns:
-        status: "pong" if connected
-        version: analyzer version string
-        message: human-readable status
-
-    If this fails, the M4L device is not loaded. Drop AMCPX_Analyzer.amxd onto
-    any track in your Live set and make sure it is active (not bypassed).
-    """
+    """Check if the AMCPX_Analyzer Max for Live device is running and reachable."""
     try:
         result = _send_analyzer("ping")
         result["message"] = "AMCPX_Analyzer is running on port {}.".format(ANALYZER_PORT)
@@ -99,120 +89,37 @@ def m4l_analyzer_ping() -> dict:
 
 @mcp.tool()
 def m4l_get_levels() -> dict:
-    """
-    Get full real-time measurements from the AMCPX_Analyzer M4L device.
-
-    Returns peak dBFS, RMS dBFS, short-term LUFS (3-second window),
-    integrated LUFS, crest factor in dB, clip count, and measuring state.
-
-    Requires AMCPX_Analyzer.amxd to be loaded on the track you want to analyze.
-
-    Returns:
-        peak_db: float or null — peak level in dBFS
-        rms_db: float or null — RMS level in dBFS
-        lufs_short: float or null — 3-second short-term LUFS approximation
-        lufs_integrated: float or null — integrated LUFS since last reset
-        crest_factor_db: float or null — crest factor in dB (peak minus RMS)
-        clip_count: int — number of measurements at or above 0 dBFS
-        last_updated: str or null — ISO timestamp of last measurement
-        measuring: bool — whether active measuring mode is on
-    """
+    """Get full real-time measurements from the AMCPX_Analyzer M4L device."""
     return _send_analyzer("get_levels")
 
 
 @mcp.tool()
 def m4l_get_lufs() -> dict:
-    """
-    Get LUFS measurements from the AMCPX_Analyzer M4L device.
-
-    Returns short-term (3-second window) and integrated LUFS values.
-    Values are approximated from RMS — not true ITU-R BS.1770 K-weighted LUFS,
-    but useful for relative comparisons and gain staging decisions.
-
-    Requires AMCPX_Analyzer.amxd to be loaded on the track you want to analyze.
-
-    Returns:
-        lufs_short: float or null — 3-second short-term LUFS approximation
-        lufs_integrated: float or null — integrated LUFS since last reset
-    """
+    """Get LUFS measurements from the AMCPX_Analyzer M4L device."""
     return _send_analyzer("get_lufs")
 
 
 @mcp.tool()
 def m4l_get_peak_level() -> dict:
-    """
-    Get the peak dBFS level and clip count from the AMCPX_Analyzer M4L device.
-
-    Returns the highest peak level seen since the last reset and the number of
-    times the signal reached or exceeded 0 dBFS (true clipping).
-
-    Requires AMCPX_Analyzer.amxd to be loaded on the track you want to analyze.
-
-    Returns:
-        peak_db: float or null — peak level in dBFS
-        clip_count: int — number of measurements at or above 0 dBFS
-    """
+    """Get the peak dBFS level and clip count from the AMCPX_Analyzer M4L device."""
     return _send_analyzer("get_peak")
 
 
 @mcp.tool()
 def m4l_get_crest_factor() -> dict:
-    """
-    Get the crest factor from the AMCPX_Analyzer M4L device.
-
-    The crest factor (peak dB − RMS dB) indicates dynamic range.
-    A high crest factor (> 15 dB) suggests dynamic content;
-    a low crest factor (< 6 dB) suggests heavy compression or limiting.
-
-    Requires AMCPX_Analyzer.amxd to be loaded on the track you want to analyze.
-
-    Returns:
-        crest_factor_db: float or null — crest factor in dB (peak minus RMS)
-        peak_db: float or null — peak level in dBFS
-        rms_db: float or null — RMS level in dBFS
-    """
+    """Get the crest factor from the AMCPX_Analyzer M4L device."""
     return _send_analyzer("get_crest_factor")
 
 
 @mcp.tool()
 def m4l_reset_analyzer() -> dict:
-    """
-    Reset all measurements and clip counter in the AMCPX_Analyzer M4L device.
-
-    Clears peak, RMS, LUFS short-term and integrated rolling buffers, and the
-    clip count. Use before starting a new measurement session.
-
-    Requires AMCPX_Analyzer.amxd to be loaded on the track you want to analyze.
-
-    Returns:
-        reset: True
-    """
+    """Reset all measurements and clip counter in the AMCPX_Analyzer M4L device."""
     return _send_analyzer("reset")
 
 
 @mcp.tool()
 def m4l_measure_for_seconds(duration: float = 5.0) -> dict:
-    """
-    Measure audio levels for a given duration and return the final results.
-
-    Sends start_measuring, waits for the specified number of seconds (Python-side
-    sleep), then sends stop_measuring and returns the accumulated measurements.
-
-    Requires AMCPX_Analyzer.amxd to be loaded on the track you want to analyze.
-
-    Args:
-        duration: Number of seconds to measure (default: 5.0, clamped to 0.1–60.0).
-
-    Returns:
-        peak_db: float or null — peak level in dBFS
-        rms_db: float or null — RMS level in dBFS
-        lufs_short: float or null — 3-second short-term LUFS approximation
-        lufs_integrated: float or null — integrated LUFS since last reset
-        crest_factor_db: float or null — crest factor in dB (peak minus RMS)
-        clip_count: int — number of measurements at or above 0 dBFS
-        last_updated: str or null — ISO timestamp of last measurement
-        measuring: bool — False (measuring has stopped)
-    """
+    """Measure audio levels for a given duration and return the final results."""
     duration = max(0.1, min(float(duration), 60.0))
     _send_analyzer("start_measuring")
     time.sleep(duration)

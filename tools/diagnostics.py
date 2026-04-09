@@ -308,33 +308,7 @@ def analyze_mix_balance(
     crowded_threshold_hz: float = 1000.0,
     missing_threshold_hz: float = -1000.0,
 ) -> dict:
-    """
-    Analyse spectral balance across a set of audio files using file-based analysis.
-
-    Each file is analysed with get_spectral_descriptors() (essentia). The spectral
-    centroid of every source file is compared against the reference file (or the
-    average of all files if no reference is given) to identify which files are
-    spectrally crowded (too bright) or thin (too dark).
-
-    Args:
-        file_paths:            List of absolute paths to audio files to compare.
-        reference_file_path:   Optional path to use as the reference. If None,
-                               the average centroid across all files is used.
-        crowded_threshold_hz:  A file is "bright/crowded" if its centroid exceeds
-                               the reference by more than this many Hz (default 1000).
-        missing_threshold_hz:  A file is "dark/thin" if its centroid is below the
-                               reference by more than |missing_threshold_hz| Hz.
-                               Pass a negative value (default -1000).
-
-    Returns:
-        results: per-file spectral descriptors and brightness classification,
-        reference_centroid_hz: centroid of the reference,
-        bright: list of file paths whose centroid is above the reference,
-        dark: list of file paths whose centroid is below the reference,
-        balanced: list of file paths within thresholds,
-        recommendations: list of natural-language strings,
-        summary: single summary string.
-    """
+    """Analyse spectral balance across a set of audio files using file-based analysis."""
     from tools.analysis import get_spectral_descriptors
 
     if not file_paths:
@@ -428,24 +402,7 @@ def analyze_mix_balance(
 
 @mcp.tool()
 def scan_au_presets(force_rescan: bool = False) -> dict:
-    """
-    Scan standard macOS AU preset locations for .aupreset and .prt_omni files,
-    infer tonal descriptors from names and plugin-specific mappings, and store
-    results to ~/.ableton_mpcx/sound_library.json.
-
-    Scanned locations:
-      ~/Library/Audio/Presets/
-      /Library/Audio/Presets/
-      ~/Library/Application Support/Spectrasonics/STEAM/Omnisphere/Settings Library/Patches/
-      ~/Music/Ableton/Library/Presets/
-      ~/Music/Ableton/User Library/Presets/
-
-    Args:
-        force_rescan: If True, re-scan files that are already in the cache.
-
-    Returns:
-        scanned, added, skipped counts and per-plugin breakdown.
-    """
+    """Scan standard macOS AU preset locations for .aupreset and .prt_omni files, infer tonal descriptors from names and..."""
     scan_paths = [
         pathlib.Path.home() / "Library" / "Audio" / "Presets",
         pathlib.Path("/Library/Audio/Presets"),
@@ -538,18 +495,7 @@ def scan_splice_library(
     splice_path: str | None = None,
     force_rescan: bool = False,
 ) -> dict:
-    """
-    Scan the Splice sample library and perform real audio analysis using
-    librosa to measure actual frequency content, transients, width, and
-    sustain. Results are stored to ~/.ableton_mpcx/sound_library.json.
-
-    Args:
-        splice_path: Path to Splice folder. Defaults to ~/Music/Splice/.
-        force_rescan: If True, re-analyse files already in the cache.
-
-    Returns:
-        scanned, added, skipped, error counts and cache path.
-    """
+    """Scan the Splice sample library and perform real audio analysis using librosa to measure actual frequency content,..."""
     try:
         import librosa  # type: ignore[import]
         import numpy as np  # type: ignore[import]
@@ -708,26 +654,7 @@ def recommend_presets(
     top_n: int = 5,
     plugin_filter: str | None = None,
 ) -> dict:
-    """
-    Rank sound library entries by fit score against target and avoid frequency
-    bands and return best_fit / usable / likely_clash tiers.
-
-    Run scan_au_presets() and/or scan_splice_library() first to populate the
-    library, then optionally run analyze_mix_balance() to discover which bands
-    to target and avoid.
-
-    Args:
-        target_bands: Bands to boost score for (e.g. ["air", "presence"]).
-                      Valid values: sub, bass, punch, body, mid, presence, air,
-                      transient, sustain, width, density.
-        avoid_bands:  Bands to penalise score for (e.g. ["body", "mid"]).
-        top_n:        Maximum number of entries to return per tier (default 5).
-        plugin_filter: Optional plugin name substring to restrict results.
-
-    Returns:
-        best_fit, usable, likely_clash (lists of preset info dicts),
-        total_scored count.
-    """
+    """Rank sound library entries by fit score against target and avoid frequency bands and return best_fit / usable /..."""
     cache = _load_cache()
     entries = cache.get("entries", [])
 
@@ -813,21 +740,7 @@ def audit_preset(
     preset_name: str,
     plugin_name: str | None = None,
 ) -> dict:
-    """
-    Self-learning: analyse an exported audio file for a loaded preset and store the
-    measured spectral descriptors back to the sound library cache, marking the
-    entry as measured=True.
-
-    Export or bounce the preset to an audio file, then pass its path here.
-
-    Args:
-        file_path:    Absolute path to an audio file (WAV/AIFF/FLAC) of the preset.
-        preset_name:  Name of the preset to match in the library (substring match).
-        plugin_name:  Optional plugin name to narrow the match.
-
-    Returns:
-        updated entry dict, or error message.
-    """
+    """Self-learning: analyse an exported audio file for a loaded preset and store the measured spectral descriptors back to..."""
     from tools.analysis import get_spectral_descriptors
 
     try:
@@ -889,17 +802,7 @@ def audit_preset(
 
 @mcp.tool()
 def get_sound_library_stats() -> dict:
-    """
-    Show statistics about the sound library cache:
-    total entries, per-plugin breakdown, measured vs inferred counts,
-    drum vs melodic counts, and cache file location.
-
-    Run scan_au_presets() or scan_splice_library() to populate the library.
-
-    Returns:
-        total, by_plugin, measured_count, inferred_count,
-        drum_count, melodic_count, cache_file.
-    """
+    """Show statistics about the sound library cache: total entries, per-plugin breakdown, measured vs inferred counts, drum..."""
     if not _CACHE_FILE.exists():
         return {
             "error": (
@@ -944,27 +847,7 @@ def get_sound_library_stats() -> dict:
 
 @mcp.tool()
 def take_screenshot(region: str = "full", save_path: str = None) -> dict:
-    """
-    Take a screenshot of the Ableton Live window for visual analysis.
-
-    Captures the screen autonomously — no human intervention required.
-    The returned image_path can be passed to a vision-capable AI for analysis.
-
-    Args:
-        region: "full" (entire screen), "arrangement" (arrangement view area),
-                "session" (session view area), "mixer" (mixer area), "devices" (device chain)
-        save_path: Optional absolute path to save the screenshot.
-                   If None, saves to a temp file and returns the path.
-
-    Returns:
-        image_path: str  -- absolute path to the saved screenshot
-        region: str
-        width: int
-        height: int
-        timestamp: float
-        success: bool
-        error: str or None
-    """
+    """Take a screenshot of the Ableton Live window for visual analysis."""
     import sys
 
     timestamp = time.time()
@@ -1045,13 +928,7 @@ def take_screenshot(region: str = "full", save_path: str = None) -> dict:
 
 @mcp.tool()
 def get_compact_session_summary() -> str:
-    """Return the entire session state as a compact human-readable summary.
-
-    Uses summarizers to reduce a full session dump to ~10 lines.
-    Ideal for giving Claude a quick orientation without burning tokens.
-
-    Returns: str (multi-line compact summary)
-    """
+    """Return the entire session state as a compact human-readable summary."""
     snapshot = _send("get_session_snapshot")
     return summarize_session(snapshot)
 
@@ -1069,23 +946,7 @@ def _db_from_linear(linear: float) -> float:
 
 @mcp.tool()
 def diagnose_track(track_index: int) -> dict:
-    """Run a full diagnostic on a single track and return structured findings.
-
-    Checks:
-    - Volume and pan position (is it extreme?)
-    - Device chain (any disabled, any missing?)
-    - Sends (any unusually high?)
-    - Clips (any overlapping, any very short?)
-    - Routing (unusual input/output routing?)
-
-    Returns:
-        track_name: str
-        track_index: int
-        warnings: list of str
-        info: list of str
-        recommendations: list of str
-        health_score: int  (0–100)
-    """
+    """Run a full diagnostic on a single track and return structured findings."""
     tracks = _send("get_tracks")
     if not isinstance(tracks, list) or track_index >= len(tracks):
         return {
@@ -1178,22 +1039,7 @@ def diagnose_track(track_index: int) -> dict:
 
 @mcp.tool()
 def diagnose_mix() -> dict:
-    """Run a diagnostic across the entire mix and return structured findings.
-
-    Checks all tracks for common mix problems:
-    - Clipping or near-clipping levels
-    - Tracks with no devices
-    - Tracks with all sends at zero
-    - Mono/stereo routing issues
-    - Master bus level
-
-    Returns:
-        warnings: list of {track_index, track_name, warning}
-        info: list of str
-        recommendations: list of str
-        overall_health: int  (0–100)
-        tracks_checked: int
-    """
+    """Run a diagnostic across the entire mix and return structured findings."""
     tracks = _send("get_tracks")
     if not isinstance(tracks, list):
         return {
@@ -1267,24 +1113,7 @@ _TOTAL_PDC_THRESHOLD_MS: float = 50.0       # suggest freezing when total load e
 
 @mcp.tool()
 def get_latency_report() -> dict:
-    """
-    Report per-device and per-track latency from Ableton's LOM.
-
-    Reads device.latency_in_samples for every device on every track,
-    return track, and the master track. Converts samples to milliseconds
-    using the session sample rate.
-
-    Use this to identify which plugins are introducing the most latency
-    and understand how PDC (Plugin Delay Compensation) is being loaded.
-
-    Returns:
-        sample_rate: int — session sample rate in Hz
-        tracks: list of per-track dicts containing device latency info
-        highest_latency_track: name of track with most total latency
-        highest_latency_device: name of device with most latency across all tracks
-        total_pdc_load_ms: sum of all device latencies across all tracks (ms)
-        recommendations: list of natural-language strings
-    """
+    """Report per-device and per-track latency from Ableton's LOM."""
     raw = _send("get_latency_report")
 
     sample_rate = raw.get("sample_rate", 44100)

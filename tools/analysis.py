@@ -12,21 +12,7 @@ from helpers import mcp
 
 @mcp.tool()
 def get_loudness(file_path: str) -> dict:
-    """
-    Measure perceptual loudness of an audio file using ITU-R BS.1770-4.
-
-    Returns integrated LUFS, short-term LUFS, and true peak.
-    Use this instead of RMS for gain staging and level matching decisions.
-
-    Args:
-        file_path: Absolute path to audio file.
-
-    Returns:
-        integrated_lufs: Integrated loudness in LUFS
-        short_term_lufs: Short-term loudness in LUFS (last 3 seconds)
-        true_peak_dbfs: True peak in dBFS
-        file_path: Path of the analysed file
-    """
+    """Measure perceptual loudness of an audio file using ITU-R BS.1770-4."""
     try:
         import soundfile as sf
         import pyloudnorm as pyln
@@ -70,25 +56,7 @@ def get_loudness(file_path: str) -> dict:
 
 @mcp.tool()
 def get_onsets(file_path: str, method: str = "complex", threshold: float = 0.3) -> dict:
-    """
-    Detect note/transient onsets in an audio file using aubio.
-
-    More accurate than naive peak detection, especially for percussive material.
-    Use for chopping, slicing, and transient-aware processing decisions.
-
-    Args:
-        file_path: Absolute path to audio file.
-        method: Detection method — "complex", "hfc", "energy", "phase", "specdiff". Default: "complex".
-        threshold: Detection threshold 0.0–1.0. Lower = more sensitive. Default: 0.3.
-
-    Returns:
-        onsets_seconds: List of onset times in seconds
-        onset_count: Total number of onsets detected
-        average_interval_seconds: Average time between onsets
-        estimated_bpm: Rough BPM estimate from onset intervals
-        method: Detection method used
-        file_path: Path of the analysed file
-    """
+    """Detect note/transient onsets in an audio file using aubio."""
     try:
         import aubio
         import numpy as np
@@ -137,26 +105,7 @@ def get_onsets(file_path: str, method: str = "complex", threshold: float = 0.3) 
 
 @mcp.tool()
 def get_spectral_descriptors(file_path: str) -> dict:
-    """
-    Extract perceptual spectral descriptors from an audio file using Essentia.
-
-    Provides brightness, texture, and tonal density signals that librosa
-    band energy alone cannot give. Use to inform EQ, saturation, and
-    presence decisions.
-
-    Args:
-        file_path: Absolute path to audio file.
-
-    Returns:
-        spectral_centroid: Brightness indicator (Hz) — higher = brighter
-        spectral_spread: Frequency spread around centroid (Hz)
-        spectral_flatness: Tonality vs noise (0=tonal, 1=noise-like)
-        spectral_rolloff: Frequency below which 85% of energy exists (Hz)
-        mfcc_mean: Mean MFCCs (13 coefficients) — timbral fingerprint
-        key: Estimated musical key (e.g. "C major")
-        key_strength: Confidence of key estimate 0.0–1.0
-        file_path: Path of the analysed file
-    """
+    """Extract perceptual spectral descriptors from an audio file using Essentia."""
     try:
         import essentia.standard as es
         import numpy as np
@@ -216,23 +165,7 @@ def get_spectral_descriptors(file_path: str) -> dict:
 
 @mcp.tool()
 def get_beat_tracking(file_path: str) -> dict:
-    """
-    Detect beats and downbeats in an audio file using madmom.
-
-    More accurate than aubio for complex rhythmic material. Provides
-    beat positions, BPM, and downbeat locations for groove-aware decisions.
-
-    Args:
-        file_path: Absolute path to audio file.
-
-    Returns:
-        beats_seconds: List of beat times in seconds
-        downbeats_seconds: List of downbeat times in seconds
-        bpm: Estimated BPM
-        beat_count: Total beats detected
-        time_signature_guess: Guessed time signature based on beat/downbeat ratio
-        file_path: Path of the analysed file
-    """
+    """Detect beats and downbeats in an audio file using madmom."""
     try:
         import madmom
         import numpy as np
@@ -288,26 +221,7 @@ def get_beat_tracking(file_path: str) -> dict:
 
 @mcp.tool()
 def get_envelope(file_path: str, smoothing_ms: float = 10.0, num_points: int = 200) -> dict:
-    """
-    Extract a smoothed amplitude envelope from an audio file using scipy.
-
-    More stable than raw RMS. Use for dynamics analysis, compression decisions,
-    and identifying transients vs sustained content.
-
-    Args:
-        file_path: Absolute path to audio file.
-        smoothing_ms: Smoothing window in milliseconds. Default: 10ms.
-        num_points: Number of envelope points to return. Default: 200.
-
-    Returns:
-        envelope: List of smoothed amplitude values (normalised 0.0–1.0)
-        times_seconds: Corresponding time positions in seconds
-        peak: Peak amplitude (normalised)
-        rms: Overall RMS level
-        crest_factor_db: Crest factor in dB (peak/RMS) — high = transient-heavy
-        duration_seconds: Total duration of the file
-        file_path: Path of the analysed file
-    """
+    """Extract a smoothed amplitude envelope from an audio file using scipy."""
     try:
         import soundfile as sf
         import numpy as np

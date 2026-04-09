@@ -23,29 +23,7 @@ def morph_scene_volumes(
     interval_ms: float = 100.0,
     dry_run: bool = True,
 ) -> dict:
-    """Linearly interpolate track volumes between two scene states.
-
-    Fire-and-forget: returns immediately after dispatching a single
-    ``set_mixer_snapshot`` call that jumps all relevant tracks to their
-    target volumes in one audio cycle.  Stepped interpolation is not
-    currently available via the Remote Script; ``stepped_morph`` in the
-    return dict will be ``False`` when executed.
-
-    Reads the volumes of all tracks that have clips in either scene,
-    then builds a plan mapping each track from its 'from' volume to its
-    'to' volume.  In dry_run mode the plan is returned without touching Live.
-
-    Args:
-        from_scene_index: Source scene index (volume start state).
-        to_scene_index: Target scene index (volume end state).
-        steps: Number of interpolation steps (reserved for future use).
-        interval_ms: Milliseconds between steps (reserved for future use).
-        dry_run: If True (default), returns the plan without touching Live.
-
-    Returns:
-        dict with steps_scheduled, track_count, scene indices, stepped_morph,
-        dry_run flag, and plan.
-    """
+    """Linearly interpolate track volumes between two scene states."""
     snapshot = _send("get_session_snapshot")
     tracks = snapshot.get("tracks", []) if isinstance(snapshot, dict) else []
     num_tracks = len(tracks)
@@ -127,25 +105,7 @@ def morph_tempo(
     interval_ms: float = 100.0,
     dry_run: bool = True,
 ) -> dict:
-    """Linearly interpolate the session tempo from ``from_bpm`` to ``to_bpm``.
-
-    Fire-and-forget: returns immediately.  A single ``set_tempo`` call
-    jumps the session to ``to_bpm``; stepped interpolation is not currently
-    available via the Remote Script (``stepped_morph`` will be ``False``
-    when executed).  The ``steps`` and ``interval_ms`` parameters are
-    accepted for API compatibility and reflected in the return dict.
-
-    Args:
-        from_bpm: Starting BPM value.
-        to_bpm: Ending BPM value.
-        steps: Number of interpolation steps (reserved for future use).
-        interval_ms: Milliseconds between steps (reserved for future use).
-        dry_run: If True (default), returns the plan without touching Live.
-
-    Returns:
-        dict with steps_scheduled, from_bpm, to_bpm, steps, stepped_morph,
-        and dry_run flag.
-    """
+    """Linearly interpolate the session tempo from ``from_bpm`` to ``to_bpm``."""
     stepped_morph = False
     if not dry_run:
         _send("set_tempo", {"tempo": to_bpm})
@@ -175,31 +135,7 @@ def morph_device_parameter(
     interval_ms: float = 100.0,
     dry_run: bool = True,
 ) -> dict:
-    """Animate a single device parameter from ``from_value`` to ``to_value``.
-
-    Fire-and-forget: delegates to ``perform_device_parameter_moves`` so all
-    stepping happens inside Live's main thread via ``schedule_message`` — no
-    blocking, no polling, returns immediately while the animation runs in the
-    background.
-
-    Reads the parameter's min/max via ``get_device_parameters`` and clamps
-    the from/to values to that range before scheduling.  In dry_run mode the
-    moves plan is returned without touching Live.
-
-    Args:
-        track_index: Zero-based track index.
-        device_index: Zero-based device index on the track.
-        parameter_index: Zero-based parameter index on the device.
-        from_value: Starting parameter value.
-        to_value: Ending parameter value.
-        steps: Number of interpolation steps (default 10).
-        interval_ms: Milliseconds between steps (default 100).
-        dry_run: If True (default), returns the plan without touching Live.
-
-    Returns:
-        dict with steps_scheduled, parameter_name, from_value, to_value,
-        steps, moves, and dry_run.
-    """
+    """Animate a single device parameter from ``from_value`` to ``to_value``."""
     # Read parameter metadata to get min/max and name
     param_name = ""
     p_min: float = 0.0
@@ -260,24 +196,7 @@ def morph_device_parameter(
 
 @mcp.tool()
 def morph_plan(transitions: list[dict], dry_run: bool = True) -> dict:
-    """Execute a sequence of morph transitions.
-
-    Fire-and-forget: all child morph tools return immediately; the actual
-    parameter motion runs in the background inside Live's main thread.
-
-    Each transition dict must have a `type` key. Supported types:
-    - `"volume"`: calls `morph_scene_volumes` (params: from_scene_index, to_scene_index, steps, interval_ms)
-    - `"tempo"`: calls `morph_tempo` (params: from_bpm, to_bpm, steps, interval_ms)
-    - `"device_parameter"`: calls `morph_device_parameter` (params: track_index, device_index,
-      parameter_index, from_value, to_value, steps, interval_ms)
-
-    Args:
-        transitions: List of transition dicts with `type` and type-specific params.
-        dry_run: If True (default), all child morphs run in dry_run mode.
-
-    Returns:
-        dict with transitions_scheduled, results list, and dry_run flag.
-    """
+    """Execute a sequence of morph transitions."""
     results = []
     for transition in transitions:
         t_type = transition.get("type", "")

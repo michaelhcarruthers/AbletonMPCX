@@ -275,22 +275,7 @@ def _apply_device_params(
 
 @mcp.tool()
 def set_track_role(track_index: int, role: str) -> dict:
-    """
-    Assign a semantic role to a track in project memory.
-
-    Used by classify_tracks() automatically and can also be called manually
-    to correct or override a role.
-
-    Common roles: kick, snare, hihat, perc, bass, pad, lead, vocal, fx,
-                  sample, bus, return, master, unknown.
-
-    Args:
-        track_index: Track index (-1 for master).
-        role: Role string, e.g. 'kick', 'bass', 'vocal'.
-
-    Returns:
-        track_index, role
-    """
+    """Assign a semantic role to a track in project memory."""
     mem = _get_memory()
     mem.setdefault("track_roles", {})[str(track_index)] = role
     _save_memory(helpers._current_project_id, mem)
@@ -299,31 +284,14 @@ def set_track_role(track_index: int, role: str) -> dict:
 
 @mcp.tool()
 def get_track_roles() -> dict:
-    """
-    Return all stored track role assignments for the current project.
-
-    Returns:
-        track_roles: dict of {track_index_str: role}
-    """
+    """Return all stored track role assignments for the current project."""
     mem = _get_memory()
     return {"track_roles": mem.get("track_roles", {})}
 
 
 @mcp.tool()
 def validate_track_roles() -> dict:
-    """
-    Validate stored track roles against the current session.
-
-    Checks that all stored track indices still exist and reports stale entries
-    (roles whose track index no longer exists) and the role distribution.
-
-    Returns:
-        valid_roles: int
-        stale_roles: int
-        stale: list of {track_index, role} for indices that no longer exist
-        valid: list of {track_index, role} for indices that still exist
-        role_distribution: dict of {role: count}
-    """
+    """Validate stored track roles against the current session."""
     mem = _get_memory()
     stored_roles = mem.get("track_roles", {})
 
@@ -353,15 +321,7 @@ def validate_track_roles() -> dict:
 
 @mcp.tool()
 def clear_track_role(track_index: int) -> dict:
-    """
-    Remove the stored role for a specific track.
-
-    Args:
-        track_index: Track index whose role should be cleared.
-
-    Returns:
-        track_index, removed_role (the role that was removed, or null if none was set)
-    """
+    """Remove the stored role for a specific track."""
     mem = _get_memory()
     removed = mem.get("track_roles", {}).pop(str(track_index), None)
     _save_memory(helpers._current_project_id, mem)
@@ -374,28 +334,7 @@ def clear_track_role(track_index: int) -> dict:
 
 @mcp.tool()
 def classify_tracks(overwrite: bool = False) -> dict:
-    """
-    Auto-detect track roles from track names using keyword pattern matching.
-
-    Works entirely from get_session_snapshot() — no audio file exports or MIDI
-    clip analysis required. Iterates all tracks, matches names against built-in
-    keyword groups, and stores the result via set_track_role().
-
-    Role keyword groups (case-insensitive substring match):
-      kick, snare, hihat, perc, bass, pad, lead, vocal, fx, sample, bus,
-      return, master. Tracks with no match are stored as "unknown".
-
-    Args:
-        overwrite: If True, re-classify tracks that already have a stored role.
-                   Default (False) leaves existing roles untouched.
-
-    Returns:
-        classified: number of tracks newly classified (role assigned this call)
-        already_had_role: number of tracks skipped because a role was already stored
-        unmatched: number of tracks where no keyword matched (stored as "unknown")
-        total: total number of tracks examined
-        roles_assigned: dict of {track_name: role} for every track (including skipped)
-    """
+    """Auto-detect track roles from track names using keyword pattern matching."""
     snapshot = _send("get_session_snapshot")
     tracks = snapshot.get("tracks", []) if isinstance(snapshot, dict) else []
 
@@ -442,13 +381,7 @@ def classify_tracks(overwrite: bool = False) -> dict:
 
 @mcp.tool()
 def list_mix_templates() -> dict:
-    """
-    Return all available mix template names with a summary of what each does.
-
-    Returns:
-        templates: dict of {template_name: {description, roles_covered: list}}
-        available_names: list of template name strings
-    """
+    """Return all available mix template names with a summary of what each does."""
     templates = {}
     for name, role_map in _MIX_TEMPLATES.items():
         templates[name] = {
@@ -467,21 +400,7 @@ def list_mix_templates() -> dict:
 
 @mcp.tool()
 def preview_mix_template(template_name: str) -> dict:
-    """
-    Show what apply_mix_template would do without touching anything.
-
-    Reads current stored track roles, looks up the template's processing for
-    each role, and returns a per-track plan showing which devices would be added
-    and which parameters would be set.
-
-    Args:
-        template_name: e.g. "house", "techno", "hiphop"
-
-    Returns:
-        Same structure as apply_mix_template with dry_run=True:
-        template_name, dry_run (True), tracks_processed, tracks_skipped,
-        devices_added, parameters_set, per_track list
-    """
+    """Show what apply_mix_template would do without touching anything."""
     return apply_mix_template(template_name, dry_run=True)
 
 
@@ -495,29 +414,7 @@ def apply_mix_template(
     dry_run: bool = True,
     skip_existing_devices: bool = True,
 ) -> dict:
-    """
-    Apply a genre mix template to all tracks based on their stored roles.
-
-    Reads stored track roles from project memory, walks every track, and applies
-    the template's processing for that role: adds native devices and sets
-    parameters via set_device_parameters_batch.
-
-    Run classify_tracks() first if roles have not been assigned yet.
-
-    Args:
-        template_name: Template to apply — "house", "techno", or "hiphop".
-        dry_run: If True (default), return the plan without touching Live.
-                 Set to False to actually add devices and set parameters.
-        skip_existing_devices: If True (default), skip adding a device that is
-                                already present on the track. Parameters are
-                                still applied to the existing device if defined.
-
-    Returns:
-        template_name, dry_run, tracks_processed, tracks_skipped,
-        devices_added, parameters_set,
-        per_track: list of {track_index, track_name, role,
-                            actions_taken, actions_skipped}
-    """
+    """Apply a genre mix template to all tracks based on their stored roles."""
     if template_name not in _MIX_TEMPLATES:
         raise ValueError(
             "Unknown template '{}'. Available: {}".format(
