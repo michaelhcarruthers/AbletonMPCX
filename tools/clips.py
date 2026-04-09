@@ -372,6 +372,9 @@ def set_clip_envelope_points(
 @mcp.tool()
 def get_notes(track_index: int, slot_index: int, slim: bool = True) -> dict:
     """Return MIDI notes in the clip at (track_index, slot_index). slim=True (default) returns note_count, pitch_classes, duration_beats only. Pass slim=False to get the full note list."""
+    tracks = _send("get_tracks", {"slim": True})
+    if isinstance(tracks, list) and (track_index < 0 or track_index >= len(tracks)):
+        return {"error": f"track_index {track_index} out of range — song has {len(tracks)} tracks"}
     return _send("get_notes", {"track_index": track_index, "slot_index": slot_index, "slim": slim})
 
 @mcp.tool()
@@ -436,6 +439,10 @@ def list_arrangement_clips(
     slim: bool = True,
 ) -> dict:
     """List all clips in the arrangement view, optionally filtered by track or time range. slim=True (default) returns only clip_index, start_time, length, name per clip — use this when you don't need full clip details. Pass slim=False for full clip data including loop, color and mute info. Note: when slim=True, track_index filter is applied server-side; start_bar/end_bar filters are not applied in slim mode."""
+    if track_index is not None:
+        tracks = _send("get_tracks", {"slim": True})
+        if isinstance(tracks, list) and (track_index < 0 or track_index >= len(tracks)):
+            return {"clips": [], "total_clips": 0, "error": f"track_index {track_index} out of range — song has {len(tracks)} tracks"}
     server_params: dict[str, Any] = {"slim": slim}
     if slim and track_index is not None:
         # In slim mode the server applies the track filter since track_index is
@@ -525,6 +532,9 @@ def get_arrangement_clip_notes(
     clip_index: int,
 ) -> dict:
     """Read the MIDI notes from a specific arrangement clip."""
+    tracks = _send("get_tracks", {"slim": True})
+    if isinstance(tracks, list) and (track_index < 0 or track_index >= len(tracks)):
+        return {"error": f"track_index {track_index} out of range — song has {len(tracks)} tracks"}
     result = _send_silent("get_arrangement_clip_notes", {
         "track_index": track_index,
         "clip_index": clip_index,

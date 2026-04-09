@@ -98,75 +98,17 @@ def _tools_to_openai_format(tools_list) -> list[dict]:
     return definitions
 
 
-async def _get_tool_definitions_for_groups(groups: list[str]) -> list[dict]:
-    from tool_groups import TOOL_GROUPS
-    all_tools = await _get_all_tools_cached()
-    seen: set[str] = set()
-    filtered: list = []
-    for group in groups:
-        prefixes = TOOL_GROUPS.get(group, [])
-        for t in all_tools:
-            if t.name not in seen and any(t.name == p or t.name.startswith(p) for p in prefixes):
-                filtered.append(t)
-                seen.add(t.name)
-    if not filtered:
-        filtered = all_tools[:120]
-    filtered = filtered[:128]  # stay under OpenAI's 128-tool cap
-    return _tools_to_openai_format(filtered)
-
-
-def _group_selector_tool() -> list[dict]:
-    from tool_groups import TOOL_GROUPS
-    return [
-        {
-            "type": "function",
-            "function": {
-                "name": "select_tool_group",
-                "description": (
-                    "Select 1 or 2 tool groups that best match the user's request. "
-                    "Pick 2 only if the task clearly spans both (e.g. mixer + arrangement). "
-                    "Otherwise pick 1. "
-                    "Call this first to get access to the right set of Ableton tools. "
-                    "Groups:\n"
-                    "- session: tempo, time signature, snapshots, recording, project memory\n"
-                    "- mixer: track volumes, panning, sends, mute/solo, routing\n"
-                    "- clips: fire/stop clips, notes, quantize, chop, slice\n"
-                    "- devices: device parameters, batch set, morph, staging\n"
-                    "- arrangement: arrangement clips, automation, loop/punch points\n"
-                    "- performance: macros, sidechain, resampling, scenes, observers\n"
-                    "- diagnostics: logs, audit, health checks, validation\n"
-                    "- templates: classify tracks by role, apply genre mix templates, preview processing\n"
-                ),
-                "parameters": {
-                    "type": "object",
-                    "properties": {
-                        "groups": {
-                            "type": "array",
-                            "items": {
-                                "type": "string",
-                                "enum": list(TOOL_GROUPS.keys()),
-                            },
-                            "minItems": 1,
-                            "maxItems": 2,
-                            "description": "One or two tool groups to load. Pick two only if the request clearly spans both.",
-                        }
-                    },
-                    "required": ["groups"],
-                },
-            },
-        }
-    ]
-
 # ---------------------------------------------------------------------------
 # System prompt
 # ---------------------------------------------------------------------------
 
 SYSTEM_PROMPT = (
     "You are AMCPX, an AI music production assistant controlling Ableton Live in real time.\n"
-    "You have direct access to MCP tools that read session state, control tracks, clips, devices, and the mixer.\n"
-    "The user is a music producer. Be concise. Execute commands directly when asked.\n"
-    "Always confirm what you did and the result. Never ask for confirmation unless the action is destructive.\n"
-    "Always use slim=True (the default) on get_tracks, get_arrangement_clips, get_session_clips, get_notes, get_devices, get_mix_snapshot, and get_automation_data unless you specifically need full device parameter lists, full note arrays, or full automation envelopes. Only pass slim=False when you have a specific reason to need the complete data."
+    "Execute commands directly. Be concise. No narration, no confirmation prompts.\n"
+    "Use slim=True (default) on get_tracks, get_arrangement_clips, get_session_clips, "
+    "get_notes, get_devices, get_mix_snapshot, get_automation_data unless full data is specifically needed.\n"
+    "Never call get_song_info — use get_song_info_minimal for tempo/time sig/bars, "
+    "then call get_tracks or get_session_clips separately only if track/clip data is needed."
 )
 
 # ---------------------------------------------------------------------------
@@ -238,8 +180,9 @@ async def _execute_tool(name: str, args: dict) -> str:
 async def chat(req: ChatRequest):
     client = _get_openai_client()
 
+    history = req.history[-20:]  # keep last 20 turns to cap context size
     messages: list[dict[str, Any]] = [{"role": "system", "content": SYSTEM_PROMPT}]
-    for msg in req.history:
+    for msg in history:
         messages.append({"role": msg.role, "content": msg.content})
     messages.append({"role": "user", "content": req.message})
 

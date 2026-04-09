@@ -979,12 +979,8 @@ def perform_macro_live(
         moves_scheduled += result.get("moves_scheduled", len(moves))
 
     return {
-        "macro_name": macro_name,
-        "track_index": track_index,
-        "duration_ms": duration_ms,
-        "intensity": intensity,
-        "moves_scheduled": moves_scheduled,
-        "skipped": skipped,
+        "status": "ok",
+        "macros_set": moves_scheduled,
     }
 
 
