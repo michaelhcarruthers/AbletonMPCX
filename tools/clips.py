@@ -291,36 +291,16 @@ def set_clip_envelope_points(
 @mcp.tool()
 def get_notes(track_index: int, slot_index: int) -> dict:
     """Return all MIDI notes in the clip at (track_index, slot_index)."""
-    try:
-        clip_info = _send("get_clip_info", {"track_index": track_index, "slot_index": slot_index})
-        if not clip_info.get("is_midi_clip", False):
-            return {"notes": [], "note_count": 0}
-    except Exception as exc:
-        logger.debug("Could not check is_midi_clip for track %s slot %s: %s", track_index, slot_index, exc)
     return _send("get_notes", {"track_index": track_index, "slot_index": slot_index})
 
 @mcp.tool()
 def add_notes(track_index: int, slot_index: int, notes: list[dict]) -> dict:
     """Add MIDI notes to a clip slot."""
-    try:
-        clip_info = _send("get_clip_info", {"track_index": track_index, "slot_index": slot_index})
-        if not clip_info.get("is_midi_clip", False):
-            return {"skipped": True, "reason": "not a MIDI clip"}
-    except Exception as exc:
-        logger.debug("Could not check is_midi_clip for track %s slot %s: %s", track_index, slot_index, exc)
-        return {"skipped": True, "reason": "could not verify clip type"}
     return _send("add_notes", {"track_index": track_index, "slot_index": slot_index, "notes": notes})
 
 @mcp.tool()
 def replace_all_notes(track_index: int, slot_index: int, notes: list[dict]) -> dict:
     """Atomically replace ALL notes in a MIDI clip with the given list."""
-    try:
-        clip_info = _send("get_clip_info", {"track_index": track_index, "slot_index": slot_index})
-        if not clip_info.get("is_midi_clip", False):
-            return {"skipped": True, "reason": "not a MIDI clip"}
-    except Exception as exc:
-        logger.debug("Could not check is_midi_clip for track %s slot %s: %s", track_index, slot_index, exc)
-        return {"skipped": True, "reason": "could not verify clip type"}
     return _send("replace_all_notes", {
         "track_index": track_index,
         "slot_index": slot_index,
@@ -330,13 +310,6 @@ def replace_all_notes(track_index: int, slot_index: int, notes: list[dict]) -> d
 @mcp.tool()
 def remove_notes(track_index: int, slot_index: int, from_pitch: int = 0, pitch_span: int = 128, from_time: float = 0.0, time_span: float | None = None) -> dict:
     """Remove MIDI notes in the specified pitch/time range from the clip."""
-    try:
-        clip_info = _send("get_clip_info", {"track_index": track_index, "slot_index": slot_index})
-        if not clip_info.get("is_midi_clip", False):
-            return {"skipped": True, "reason": "not a MIDI clip"}
-    except Exception as exc:
-        logger.debug("Could not check is_midi_clip for track %s slot %s: %s", track_index, slot_index, exc)
-        return {"skipped": True, "reason": "could not verify clip type"}
     params: dict[str, Any] = {
         "track_index": track_index,
         "slot_index": slot_index,
@@ -351,13 +324,6 @@ def remove_notes(track_index: int, slot_index: int, from_pitch: int = 0, pitch_s
 @mcp.tool()
 def apply_note_modifications(track_index: int, slot_index: int, notes: list[dict]) -> dict:
     """Modify existing notes in the clip using note dicts with note_id fields (as returned by get_notes)."""
-    try:
-        clip_info = _send("get_clip_info", {"track_index": track_index, "slot_index": slot_index})
-        if not clip_info.get("is_midi_clip", False):
-            return {"skipped": True, "reason": "not a MIDI clip"}
-    except Exception as exc:
-        logger.debug("Could not check is_midi_clip for track %s slot %s: %s", track_index, slot_index, exc)
-        return {"skipped": True, "reason": "could not verify clip type"}
     return _send("apply_note_modifications", {"track_index": track_index, "slot_index": slot_index, "notes": notes})
 
 @mcp.tool()
@@ -369,109 +335,6 @@ def select_all_notes(track_index: int, slot_index: int) -> dict:
 def deselect_all_notes(track_index: int, slot_index: int) -> dict:
     """Deselect all notes in the MIDI clip."""
     return _send("deselect_all_notes", {"track_index": track_index, "slot_index": slot_index})
-
-# ---------------------------------------------------------------------------
-# Device
-# ---------------------------------------------------------------------------
-
-@mcp.tool()
-def get_devices(track_index: int, is_return_track: bool = False) -> list:
-    """Return all devices on a track (use track_index=-1 for master, is_return_track=True for return tracks)."""
-    return _send("get_devices", {"track_index": track_index, "is_return_track": is_return_track})
-
-@mcp.tool()
-def get_device_info(track_index: int, device_index: int, is_return_track: bool = False) -> dict:
-    """Return details for the device at (track_index, device_index). Set is_return_track=True to target a return track."""
-    return _send("get_device_info", {"track_index": track_index, "device_index": device_index, "is_return_track": is_return_track})
-
-@mcp.tool()
-def get_device_parameters(track_index: int, device_index: int, is_return_track: bool = False) -> dict:
-    """Return all automatable parameters for a device (use track_index=-1 for master, is_return_track=True for return tracks)."""
-    return _send("get_device_parameters", {"track_index": track_index, "device_index": device_index, "is_return_track": is_return_track})
-
-@mcp.tool()
-def set_device_parameter(track_index: int, device_index: int, parameter_index: int, value: float, is_return_track: bool = False) -> dict:
-    """Set a device parameter by index; value is clamped to min/max automatically (use track_index=-1 for master)."""
-    return _send("set_device_parameter", {
-        "track_index": track_index,
-        "device_index": device_index,
-        "parameter_index": parameter_index,
-        "value": value,
-        "is_return_track": is_return_track,
-    })
-
-@mcp.tool()
-def set_device_parameter_cs(
-    track_index: int,
-    device_index: int,
-    parameter_index: int,
-    value: float,
-    is_return_track: bool = False,
-) -> dict:
-    """Set a device parameter using the control surface path; forces third-party plugin UI refresh (Pro-Q 4, FabFilter, etc.)."""
-    return _send("set_device_parameter_cs", {
-        "track_index": track_index,
-        "device_index": device_index,
-        "parameter_index": parameter_index,
-        "value": value,
-        "is_return_track": is_return_track,
-    })
-
-@mcp.tool()
-def set_device_parameter_human(
-    track_index: int,
-    device_index: int,
-    parameter_index: int,
-    value: float,
-    unit: str = "normalized",
-) -> dict:
-    """Set a device parameter using human-readable units."""
-    return _send("set_device_parameter_human", {
-        "track_index": track_index,
-        "device_index": device_index,
-        "parameter_index": parameter_index,
-        "value": value,
-        "unit": unit,
-    })
-
-@mcp.tool()
-def set_device_enabled(track_index: int, device_index: int, enabled: bool, is_return_track: bool = False) -> dict:
-    """Enable or disable a device (use track_index=-1 for master, is_return_track=True for return tracks)."""
-    return _send("set_device_enabled", {"track_index": track_index, "device_index": device_index, "enabled": enabled, "is_return_track": is_return_track})
-
-@mcp.tool()
-def delete_device(track_index: int, device_index: int, is_return_track: bool = False) -> dict:
-    """Delete a device (use track_index=-1 for master, is_return_track=True for return tracks)."""
-    return _send("delete_device", {"track_index": track_index, "device_index": device_index, "is_return_track": is_return_track})
-
-@mcp.tool()
-def duplicate_device(track_index: int, device_index: int, is_return_track: bool = False) -> dict:
-    """Duplicate a device (use track_index=-1 for master, is_return_track=True for return tracks)."""
-    return _send("duplicate_device", {"track_index": track_index, "device_index": device_index, "is_return_track": is_return_track})
-
-@mcp.tool()
-def move_device(
-    track_index: int,
-    device_index: int,
-    target_device_index: int,
-    target_track_index: int | None = None,
-    is_return_track: bool = False,
-) -> dict:
-    """Move a device to a new position within the same track."""
-    if target_track_index is not None and target_track_index != track_index:
-        raise ValueError(
-            "Cross-track device move is not supported. "
-            "target_track_index must equal track_index or be None. "
-            "Use delete_device() + load_browser_item() to recreate the device on the target track."
-        )
-    return _send("move_device", {
-        "track_index": track_index,
-        "device_index": device_index,
-        "target_track_index": track_index,
-        "target_device_index": target_device_index,
-        "is_return_track": is_return_track,
-    })
-
 
 # ---------------------------------------------------------------------------
 # Arrangement clip tools
@@ -508,6 +371,10 @@ def list_arrangement_clips(
         }
 
     clips = []
+    try:
+        _tsn = int(_send("get_song_info", {}).get("time_signature_numerator", 4))
+    except Exception:
+        _tsn = 4
     for clip in all_clips:
         t_idx = clip.get("track_index", clip.get("track_idx", 0))
         t_name = clip.get("track_name", "")
@@ -515,10 +382,10 @@ def list_arrangement_clips(
         c_name = clip.get("name", clip.get("clip_name", ""))
         start_time = float(clip.get("start_time", clip.get("start", 0.0)))
         end_time = float(clip.get("end_time", clip.get("end", start_time)))
-        # Convert beat times to bars (1 bar = 4 beats for 4/4; use raw beat position as bar proxy)
-        clip_start_bar = int(start_time // 4) + 1
+        # Convert beat times to bars using the actual time signature numerator
+        clip_start_bar = int(start_time // _tsn) + 1
         length_beats = max(0.0, end_time - start_time)
-        length_bars = length_beats / 4.0
+        length_bars = length_beats / float(_tsn)
         is_midi = bool(clip.get("is_midi_clip", clip.get("is_midi", False)))
         is_audio = not is_midi
         color = clip.get("color", 0)
