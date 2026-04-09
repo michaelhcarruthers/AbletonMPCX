@@ -445,6 +445,13 @@ def add_notes(track_index: int, slot_index: int, notes: list[dict]) -> dict:
       pitch (int 0-127), start_time (float beats), duration (float beats)
     Optional: velocity (0-127), mute (bool), probability (0-1), velocity_deviation (-127 to 127), release_velocity (0-127)
     """
+    try:
+        clip_info = _send("get_clip_info", {"track_index": track_index, "slot_index": slot_index})
+        if not clip_info.get("is_midi_clip", False):
+            return {"skipped": True, "reason": "not a MIDI clip"}
+    except Exception as exc:
+        logger.debug("Could not check is_midi_clip for track %s slot %s: %s", track_index, slot_index, exc)
+        return {"skipped": True, "reason": "could not verify clip type"}
     return _send("add_notes", {"track_index": track_index, "slot_index": slot_index, "notes": notes})
 
 @mcp.tool()
@@ -466,6 +473,13 @@ def replace_all_notes(track_index: int, slot_index: int, notes: list[dict]) -> d
     Returns:
         note_count: number of notes written
     """
+    try:
+        clip_info = _send("get_clip_info", {"track_index": track_index, "slot_index": slot_index})
+        if not clip_info.get("is_midi_clip", False):
+            return {"skipped": True, "reason": "not a MIDI clip"}
+    except Exception as exc:
+        logger.debug("Could not check is_midi_clip for track %s slot %s: %s", track_index, slot_index, exc)
+        return {"skipped": True, "reason": "could not verify clip type"}
     return _send("replace_all_notes", {
         "track_index": track_index,
         "slot_index": slot_index,
@@ -475,6 +489,13 @@ def replace_all_notes(track_index: int, slot_index: int, notes: list[dict]) -> d
 @mcp.tool()
 def remove_notes(track_index: int, slot_index: int, from_pitch: int = 0, pitch_span: int = 128, from_time: float = 0.0, time_span: float | None = None) -> dict:
     """Remove MIDI notes in the specified pitch/time range from the clip."""
+    try:
+        clip_info = _send("get_clip_info", {"track_index": track_index, "slot_index": slot_index})
+        if not clip_info.get("is_midi_clip", False):
+            return {"skipped": True, "reason": "not a MIDI clip"}
+    except Exception as exc:
+        logger.debug("Could not check is_midi_clip for track %s slot %s: %s", track_index, slot_index, exc)
+        return {"skipped": True, "reason": "could not verify clip type"}
     params: dict[str, Any] = {
         "track_index": track_index,
         "slot_index": slot_index,
@@ -489,6 +510,13 @@ def remove_notes(track_index: int, slot_index: int, from_pitch: int = 0, pitch_s
 @mcp.tool()
 def apply_note_modifications(track_index: int, slot_index: int, notes: list[dict]) -> dict:
     """Modify existing notes in the clip using note dicts with note_id fields (as returned by get_notes)."""
+    try:
+        clip_info = _send("get_clip_info", {"track_index": track_index, "slot_index": slot_index})
+        if not clip_info.get("is_midi_clip", False):
+            return {"skipped": True, "reason": "not a MIDI clip"}
+    except Exception as exc:
+        logger.debug("Could not check is_midi_clip for track %s slot %s: %s", track_index, slot_index, exc)
+        return {"skipped": True, "reason": "could not verify clip type"}
     return _send("apply_note_modifications", {"track_index": track_index, "slot_index": slot_index, "notes": notes})
 
 @mcp.tool()
