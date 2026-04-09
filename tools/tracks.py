@@ -33,8 +33,8 @@ def set_crossfader(value: float) -> dict:
 # ---------------------------------------------------------------------------
 
 @mcp.tool()
-def get_tracks(slim: bool = False) -> list:
-    """Return all tracks with their name, color, mute/solo/arm state and mixer values. slim=True returns only index, name, type — use this when you don't need device chains or routing details."""
+def get_tracks(slim: bool = True) -> list:
+    """Return all tracks with their name, color, mute/solo/arm state and mixer values. slim=True (default) returns only index, name, type — use this when you don't need device chains or routing details. Pass slim=False to get full track data including color, mixer values and device counts."""
     return _send("get_tracks", {"slim": slim})
 
 @mcp.tool()
@@ -239,6 +239,18 @@ def clone_track(
 def get_track_devices(track_index: int, is_return_track: bool = False) -> dict:
     """Return the device names and count for a track without fetching parameters."""
     return _send("get_track_devices", {"track_index": track_index, "is_return_track": is_return_track})
+
+
+@mcp.tool()
+def get_devices(track_index: int, is_return_track: bool = False, slim: bool = True) -> list:
+    """Return the devices on a track. slim=True (default) returns index, name, type, is_active only. Pass slim=False to get full parameter lists for each device."""
+    return _send("get_devices", {"track_index": track_index, "is_return_track": is_return_track, "slim": slim})
+
+
+@mcp.tool()
+def get_mix_snapshot(slim: bool = True) -> dict:
+    """Return a snapshot of the mixer state for all tracks. slim=True (default) returns volume, pan, mute, solo per track only. Pass slim=False for full snapshot with sends and routing."""
+    return _send("get_mix_snapshot", {"slim": slim})
 
 
 @mcp.tool()
