@@ -8,6 +8,18 @@ from helpers import mcp, _send
 
 logger = logging.getLogger(__name__)
 
+
+def _get_time_sig_numerator(override: int | None = None) -> int:
+    """Return the song's current time signature numerator, with optional caller override."""
+    if override is not None:
+        return override
+    try:
+        info = _send("get_song_info")
+        return int(info.get("time_signature_numerator", 4))
+    except Exception:
+        return 4
+
+
 # ---------------------------------------------------------------------------
 # Performance FX MCP tools
 # ---------------------------------------------------------------------------
@@ -20,9 +32,10 @@ def reverb_throw(
     length_beats: float = 1.0,
     device_index: int | None = None,
     peak_wet: float = 0.9,
-    time_signature_numerator: int = 4,
+    time_signature_numerator: int | None = None,
 ) -> dict:
     """Add a reverb throw automation: Dry/Wet ramps from 0 → peak_wet → 0 over length_beats."""
+    tsn = _get_time_sig_numerator(time_signature_numerator)
     _send("begin_undo_step", {"name": "reverb_throw"})
     try:
         if device_index is None:
@@ -38,7 +51,7 @@ def reverb_throw(
             track_index, device_index, "Dry/Wet"
         )
 
-        start_time = _bars_beats_to_song_time(start_bar, start_beat, time_signature_numerator)
+        start_time = _bars_beats_to_song_time(start_bar, start_beat, tsn)
         mid_time = start_time + length_beats / 2.0
         end_time = start_time + length_beats
 
@@ -79,9 +92,10 @@ def filter_sweep(
     start_freq_hz: float = 200.0,
     end_freq_hz: float = 18000.0,
     device_index: int | None = None,
-    time_signature_numerator: int = 4,
+    time_signature_numerator: int | None = None,
 ) -> dict:
     """Add a filter sweep: automates Auto Filter cutoff frequency from start_freq to end_freq."""
+    tsn = _get_time_sig_numerator(time_signature_numerator)
     _send("begin_undo_step", {"name": "filter_sweep"})
     try:
         if device_index is None:
@@ -91,7 +105,7 @@ def filter_sweep(
             track_index, device_index, "Frequency"
         )
 
-        start_time = _bars_beats_to_song_time(start_bar, start_beat, time_signature_numerator)
+        start_time = _bars_beats_to_song_time(start_bar, start_beat, tsn)
         end_time = start_time + length_beats
 
         points = [
@@ -128,9 +142,10 @@ def delay_echo_out(
     length_beats: float = 2.0,
     device_index: int | None = None,
     peak_feedback: float = 0.85,
-    time_signature_numerator: int = 4,
+    time_signature_numerator: int | None = None,
 ) -> dict:
     """Add a delay echo-out: ramps Feedback up then cuts Dry/Wet to 0 at the end."""
+    tsn = _get_time_sig_numerator(time_signature_numerator)
     _send("begin_undo_step", {"name": "delay_echo_out"})
     try:
         if device_index is None:
@@ -151,7 +166,7 @@ def delay_echo_out(
             "Delay",
         )
 
-        start_time = _bars_beats_to_song_time(start_bar, start_beat, time_signature_numerator)
+        start_time = _bars_beats_to_song_time(start_bar, start_beat, tsn)
         end_time = start_time + length_beats
 
         total_points = 0
@@ -219,9 +234,10 @@ def stutter_clip(
     start_beat: float,
     length_beats: float = 1.0,
     chop_size_beats: float = 0.125,
-    time_signature_numerator: int = 4,
+    time_signature_numerator: int | None = None,
 ) -> dict:
     """Create a volume stutter effect by automating track volume on/off at chop_size_beats intervals."""
+    tsn = _get_time_sig_numerator(time_signature_numerator)
     _send("begin_undo_step", {"name": "stutter_clip"})
     try:
         # Get the volume parameter index from the mixer
@@ -238,7 +254,7 @@ def stutter_clip(
             # Fallback: use index 0 (typically volume for mixer)
             vol_idx = 0
 
-        start_time = _bars_beats_to_song_time(start_bar, start_beat, time_signature_numerator)
+        start_time = _bars_beats_to_song_time(start_bar, start_beat, tsn)
         end_time = start_time + length_beats
 
         points = []
@@ -279,7 +295,7 @@ def add_performance_fx(
     start_bar: int,
     start_beat: float,
     length_beats: float = 1.0,
-    time_signature_numerator: int = 4,
+    time_signature_numerator: int | None = None,
     **kwargs,
 ) -> dict:
     """Add a performance effect to a track at a musical position."""
@@ -548,9 +564,10 @@ def perform_macro(
     start_beat: float,
     length_beats: float,
     intensity: float = 1.0,
-    time_signature_numerator: int = 4,
+    time_signature_numerator: int | None = None,
 ) -> dict:
     """Trigger a named performance macro on a track at a musical position."""
+    tsn = _get_time_sig_numerator(time_signature_numerator)
     if macro_name not in _MACRO_DEFINITIONS:
         raise ValueError(
             "Unknown macro '{}'. Available: {}".format(macro_name, sorted(_MACRO_DEFINITIONS.keys()))
@@ -560,7 +577,7 @@ def perform_macro(
     steps = _MACRO_DEFINITIONS[macro_name]
 
     # Convert musical time to beats
-    start_time = _bars_beats_to_song_time(start_bar, start_beat, time_signature_numerator)
+    start_time = _bars_beats_to_song_time(start_bar, start_beat, tsn)
     end_time = start_time + length_beats
 
     try:

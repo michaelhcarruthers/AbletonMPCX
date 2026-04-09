@@ -3,7 +3,7 @@ from __future__ import annotations
 
 # AGENT WORKFLOW NOTE:
 # Use get_session_diff() as the default monitoring call during active sessions.
-# Only call get_session_snapshot() or get_full_session_state() for initial
+# Only call get_session_snapshot() or get_session_state() for initial
 # orientation or after major structural changes. get_session_diff() is token-efficient
 # and returns only what changed since the last snapshot.
 
@@ -1003,7 +1003,7 @@ def auto_name_all_tracks(dry_run: bool = False, skip_named: bool = True) -> dict
             if not is_default:
                 skipped_reason = "already_named"
 
-        role, _ = _infer_role_from_devices(idx, track.get("devices", None))
+        role, _ = _infer_role_from_devices(idx, devices=track.get("devices", None))
 
         if role == "default":
             suggested_name = "Track {}".format(idx + 1)
@@ -1322,16 +1322,28 @@ def list_scaffold_templates() -> dict:
 
 # --- Feature 5: Clip duplication and arrangement placement ---
 
+def _get_time_sig_numerator(override: int | None = None) -> int:
+    """Return the song's current time signature numerator, with optional caller override."""
+    if override is not None:
+        return override
+    try:
+        info = _send("get_song_info")
+        return int(info.get("time_signature_numerator", 4))
+    except Exception:
+        return 4
+
+
 @mcp.tool()
 def place_clip_in_arrangement(
     track_index: int,
     clip_index: int,
     start_bar: int,
     start_beat: float = 1.0,
-    time_signature_numerator: int = 4,
+    time_signature_numerator: int | None = None,
 ) -> dict:
     """Place (duplicate) a Session View clip into the Arrangement View at a specific position."""
-    start_time_beats = _bars_beats_to_song_time(start_bar, start_beat, time_signature_numerator)
+    tsn = _get_time_sig_numerator(time_signature_numerator)
+    start_time_beats = _bars_beats_to_song_time(start_bar, start_beat, tsn)
 
     clip_name = ""
     clip_length_beats = 0.0
@@ -1416,9 +1428,10 @@ def duplicate_clip_to_scenes(
 def arrange_from_scene_scaffold(
     track_indices: list[int] | None = None,
     layout: dict[str, int] | None = None,
-    time_signature_numerator: int = 4,
+    time_signature_numerator: int | None = None,
 ) -> dict:
     """Build the Arrangement View from the current scene structure."""
+    tsn = _get_time_sig_numerator(time_signature_numerator)
     try:
         scenes = _send("get_scenes")
     except RuntimeError as e:
@@ -1460,12 +1473,12 @@ def arrange_from_scene_scaffold(
                 except RuntimeError as e:
                     logger.debug("Could not get clip length for track %s scene %s: %s", ti, scene_idx, e)
 
-            length_bars = max(1, round(length_beats / time_signature_numerator)) if length_beats > 0 else 8
+            length_bars = max(1, round(length_beats / tsn)) if length_beats > 0 else 8
 
         tracks_placed = 0
         for ti in track_indices:
             try:
-                start_time = _bars_beats_to_song_time(current_bar, 1.0, time_signature_numerator)
+                start_time = _bars_beats_to_song_time(current_bar, 1.0, tsn)
                 _send("duplicate_clip_to_arrangement", {
                     "track_index": ti,
                     "clip_index": scene_idx,
@@ -1474,7 +1487,7 @@ def arrange_from_scene_scaffold(
                 tracks_placed += 1
             except RuntimeError:
                 try:
-                    start_time = _bars_beats_to_song_time(current_bar, 1.0, time_signature_numerator)
+                    start_time = _bars_beats_to_song_time(current_bar, 1.0, tsn)
                     _send("copy_clip_to_arrangement", {
                         "track_index": ti,
                         "clip_index": scene_idx,
@@ -1494,7 +1507,7 @@ def arrange_from_scene_scaffold(
         current_bar += length_bars
         total_bars += length_bars
 
-    arrangement_length_beats = float(total_bars * time_signature_numerator)
+    arrangement_length_beats = float(total_bars * tsn)
 
     return {
         "scenes_placed": len(placements),
@@ -2000,8 +2013,13 @@ def get_session_diff() -> dict:
 # ---------------------------------------------------------------------------
 
 @mcp.tool()
-def get_full_session_state() -> dict:
-    """Return complete session state in a single tool call."""
+def get_session_state(compact: bool = False) -> dict:
+    """Return session state. compact=False returns full structured state; compact=True returns a token-efficient human-readable summary."""
+    if compact:
+        from helpers.summarizer import summarize_session
+        snapshot = _send("get_session_snapshot")
+        return {"summary": summarize_session(snapshot)}
+
     snapshot = _send("get_session_snapshot")
     tracks = snapshot.get("tracks", []) if isinstance(snapshot, dict) else []
 

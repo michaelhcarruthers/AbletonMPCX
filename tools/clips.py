@@ -370,6 +370,11 @@ def list_arrangement_clips(
             ),
         }
 
+    try:
+        _tsn = int(_send("get_song_info", {}).get("time_signature_numerator", 4))
+    except Exception:
+        _tsn = 4
+
     clips = []
     try:
         _tsn = int(_send("get_song_info", {}).get("time_signature_numerator", 4))
