@@ -66,6 +66,7 @@ TOOL_GROUPS: dict[str, list[str]] = {
         "get_arrangement_length", "set_loop_", "get_loop_",
         "set_punch_", "get_punch_",
         "write_dynamic_automation",
+        "write_arrangement_volume_automation",
     ],
     "performance": [
         "perform_macro", "perform_macro_live", "setup_sidechain",
