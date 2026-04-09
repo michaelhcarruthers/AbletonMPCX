@@ -518,6 +518,37 @@ def delete_arrangement_clip(track_index: int, clip_index: int) -> dict:
 
 
 @mcp.tool()
+def delete_arrangement_clip_batch(clips: list[dict]) -> dict:
+    """Delete multiple arrangement clips in a single call.
+
+    Each entry in clips must be a dict with:
+      - track_index (int)
+      - clip_index (int)
+
+    Returns a summary of deleted and failed clips.
+    """
+    deleted = []
+    failed = []
+    for clip in clips:
+        track_index = clip["track_index"]
+        clip_index = clip["clip_index"]
+        try:
+            _send("delete_arrangement_clip", {
+                "track_index": track_index,
+                "clip_index": clip_index,
+            })
+            deleted.append({"track_index": track_index, "clip_index": clip_index})
+        except RuntimeError as e:
+            failed.append({"track_index": track_index, "clip_index": clip_index, "error": str(e)})
+    return {
+        "deleted_count": len(deleted),
+        "failed_count": len(failed),
+        "deleted": deleted,
+        "failed": failed,
+    }
+
+
+@mcp.tool()
 def place_clip_in_arrangement_batch(
     placements: list[dict],
     time_signature_numerator: int | None = None,
