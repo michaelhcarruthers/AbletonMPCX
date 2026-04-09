@@ -235,3 +235,7 @@ def _load_reference_profiles_from_project():
                 _reference_profiles[label] = profile
     except Exception as e:
         logger.warning("Failed to load reference profiles from project: %s", e)
+
+
+from helpers.timing import bars_to_seconds, bar_range_to_seconds, beats_to_seconds, seconds_to_beats, seconds_to_bars
+from helpers.preflight import get_session_state, invalidate_session_cache, get_track_index_by_name, get_device_index_by_name, get_device_parameter_value
