@@ -416,10 +416,16 @@ def list_arrangement_clips(
     track_index: int = None,
     start_bar: int = None,
     end_bar: int = None,
+    slim: bool = False,
 ) -> dict:
-    """List all clips in the arrangement view, optionally filtered by track or time range."""
+    """List all clips in the arrangement view, optionally filtered by track or time range. slim=True returns only clip_index, start_time, length, name per clip — use this when you don't need full clip details. Note: when slim=True, track_index filter is applied server-side; start_bar/end_bar filters are not applied in slim mode."""
+    server_params: dict[str, Any] = {"slim": slim}
+    if slim and track_index is not None:
+        # In slim mode the server applies the track filter since track_index is
+        # not included in the per-clip slim response
+        server_params["track_index"] = track_index
     try:
-        raw = _send("get_arrangement_clips", {})
+        raw = _send("get_arrangement_clips", server_params)
         all_clips = raw if isinstance(raw, list) else raw.get("clips", [])
     except Exception as e:
         return {
@@ -433,6 +439,9 @@ def list_arrangement_clips(
                 "to open it in the Detail View, then call get_detail_clip()."
             ),
         }
+
+    if slim:
+        return {"clips": all_clips, "total_clips": len(all_clips)}
 
     clips = []
     try:

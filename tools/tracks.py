@@ -33,9 +33,9 @@ def set_crossfader(value: float) -> dict:
 # ---------------------------------------------------------------------------
 
 @mcp.tool()
-def get_tracks() -> list:
-    """Return all tracks with their name, color, mute/solo/arm state and mixer values."""
-    return _send("get_tracks")
+def get_tracks(slim: bool = False) -> list:
+    """Return all tracks with their name, color, mute/solo/arm state and mixer values. slim=True returns only index, name, type — use this when you don't need device chains or routing details."""
+    return _send("get_tracks", {"slim": slim})
 
 @mcp.tool()
 def get_track_info(track_index: int) -> dict:

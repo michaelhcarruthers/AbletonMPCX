@@ -107,6 +107,11 @@ def get_song_info() -> dict:
     return _send("get_song_info")
 
 @mcp.tool()
+def get_song_info_minimal() -> dict:
+    """Return only tempo, time signature, bar count, and playhead — no track or clip data. Use this instead of get_song_info when you only need timing context."""
+    return _send("get_song_info_minimal", {})
+
+@mcp.tool()
 def set_tempo(tempo: float) -> dict:
     """Set the song tempo (20-999 BPM)."""
     return _send("set_tempo", {"tempo": tempo})
