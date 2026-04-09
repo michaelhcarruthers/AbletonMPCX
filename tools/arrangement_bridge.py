@@ -234,7 +234,11 @@ def write_dynamic_automation(
         })
         applied_automations.append("volume")
     except Exception as e:
-        vol_result = {"error": str(e)}
+        return {
+            "status": "error",
+            "error": str(e),
+            "automations_written": [],
+        }
 
     # --- attempt filter cutoff automation (graceful skip if no filter device) ---
     filter_result = None
@@ -275,7 +279,7 @@ def write_arrangement_volume_automation(
 ) -> dict:
     """Write volume automation to a track in arrangement view.
 
-    Uses the main socket (not M4L bridge) — works even when M4L bridge is inactive.
+    Requires the M4L bridge device to be active in the Live set.
 
     track_index: zero-based track index
     start_beat: song position in beats where ramp starts (beat 0 = bar 1)
@@ -314,13 +318,14 @@ def write_arrangement_volume_automation(
             {"time": end_beat, "value": end_value},
         ]
 
-    result = _send("write_arrangement_automation", {
-        "track_index": track_index,
-        "parameter_type": "volume",
-        "points": points,
-    })
-    if isinstance(result, dict) and result.get("error"):
-        return {"error": result["error"], "applied": False}
+    try:
+        result = _send_m4l("set_arrangement_automation", {
+            "track_index": track_index,
+            "parameter_type": "volume",
+            "points": points,
+        })
+    except RuntimeError as e:
+        return {"error": str(e), "applied": False}
     return {
         "status": "ok",
         "track_index": track_index,
