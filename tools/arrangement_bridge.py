@@ -258,17 +258,7 @@ def write_dynamic_automation(
             filter_result = {"error": str(e)}
 
     return {
-        "applied": True,
-        "track_name": track_name,
-        "track_index": track_index,
+        "status": "ok",
         "direction": direction_lower,
-        "bar_start": bar_start,
-        "bar_end": bar_end,
-        "start_seconds": round(start_secs, 3),
-        "end_seconds": round(end_secs, 3),
-        "tempo_used": tempo,
-        "curve": curve,
         "automations_written": applied_automations,
-        "volume_result": vol_result,
-        "filter_result": filter_result,
     }
