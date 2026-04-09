@@ -21,23 +21,7 @@ def get_clip_slots(track_index: int) -> list:
 
 @mcp.tool()
 def fire_clip_slot(track_index: int, slot_index: int, record_length: float | None = None, launch_quantization: int | None = None) -> dict:
-    """
-    Fire the clip slot at (track_index, slot_index).
-
-    WARNING: Firing a clip that is already playing will STOP it (Live's default
-    toggle behaviour). Always call get_clip_playing_state(track_index, slot_index)
-    first and check is_playing / is_triggered before firing if you want to avoid
-    accidentally stopping a running clip.
-
-    Args:
-        track_index: Track index.
-        slot_index: Clip slot index.
-        record_length: Optional recording length in beats (for empty slots).
-        launch_quantization: Optional launch quantization override (0-13).
-
-    Returns:
-        Empty dict on success.
-    """
+    """Fire the clip slot at (track_index, slot_index)."""
     params: dict[str, Any] = {"track_index": track_index, "slot_index": slot_index}
     if record_length is not None:
         params["record_length"] = record_length
@@ -71,20 +55,7 @@ def duplicate_clip_slot(track_index: int, slot_index: int) -> dict:
 
 @mcp.tool()
 def get_clip_playing_state(track_index: int, slot_index: int) -> dict:
-    """
-    Return the playing state of a clip slot.
-
-    Args:
-        track_index: Track index.
-        slot_index: Clip slot index.
-
-    Returns:
-        has_clip: bool
-        is_playing: bool
-        is_triggered: bool
-        is_recording: bool
-        clip_name: str or null
-    """
+    """Return the playing state of a clip slot."""
     return _send("get_clip_playing_state", {"track_index": track_index, "slot_index": slot_index})
 
 
@@ -95,10 +66,7 @@ def get_clip_info(track_index: int, slot_index: int) -> dict:
 
 @mcp.tool()
 def get_clip_playing_position(track_index: int, slot_index: int) -> dict:
-    """
-    Return the current playhead position within the clip (in beats).
-    Only meaningful while the clip is playing.
-    """
+    """Return the current playhead position within the clip (in beats). Only meaningful while the clip is playing."""
     return _send("get_clip_playing_position", {"track_index": track_index, "slot_index": slot_index})
 
 @mcp.tool()
@@ -114,18 +82,7 @@ def set_clip_color(track_index: int, slot_index: int, color: int) -> dict:
 
 @mcp.tool()
 def set_clip_color_batch(updates: list) -> dict:
-    """
-    Set the color of multiple clips in a single round trip.
-
-    Each update dict requires:
-        track_index (int)
-        slot_index (int)
-        color (int): RGB color as integer (0x00rrggbb)
-
-    Returns:
-        applied: int
-        errors: list of {track_index, slot_index, error}
-    """
+    """Set the color of multiple clips in a single round trip."""
     return _send("set_clip_color_batch", {"updates": updates})
 
 @mcp.tool()
@@ -177,10 +134,7 @@ def set_clip_warping(track_index: int, slot_index: int, warping: bool) -> dict:
 
 @mcp.tool()
 def set_clip_velocity_amount(track_index: int, slot_index: int, value: float) -> dict:
-    """
-    Set the velocity amount for a MIDI clip (-1.0 to 1.0).
-    Controls how much note velocity affects clip volume.
-    """
+    """Set the velocity amount for a MIDI clip (-1.0 to 1.0). Controls how much note velocity affects clip volume."""
     return _send("set_clip_velocity_amount", {"track_index": track_index, "slot_index": slot_index, "value": value})
 
 @mcp.tool()
@@ -204,29 +158,7 @@ def set_clip_launch_quantization(track_index: int, slot_index: int, launch_quant
 
 @mcp.tool()
 def get_clip_follow_actions(track_index: int, slot_index: int) -> dict:
-    """
-    Return all follow action properties for the clip at (track_index, slot_index).
-
-    Follow action enum values (follow_action_a / follow_action_b):
-      0 = None (stop)
-      1 = Stop
-      2 = Play again
-      3 = Play previous
-      4 = Play next
-      5 = Play first
-      6 = Play last
-      7 = Play any (random)
-      8 = Play other
-
-    Returns:
-        follow_action_time (float beats),
-        follow_action_linked (bool),
-        follow_action_enabled (bool, Live 12+ only),
-        follow_action_a (int),
-        follow_action_b (int),
-        follow_action_chance_a (int 0-100),
-        follow_action_chance_b (int 0-100)
-    """
+    """Return all follow action properties for the clip at (track_index, slot_index)."""
     return _send("get_clip_follow_actions", {"track_index": track_index, "slot_index": slot_index})
 
 
@@ -242,21 +174,7 @@ def set_clip_follow_actions(
     follow_action_chance_a: int | None = None,
     follow_action_chance_b: int | None = None,
 ) -> dict:
-    """
-    Set follow action properties on the clip at (track_index, slot_index).
-
-    All parameters are optional — only provided values are written.
-    follow_action_enabled requires Live 12+; it is silently skipped on Live 11.
-
-    Follow action enum values (follow_action_a / follow_action_b):
-      0 = None, 1 = Stop, 2 = Play again, 3 = Play previous,
-      4 = Play next, 5 = Play first, 6 = Play last,
-      7 = Play any (random), 8 = Play other
-
-    Returns:
-        updated: list of property names that were set
-        errors: dict of {property: reason} for any that failed (e.g. Live 11 limitation)
-    """
+    """Set follow action properties on the clip at (track_index, slot_index)."""
     params: dict[str, Any] = {"track_index": track_index, "slot_index": slot_index}
     if follow_action_time is not None:
         params["follow_action_time"] = follow_action_time
@@ -313,38 +231,13 @@ def quantize_clip(track_index: int, slot_index: int, quantization_grid: int, amo
 
 @mcp.tool()
 def get_clip_envelopes(track_index: int, slot_index: int) -> list:
-    """
-    Return all automation envelopes present on a clip.
-
-    Each entry includes the envelope index (used by other envelope tools)
-    and the parameter name it controls.
-
-    Args:
-        track_index: Track containing the clip.
-        slot_index: Clip slot index.
-
-    Returns:
-        List of {index, parameter_name, parameter_original_name}
-    """
+    """Return all automation envelopes present on a clip."""
     return _send("get_clip_envelopes", {"track_index": track_index, "slot_index": slot_index})
 
 
 @mcp.tool()
 def get_clip_envelope(track_index: int, slot_index: int, envelope_index: int) -> dict:
-    """
-    Return all automation points for one envelope on a clip.
-
-    Call get_clip_envelopes() first to discover available indices.
-
-    Args:
-        track_index: Track containing the clip.
-        slot_index: Clip slot index.
-        envelope_index: Index into the clip's automation_envelopes list.
-
-    Returns:
-        envelope_index, parameter_name,
-        points: list of {time (beats), value, in_tangent, out_tangent}
-    """
+    """Return all automation points for one envelope on a clip."""
     return _send("get_clip_envelope", {
         "track_index": track_index,
         "slot_index": slot_index,
@@ -354,14 +247,7 @@ def get_clip_envelope(track_index: int, slot_index: int, envelope_index: int) ->
 
 @mcp.tool()
 def clear_clip_envelope(track_index: int, slot_index: int, envelope_index: int) -> dict:
-    """
-    Clear all automation points from a clip envelope.
-
-    Args:
-        track_index: Track containing the clip.
-        slot_index: Clip slot index.
-        envelope_index: Index into the clip's automation_envelopes list.
-    """
+    """Clear all automation points from a clip envelope."""
     return _send("clear_clip_envelope", {
         "track_index": track_index,
         "slot_index": slot_index,
@@ -377,19 +263,7 @@ def insert_clip_envelope_point(
     time: float,
     value: float,
 ) -> dict:
-    """
-    Insert a single automation point into a clip envelope.
-
-    Args:
-        track_index: Track containing the clip.
-        slot_index: Clip slot index.
-        envelope_index: Index into the clip's automation_envelopes list.
-        time: Position in beats.
-        value: Parameter value to set at this point.
-
-    Returns:
-        time, value as written
-    """
+    """Insert a single automation point into a clip envelope."""
     return _send("insert_clip_envelope_point", {
         "track_index": track_index,
         "slot_index": slot_index,
@@ -406,20 +280,7 @@ def set_clip_envelope_points(
     envelope_index: int,
     points: list,
 ) -> dict:
-    """
-    Replace all automation points in a clip envelope atomically.
-
-    Clears the existing envelope first, then inserts all provided points.
-
-    Args:
-        track_index: Track containing the clip.
-        slot_index: Clip slot index.
-        envelope_index: Index into the clip's automation_envelopes list.
-        points: List of {time: float, value: float} dicts.
-
-    Returns:
-        point_count: number of points written
-    """
+    """Replace all automation points in a clip envelope atomically."""
     return _send("set_clip_envelope_points", {
         "track_index": track_index,
         "slot_index": slot_index,
@@ -440,11 +301,7 @@ def get_notes(track_index: int, slot_index: int) -> dict:
 
 @mcp.tool()
 def add_notes(track_index: int, slot_index: int, notes: list[dict]) -> dict:
-    """
-    Add MIDI notes to the clip. Each note dict requires:
-      pitch (int 0-127), start_time (float beats), duration (float beats)
-    Optional: velocity (0-127), mute (bool), probability (0-1), velocity_deviation (-127 to 127), release_velocity (0-127)
-    """
+    """Add MIDI notes to a clip slot."""
     try:
         clip_info = _send("get_clip_info", {"track_index": track_index, "slot_index": slot_index})
         if not clip_info.get("is_midi_clip", False):
@@ -456,23 +313,7 @@ def add_notes(track_index: int, slot_index: int, notes: list[dict]) -> dict:
 
 @mcp.tool()
 def replace_all_notes(track_index: int, slot_index: int, notes: list[dict]) -> dict:
-    """
-    Atomically replace ALL notes in a MIDI clip with the given list.
-
-    Unlike add_notes (which appends), this clears the clip and writes the
-    complete new note set in a single main-thread call — no race condition
-    between read and write.
-
-    Each note dict requires:
-      pitch (int 0-127), start_time (float beats), duration (float beats)
-    Optional: velocity (0-127, default 100), mute (bool, default False)
-
-    Use this as the canonical write path for humanize, groove, and any
-    operation that computes a new full note set from an existing one.
-
-    Returns:
-        note_count: number of notes written
-    """
+    """Atomically replace ALL notes in a MIDI clip with the given list."""
     try:
         clip_info = _send("get_clip_info", {"track_index": track_index, "slot_index": slot_index})
         if not clip_info.get("is_midi_clip", False):
@@ -535,7 +376,7 @@ def deselect_all_notes(track_index: int, slot_index: int) -> dict:
 
 @mcp.tool()
 def get_devices(track_index: int, is_return_track: bool = False) -> list:
-    """Return all devices on the track at track_index. Use track_index=-1 to target the master track. Set is_return_track=True to target a return track."""
+    """Return all devices on a track (use track_index=-1 for master, is_return_track=True for return tracks)."""
     return _send("get_devices", {"track_index": track_index, "is_return_track": is_return_track})
 
 @mcp.tool()
@@ -545,12 +386,12 @@ def get_device_info(track_index: int, device_index: int, is_return_track: bool =
 
 @mcp.tool()
 def get_device_parameters(track_index: int, device_index: int, is_return_track: bool = False) -> dict:
-    """Return all automatable parameters for the device at (track_index, device_index). Use track_index=-1 to target the master track. Set is_return_track=True to target a return track."""
+    """Return all automatable parameters for a device (use track_index=-1 for master, is_return_track=True for return tracks)."""
     return _send("get_device_parameters", {"track_index": track_index, "device_index": device_index, "is_return_track": is_return_track})
 
 @mcp.tool()
 def set_device_parameter(track_index: int, device_index: int, parameter_index: int, value: float, is_return_track: bool = False) -> dict:
-    """Set a device parameter by index. Value is clamped to min/max automatically. Use track_index=-1 to target the master track. Set is_return_track=True to target a return track."""
+    """Set a device parameter by index; value is clamped to min/max automatically (use track_index=-1 for master)."""
     return _send("set_device_parameter", {
         "track_index": track_index,
         "device_index": device_index,
@@ -567,14 +408,7 @@ def set_device_parameter_cs(
     value: float,
     is_return_track: bool = False,
 ) -> dict:
-    """
-    Set a device parameter using the control surface path.
-    Forces third-party plugin UI refresh (Pro-Q 4, FabFilter, etc.)
-    by selecting the device first, the same way Push 3 does.
-
-    Use track_index=-1 for the master track.
-    Set is_return_track=True to target a return track.
-    """
+    """Set a device parameter using the control surface path; forces third-party plugin UI refresh (Pro-Q 4, FabFilter, etc.)."""
     return _send("set_device_parameter_cs", {
         "track_index": track_index,
         "device_index": device_index,
@@ -591,30 +425,7 @@ def set_device_parameter_human(
     value: float,
     unit: str = "normalized",
 ) -> dict:
-    """
-    Set a device parameter using human-readable units.
-
-    Use track_index=-1 for the master track.
-
-    unit options:
-      'hz'         — frequency in Hertz, log-scale mapped to parameter range
-      'ms'         — time in milliseconds, linearly clamped to parameter range
-      'db'         — NOT supported: raises ValueError. dB conversion is device-dependent.
-                     Use 'normalized' and consult get_device_parameters() for the raw range.
-      'normalized' — raw 0.0–1.0 value mapped to the parameter's full range (default)
-
-    Returns the actual value set and the parameter's min/max for reference.
-
-    Examples:
-      # Set EQ Eight band 1 frequency to 200 Hz
-      set_device_parameter_human(0, 0, 2, 200.0, unit="hz")
-
-      # Set Compressor attack to 5ms
-      set_device_parameter_human(0, 1, 3, 5.0, unit="ms")
-
-      # Set output gain (use normalized — check get_device_parameters for range)
-      set_device_parameter_human(0, 2, 8, 0.85, unit="normalized")
-    """
+    """Set a device parameter using human-readable units."""
     return _send("set_device_parameter_human", {
         "track_index": track_index,
         "device_index": device_index,
@@ -625,17 +436,17 @@ def set_device_parameter_human(
 
 @mcp.tool()
 def set_device_enabled(track_index: int, device_index: int, enabled: bool, is_return_track: bool = False) -> dict:
-    """Enable or disable the device at (track_index, device_index). Use track_index=-1 to target the master track. Set is_return_track=True to target a return track."""
+    """Enable or disable a device (use track_index=-1 for master, is_return_track=True for return tracks)."""
     return _send("set_device_enabled", {"track_index": track_index, "device_index": device_index, "enabled": enabled, "is_return_track": is_return_track})
 
 @mcp.tool()
 def delete_device(track_index: int, device_index: int, is_return_track: bool = False) -> dict:
-    """Delete the device at (track_index, device_index). Use track_index=-1 to target the master track. Set is_return_track=True to target a return track."""
+    """Delete a device (use track_index=-1 for master, is_return_track=True for return tracks)."""
     return _send("delete_device", {"track_index": track_index, "device_index": device_index, "is_return_track": is_return_track})
 
 @mcp.tool()
 def duplicate_device(track_index: int, device_index: int, is_return_track: bool = False) -> dict:
-    """Duplicate the device at (track_index, device_index). Use track_index=-1 to target the master track. Set is_return_track=True to target a return track."""
+    """Duplicate a device (use track_index=-1 for master, is_return_track=True for return tracks)."""
     return _send("duplicate_device", {"track_index": track_index, "device_index": device_index, "is_return_track": is_return_track})
 
 @mcp.tool()
@@ -646,26 +457,7 @@ def move_device(
     target_track_index: int | None = None,
     is_return_track: bool = False,
 ) -> dict:
-    """
-    Move a device to a new position within the same track.
-
-    Live's Python API does not expose a native reorder method. This tool uses
-    duplicate + delete to simulate a move. Best-effort: works well for simple
-    reordering but does not guarantee arbitrary positioning.
-
-    Cross-track moves raise a ValueError — use delete_device() +
-    load_browser_item() to recreate the device on the target track.
-
-    Args:
-        track_index: Track containing the device.
-        device_index: Current index of the device.
-        target_device_index: Desired position after the move (best-effort).
-        target_track_index: Must equal track_index or be None.
-        is_return_track: If True, track_index refers to a return track.
-
-    Returns:
-        track_index, device_index
-    """
+    """Move a device to a new position within the same track."""
     if target_track_index is not None and target_track_index != track_index:
         raise ValueError(
             "Cross-track device move is not supported. "
@@ -687,37 +479,7 @@ def move_device(
 
 @mcp.tool()
 def get_detail_clip(include_notes: bool = True) -> dict:
-    """
-    Return info and MIDI notes for the clip currently open in Live's Detail View
-    (the clip editor at the bottom of the screen).
-
-    This is the ONLY reliable way to read arrangement clips via the Python API,
-    because Ableton does not expose arrangement clips directly.
-
-    HOW TO USE:
-      1. In Live, click the clip you want to inspect:
-         - Arrangement View: double-click the clip to open it in the Detail View
-         - Session View: single-click the clip
-      2. Call this tool — it reads whatever is currently open at the bottom.
-
-    If this returns {"clip": null, "prompt": "..."}, Live is telling you no clip
-    is open in the Detail View. Follow the prompt: click the clip in Live first,
-    then call this tool again.
-
-    Args:
-        include_notes: If True (default), also returns MIDI notes for MIDI clips.
-                       Set to False for a faster info-only call.
-
-    Returns:
-        clip: {
-            clip_name, is_midi_clip, length, looping, loop_start, loop_end,
-            color, muted, track_index, track_name, is_arrangement_clip,
-            start_time (arrangement position in beats, or null for session clips)
-        }
-        notes: list of {pitch, start_time, duration, velocity, mute}  -- null if audio clip or include_notes=False
-        note_count: int  -- null if audio clip or include_notes=False
-        prompt: str  -- only present when no clip is open; contains instructions for the user
-    """
+    """Return info and MIDI notes for the clip currently open in Live's Detail View."""
     result = _send_silent("get_detail_clip", {"include_notes": include_notes})
     return result
 
@@ -728,28 +490,7 @@ def list_arrangement_clips(
     start_bar: int = None,
     end_bar: int = None,
 ) -> dict:
-    """
-    List all clips in the arrangement view, optionally filtered by track or time range.
-
-    Bar numbers are calculated assuming 4/4 time (1 bar = 4 beats). For songs in other
-    time signatures the bar numbers will be approximate positional guides only.
-
-    Args:
-        track_index: If provided, only return clips from this track
-        start_bar: If provided, only return clips starting at or after this bar
-        end_bar: If provided, only return clips starting before this bar
-
-    Returns:
-        clips: list of {track_index, track_name, clip_index, clip_name,
-                        start_time, end_time, start_bar, length_bars,
-                        is_audio, is_midi, color, muted}
-        total_clips: int
-        filtered_by: dict
-
-    Note:
-        If this returns 0 clips due to a Live API limitation, use get_detail_clip()
-        instead: click the clip in Live first, then call get_detail_clip().
-    """
+    """List all clips in the arrangement view, optionally filtered by track or time range."""
     try:
         raw = _send("get_arrangement_clips", {})
         all_clips = raw if isinstance(raw, list) else raw.get("clips", [])
@@ -826,31 +567,7 @@ def get_arrangement_clip_notes(
     track_index: int,
     clip_index: int,
 ) -> dict:
-    """
-    Read the MIDI notes from a specific arrangement clip.
-
-    Use list_arrangement_clips() first to discover track_index and clip_index values.
-
-    Args:
-        track_index: Zero-based track index.
-        clip_index: Zero-based index into the track's arrangement_clips list
-                    (as returned by list_arrangement_clips()).
-
-    Returns:
-        notes: list of {pitch, start_time, duration, velocity, mute}
-        clip_name: str
-        track_index: int
-        clip_index: int
-        clip_start_time: float  -- position in the arrangement (beats)
-        clip_length: float      -- length in beats
-        note_count: int
-
-    Note:
-        If this raises an error or returns empty, the Live API cannot read arrangement
-        clips directly. Use get_detail_clip() instead:
-          1. Click the arrangement clip in Live to open it in the Detail View
-          2. Call get_detail_clip() to read its notes
-    """
+    """Read the MIDI notes from a specific arrangement clip."""
     result = _send_silent("get_arrangement_clip_notes", {
         "track_index": track_index,
         "clip_index": clip_index,
@@ -862,23 +579,7 @@ def get_arrangement_clip_notes(
 
 @mcp.tool()
 def delete_arrangement_clip(track_index: int, clip_index: int) -> dict:
-    """
-    Delete a clip from the Arrangement View by track index and clip index.
-
-    Use list_arrangement_clips() first to discover track_index and clip_index values.
-
-    Args:
-        track_index: Zero-based track index.
-        clip_index: Zero-based index into the track's arrangement clips list
-                    (as returned by list_arrangement_clips()).
-
-    Returns:
-        track_index, clip_index, status ("ok")
-
-    Note:
-        If the clip cannot be deleted (Live API limitation on some versions),
-        returns an error key with a description.
-    """
+    """Delete a clip from the Arrangement View by track index and clip index."""
     return _send("delete_arrangement_clip", {
         "track_index": track_index,
         "clip_index": clip_index,
@@ -893,28 +594,7 @@ def get_arrangement_automation(
     start_beat: float = 0.0,
     end_beat: float | None = None,
 ) -> dict:
-    """
-    Read automation points for a parameter in the Arrangement View.
-
-    Call get_device_parameters() first to discover parameter_index values.
-    For mixer parameters (volume, pan, sends), pass device_index=None.
-
-    Args:
-        track_index: Zero-based track index.
-        device_index: Device index on the track, or None for mixer parameters
-                      (e.g. volume, pan, sends).
-        parameter_index: Parameter index on the device (or mixer).
-        start_beat: Start of the time range to read (default 0.0 = beginning).
-        end_beat: End of the time range. None = read to end of arrangement.
-
-    Returns:
-        points: list of {time (beats), value}
-        parameter_name: str
-        track_index: int
-        device_index: int or None
-        parameter_index: int
-        point_count: int
-    """
+    """Read automation points for a parameter in the Arrangement View."""
     params: dict = {
         "track_index": track_index,
         "parameter_index": parameter_index,
@@ -938,21 +618,7 @@ def clear_arrangement_automation(
     start_beat: float = 0.0,
     end_beat: float | None = None,
 ) -> dict:
-    """
-    Clear all automation points from a parameter in the Arrangement View
-    within the given time range.
-
-    Args:
-        track_index: Zero-based track index.
-        device_index: Device index, or None for mixer parameters
-                      (e.g. volume, pan, sends).
-        parameter_index: Parameter index.
-        start_beat: Start of the range to clear (default 0.0).
-        end_beat: End of the range. None = clear to end of arrangement.
-
-    Returns:
-        track_index, device_index, parameter_index, cleared (bool)
-    """
+    """Clear all automation points from a parameter in the Arrangement View within the given time range."""
     params: dict = {
         "track_index": track_index,
         "parameter_index": parameter_index,
@@ -967,17 +633,7 @@ def clear_arrangement_automation(
 
 @mcp.tool()
 def get_arrangement_overview() -> dict:
-    """
-    Return a high-level structural overview of the arrangement.
-
-    Returns:
-        total_bars: int
-        tracks_with_clips: int
-        clips_per_track: list of {track_index, track_name, clip_count, first_bar, last_bar}
-        empty_regions: list of {start_bar, end_bar, length_bars}  # gaps with no clips on any track
-        total_clips: int
-        tempo: float
-    """
+    """Return a high-level structural overview of the arrangement."""
     # Fetch all arrangement clips (unfiltered)
     clips_result = list_arrangement_clips()
     all_clips = clips_result["clips"]

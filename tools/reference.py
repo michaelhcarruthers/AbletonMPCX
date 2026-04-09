@@ -38,22 +38,7 @@ def import_reference_track(
     track_name: str = "Reference",
     volume: float = 0.7,
 ) -> dict:
-    """Create a new audio track configured as a reference track.
-
-    Note: Ableton's Python API does not support loading audio files into clips
-    programmatically. After this tool runs, drag `file_path` to the created
-    track manually in the Session or Arrangement view.
-
-    Args:
-        file_path: Path to the reference audio file (for your records; must be
-            loaded manually).
-        track_name: Name for the new track (default "Reference").
-        volume: Initial volume scalar 0.0–1.0 (default 0.7).
-
-    Returns:
-        dict with track_index, track_name, volume, file_path, and a note about
-        manual loading.
-    """
+    """Create a new audio track configured as a reference track."""
     result = _send("create_audio_track", {"index": -1})
     track_index = result.get("track_index") if isinstance(result, dict) else None
 
@@ -79,16 +64,7 @@ def import_reference_track(
 
 @mcp.tool()
 def toggle_reference_track(track_index: int, mute: bool | None = None) -> dict:
-    """Toggle or set the mute state of a reference track.
-
-    Args:
-        track_index: Track to mute/unmute.
-        mute: If None (default), reads the current state and toggles it.
-            Otherwise sets mute to the given bool.
-
-    Returns:
-        dict with track_index and muted (the resulting mute state).
-    """
+    """Toggle or set the mute state of a reference track."""
     if mute is None:
         track_info = _send("get_track_info", {"track_index": track_index})
         current_mute = bool(track_info.get("mute", False)) if isinstance(track_info, dict) else False
@@ -104,18 +80,7 @@ def toggle_reference_track(track_index: int, mute: bool | None = None) -> dict:
 
 @mcp.tool()
 def set_reference_volume(track_index: int, volume_db: float) -> dict:
-    """Set the volume of a reference track using dBFS.
-
-    Converts `volume_db` to Live's 0–1 scale: `scalar = 10^(volume_db/20) * 0.85`,
-    clamped to [0.0, 1.0].
-
-    Args:
-        track_index: Track to adjust.
-        volume_db: Target level in dBFS relative to unity (0.85).
-
-    Returns:
-        dict with track_index, volume_db, and the applied scalar.
-    """
+    """Set the volume of a reference track using dBFS."""
     scalar = _db_to_scalar(volume_db)
     _send("set_track_volume", {"track_index": track_index, "value": scalar})
     return {"track_index": track_index, "volume_db": volume_db, "scalar": scalar}
@@ -130,20 +95,7 @@ def compare_mix_to_reference(
     mix_track_indices: list[int],
     reference_track_index: int,
 ) -> dict:
-    """Compare the average volume of mix tracks to a reference track.
-
-    Reads volumes and panning for all listed mix tracks and the reference
-    track via the session snapshot. Flags if the mix average is more than
-    3 dB above or below the reference.
-
-    Args:
-        mix_track_indices: List of track indices representing the mix.
-        reference_track_index: Track index of the reference track.
-
-    Returns:
-        dict with reference_volume, mix_average_volume, delta_db, flags list,
-        and per_track breakdown.
-    """
+    """Compare the average volume of mix tracks to a reference track."""
     snapshot = _send("get_session_snapshot")
     tracks = snapshot.get("tracks", []) if isinstance(snapshot, dict) else []
     tracks_by_index: dict[int, dict] = {

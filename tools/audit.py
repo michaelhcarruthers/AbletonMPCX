@@ -84,22 +84,7 @@ def humanize_notes(
     velocity_amount: float = 10.0,
     seed: int | None = None,
 ) -> dict:
-    """
-    Apply subtle human-feel randomisation to all notes in a MIDI clip.
-
-    Randomly offsets note start times and velocities within the given ranges.
-    All changes are deterministic if a seed is provided.
-
-    Args:
-        track_index: Track containing the clip.
-        slot_index: Clip slot index.
-        timing_amount: Max timing shift in beats (default 0.02 = ~5ms at 120bpm).
-        velocity_amount: Max velocity shift in either direction (default 10).
-        seed: Optional random seed for reproducibility.
-
-    Returns:
-        note_count, timing_amount, velocity_amount, seed_used
-    """
+    """Apply subtle human-feel randomisation to all notes in a MIDI clip."""
     import random
 
     rng = random.Random(seed)
@@ -149,31 +134,7 @@ def humanize_dilla(
     loose_subdivisions: bool = True,
     seed: int | None = None,
 ) -> dict:
-    """
-    Apply a J Dilla-inspired humanization to a MIDI clip.
-
-    Key characteristics vs generic humanize_notes:
-    - Timing is biased LATE, not symmetrically randomised.
-      Distribution is triangular(max_early, max_late, late_bias).
-    - Weaker subdivisions (16th-note offbeats) get more timing looseness.
-    - Velocities are nudged randomly but with less extreme spread than timing.
-
-    All changes are deterministic if a seed is provided.
-    Uses replace_all_notes for atomic write.
-
-    Args:
-        track_index: Track containing the clip.
-        slot_index: Clip slot index.
-        late_bias: Mode of the triangular timing distribution in beats (default 0.018 ≈ +4ms at 120bpm).
-        max_early: Maximum early shift in beats (default 0.005 ≈ 1ms).
-        max_late: Maximum late shift in beats (default 0.032 ≈ 8ms).
-        velocity_amount: Max velocity shift in either direction (default 8).
-        loose_subdivisions: If True, 16th-note offbeats get 1.5× the timing range.
-        seed: Optional random seed for reproducibility.
-
-    Returns:
-        note_count, late_bias, max_early, max_late, velocity_amount, seed_used
-    """
+    """Apply a J Dilla-inspired humanization to a MIDI clip."""
     import random
 
     rng = random.Random(seed)
@@ -237,32 +198,7 @@ def humanize_dilla(
 
 @mcp.tool()
 def analyze_clip_feel(track_index: int, slot_index: int, grid: float = 0.25) -> dict:
-    """
-    Analyse the timing and velocity feel of a MIDI clip.
-
-    Checks for signs of robotic, over-quantized feel:
-    - All note start times fall exactly on a rhythmic grid
-    - Near-uniform velocities across all notes
-    - Per-pitch velocity variance (e.g. every hi-hat hit the same velocity)
-    - Uniform note durations per pitch
-
-    Nothing is modified. Returns observations and a summary flag.
-
-    Args:
-        track_index: Track containing the clip.
-        slot_index: Clip slot index.
-        grid: Grid resolution in beats to check snapping against (default 0.25 = 16th note).
-
-    Returns:
-        note_count,
-        perfectly_quantized (bool): all start times are exact grid multiples,
-        timing_variance (float): std dev of distance-to-nearest-grid in beats,
-        velocity_std_dev (float): overall velocity standard deviation,
-        low_velocity_variance (bool): velocity std dev < 5 (flag),
-        per_pitch_analysis: list of {pitch, note_count, velocity_std_dev, duration_std_dev, uniform_velocity, uniform_duration},
-        robotic_flags: list of human-readable flag strings,
-        feel_score: int 0-100 (100 = fully robotic, 0 = very human)
-    """
+    """Analyse the timing and velocity feel of a MIDI clip."""
     result = _send("get_notes", {"track_index": track_index, "slot_index": slot_index})
     notes = result.get("notes", [])
 
@@ -352,19 +288,7 @@ def analyze_clip_feel(track_index: int, slot_index: int, grid: float = 0.25) -> 
 
 @mcp.tool()
 def duplicate_clip_to_new_scene(track_index: int, slot_index: int) -> dict:
-    """
-    Duplicate the clip at (track_index, slot_index) into a new scene.
-
-    Creates a new scene at the end, then recreates the clip (notes, name,
-    color, length) in the corresponding slot of the new scene.
-
-    Args:
-        track_index: Track containing the source clip.
-        slot_index: Source clip slot index.
-
-    Returns:
-        new_scene_index, new_slot_index
-    """
+    """Duplicate the clip at (track_index, slot_index) into a new scene."""
     # Get current scene count to know the index of the new scene
     scenes = _send("get_scenes")
     new_scene_index = len(scenes)
@@ -402,16 +326,7 @@ def duplicate_clip_to_new_scene(track_index: int, slot_index: int) -> dict:
 
 @mcp.tool()
 def create_midi_track_with_drum_rack(index: int = -1, track_name: str | None = None) -> dict:
-    """
-    Create a new MIDI track and immediately load a Drum Rack onto it.
-
-    Args:
-        index: Position to insert the track (-1 = end).
-        track_name: Optional name to give the new track.
-
-    Returns:
-        track_index, track_name
-    """
+    """Create a new MIDI track and immediately load a Drum Rack onto it."""
     # Create the MIDI track
     _send("create_midi_track", {"index": index})
 
@@ -436,20 +351,7 @@ def create_midi_track_with_drum_rack(index: int = -1, track_name: str | None = N
 
 @mcp.tool()
 def capture_device_macro_snapshot(track_index: int, device_index: int, label: str | None = None) -> dict:
-    """
-    Capture the current parameter values of a device as a named snapshot.
-
-    Stores all parameter values under a label so they can be restored later
-    with apply_device_macro_snapshot().
-
-    Args:
-        track_index: Track containing the device (-1 for master).
-        device_index: Device index on the track.
-        label: Optional label. Defaults to '{track_index}_{device_index}'.
-
-    Returns:
-        label, device_name, parameter_count
-    """
+    """Capture the current parameter values of a device as a named snapshot."""
     result = _send("get_device_parameters", {
         "track_index": track_index,
         "device_index": device_index,
@@ -478,17 +380,7 @@ def capture_device_macro_snapshot(track_index: int, device_index: int, label: st
 
 @mcp.tool()
 def apply_device_macro_snapshot(label: str, track_index: int | None = None, device_index: int | None = None) -> dict:
-    """
-    Restore device parameter values from a previously captured snapshot.
-
-    Args:
-        label: Label used when calling capture_device_macro_snapshot().
-        track_index: Override track index (uses snapshot's original if omitted).
-        device_index: Override device index (uses snapshot's original if omitted).
-
-    Returns:
-        label, device_name, parameters_set, skipped
-    """
+    """Restore device parameter values from a previously captured snapshot."""
     key = "__device__{}".format(label)
     if key not in _snapshots:
         raise ValueError("No device snapshot with label '{}'. Use capture_device_macro_snapshot() first.".format(label))
@@ -524,21 +416,7 @@ def apply_device_macro_snapshot(label: str, track_index: int | None = None, devi
 
 @mcp.tool()
 def prep_track_for_resampling(track_index: int, resample_track_name: str = "Resample") -> dict:
-    """
-    Prepare a track for resampling by creating a new audio track routed to record it.
-
-    Steps:
-    1. Creates a new audio track named resample_track_name.
-    2. Arms the new track for recording.
-    3. Returns both track indices so the caller can set up routing manually if needed.
-
-    Args:
-        track_index: The source track to resample from.
-        resample_track_name: Name for the new recording track.
-
-    Returns:
-        source_track_index, resample_track_index, resample_track_name
-    """
+    """Prepare a track for resampling by creating a new audio track routed to record it."""
     # Create the audio track
     _send("create_audio_track", {"index": -1})
     tracks = _send("get_tracks")
@@ -567,24 +445,7 @@ def prep_track_for_resampling(track_index: int, resample_track_name: str = "Resa
 def create_arrangement_scaffold(
     sections: list[dict],
 ) -> dict:
-    """
-    Create a basic arrangement scaffold by adding named scenes for each section.
-
-    Each section dict requires a 'name' key and optionally 'tempo' and 'color'.
-
-    Args:
-        sections: List of section dicts, e.g.:
-            [
-                {"name": "Intro", "tempo": 120.0, "color": 0x00FF6600},
-                {"name": "Verse", "tempo": 120.0},
-                {"name": "Chorus", "color": 0x00FF0000},
-                {"name": "Bridge"},
-                {"name": "Outro"},
-            ]
-
-    Returns:
-        scenes_created: list of {name, scene_index}
-    """
+    """Create a basic arrangement scaffold by adding named scenes for each section."""
     existing_scenes = _send("get_scenes")
     start_index = len(existing_scenes)
 
@@ -628,29 +489,7 @@ def designate_reference_clip(
     slot_index: int,
     label: str = "default",
 ) -> dict:
-    """
-    Analyse the feel of a MIDI clip and store it as a named reference profile.
-
-    The profile captures timing and velocity characteristics that can later be
-    compared against other clips using compare_clip_feel().
-
-    Stored profile includes:
-      - timing_variance: std dev of distance-to-nearest-16th-grid (beats)
-      - lateness_bias: mean signed offset from nearest grid point (positive = late)
-      - velocity_std_dev: overall velocity spread
-      - velocity_mean: mean velocity
-      - per_pitch: per-pitch timing and velocity stats
-      - note_count
-      - grid: grid resolution used (always 0.25 = 16th note)
-
-    Args:
-        track_index: Track containing the reference clip.
-        slot_index: Clip slot index.
-        label: Name for this reference profile (default: 'default').
-
-    Returns:
-        label, note_count, timing_variance, lateness_bias, velocity_std_dev
-    """
+    """Analyse the feel of a MIDI clip and store it as a named reference profile."""
     result = _send("get_notes", {"track_index": track_index, "slot_index": slot_index})
     notes = result.get("notes", [])
 
@@ -721,27 +560,7 @@ def compare_clip_feel(
     slot_index: int,
     reference_label: str = "default",
 ) -> dict:
-    """
-    Compare the feel of a MIDI clip against a stored reference profile.
-
-    Call designate_reference_clip() first to create the reference.
-
-    Returns deltas and human-readable flags. Nothing is modified.
-
-    Args:
-        track_index: Track containing the clip to analyse.
-        slot_index: Clip slot index.
-        reference_label: Label of the reference profile to compare against.
-
-    Returns:
-        note_count,
-        timing_variance_delta (float): target minus reference (positive = more loose)
-        lateness_bias_delta (float): target minus reference (positive = target is later)
-        velocity_std_dev_delta (float): target minus reference (positive = more varied)
-        flags: list of human-readable observation strings
-        summary: one-line summary of the main departure
-        reference_label, reference_note_count
-    """
+    """Compare the feel of a MIDI clip against a stored reference profile."""
     with _reference_profiles_lock:
         has_label = reference_label in _reference_profiles
     if not has_label:
@@ -870,23 +689,7 @@ def designate_reference_mix_state(
     label: str = "default",
     scene_index: int | None = None,
 ) -> dict:
-    """
-    Capture the current mix state as a named reference profile.
-
-    Stores per-track volumes, panning, sends, mute/solo state,
-    device counts, and clip counts. Can optionally be scoped to the
-    clips active in a particular scene.
-
-    Use compare_mix_state() to compare a later mix state against this reference.
-
-    Args:
-        label: Name for this reference profile (default: 'default').
-        scene_index: Optional scene index to annotate (no filtering applied —
-                     all tracks are captured regardless).
-
-    Returns:
-        label, track_count, timestamp
-    """
+    """Capture the current mix state as a named reference profile."""
     snapshot = _send("get_session_snapshot")
     tracks = snapshot.get("tracks", [])
 
@@ -947,25 +750,7 @@ def compare_mix_state(
     reference_label: str = "default",
     scene_index: int | None = None,
 ) -> dict:
-    """
-    Compare the current mix state against a stored reference mix profile.
-
-    Call designate_reference_mix_state() first to create the reference.
-
-    Flags material differences in volume, panning, and send levels per track.
-    Also reports section energy delta (total clip count, active track count).
-
-    Nothing is modified.
-
-    Args:
-        reference_label: Label of the reference mix profile to compare against.
-        scene_index: Optional — annotated in the result but does not filter tracks.
-
-    Returns:
-        track_count, flags, summary, per_track_deltas,
-        master_volume_delta, total_clip_count_delta,
-        reference_label, reference_timestamp
-    """
+    """Compare the current mix state against a stored reference mix profile."""
     with _reference_profiles_lock:
         has_label = reference_label in _reference_profiles
     if not has_label:
@@ -1091,12 +876,7 @@ def compare_mix_state(
 
 @mcp.tool()
 def list_reference_profiles() -> dict:
-    """
-    List all stored reference profiles (both in-process and persisted).
-
-    Returns:
-        profiles: list of {label, type, timestamp, note_count (if clip_feel), track_count (if mix_state)}
-    """
+    """List all stored reference profiles (both in-process and persisted)."""
     _load_reference_profiles_from_project()
     profiles = []
     with _reference_profiles_lock:
@@ -1237,38 +1017,7 @@ def designate_reference_audio(
     label: str = "default_audio",
     duration_limit: float = 300.0,
 ) -> dict:
-    """
-    Analyse an audio file and store it as a named reference audio profile.
-
-    Computes:
-      - Tonal balance: low / low-mid / mid / high-mid / high band energy ratios
-      - Integrated loudness estimate (RMS-based, in dBFS)
-      - Peak level (dBFS)
-      - Crest factor (peak-to-average ratio, dB)
-      - Spectral centroid mean and std (brightness proxy)
-      - Spectral rolloff mean (frequency below which 85% of energy sits)
-      - Transient density: mean onset rate (onsets per second)
-      - Dynamic range: std dev of short-term RMS across 0.5s windows
-      - Stereo width estimate (if stereo file: mean absolute L-R difference / mean L+R)
-
-    Requires: librosa, numpy, soundfile
-    Install: pip install librosa soundfile
-
-    Args:
-        file_path: Absolute or home-relative path to audio file (WAV, AIFF, FLAC, MP3).
-        label: Name for this reference profile (default: 'default_audio').
-        duration_limit: Maximum seconds to analyse (default 300s = 5 min). Longer files are truncated.
-
-    Returns:
-        label, duration_seconds, sample_rate, channels,
-        tonal_balance (dict of band: ratio),
-        loudness_dbfs, peak_dbfs, crest_factor_db,
-        spectral_centroid_mean, spectral_centroid_std,
-        spectral_rolloff_mean,
-        transient_density_per_sec,
-        dynamic_range,
-        stereo_width (float or None)
-    """
+    """Analyse an audio file and store it as a named reference audio profile."""
     result = _analyse_audio_file(file_path, duration_limit=duration_limit)
 
     profile = dict(result)
@@ -1288,22 +1037,7 @@ def analyse_audio(
     file_path: str,
     duration_limit: float = 300.0,
 ) -> dict:
-    """
-    Analyse an audio file and return tonal, loudness, transient, and spectral metrics.
-
-    Does NOT store the result as a reference profile. Use designate_reference_audio()
-    if you want to store it for later comparison.
-
-    Requires: librosa, numpy, soundfile
-    Install: pip install librosa soundfile
-
-    Args:
-        file_path: Absolute or home-relative path to audio file.
-        duration_limit: Maximum seconds to analyse (default 300s).
-
-    Returns:
-        Same fields as designate_reference_audio() minus the label/timestamp.
-    """
+    """Analyse an audio file and return tonal, loudness, transient, and spectral metrics."""
     return _analyse_audio_file(file_path, duration_limit=duration_limit)
 
 
@@ -1313,28 +1047,7 @@ def compare_audio(
     reference_label: str = "default_audio",
     duration_limit: float = 300.0,
 ) -> dict:
-    """
-    Analyse an audio file and compare it against a stored reference audio profile.
-
-    Call designate_reference_audio() first to create the reference.
-
-    Returns per-metric deltas and human-readable flags. Nothing is modified.
-
-    Requires: librosa, numpy, soundfile
-    Install: pip install librosa soundfile
-
-    Args:
-        file_path: Path to the audio file to analyse and compare.
-        reference_label: Label of the reference audio profile.
-        duration_limit: Max seconds to analyse.
-
-    Returns:
-        flags: list of human-readable observation strings
-        summary: most significant departure
-        deltas: dict of {metric: {target, reference, delta, delta_pct}}
-        tonal_balance_deltas: dict of {band: delta}
-        reference_label, reference_file_path
-    """
+    """Analyse an audio file and compare it against a stored reference audio profile."""
     with _reference_profiles_lock:
         has_label = reference_label in _reference_profiles
     if not has_label:
@@ -1433,28 +1146,7 @@ def compare_audio_sections(
     num_sections: int = 4,
     duration_limit: float = 300.0,
 ) -> dict:
-    """
-    Split a target audio file into N equal sections and compare each against the reference.
-
-    Useful for detecting whether energy, brightness, and density build correctly
-    across sections (intro → verse → chorus → outro) relative to the reference.
-
-    Requires: librosa, numpy, soundfile
-    Install: pip install librosa soundfile
-
-    Args:
-        file_path: Path to the audio file to analyse.
-        reference_label: Label of the reference audio profile (full-song reference).
-        num_sections: Number of equal sections to split the file into (default 4).
-        duration_limit: Max seconds to analyse.
-
-    Returns:
-        sections: list of {section_index, start_sec, end_sec, loudness_dbfs,
-                           spectral_centroid_mean, transient_density_per_sec,
-                           vs_reference_loudness_delta, vs_reference_centroid_delta}
-        flags: list of human-readable observations about section energy progression
-        reference_label
-    """
+    """Split a target audio file into N equal sections and compare each against the reference."""
     try:
         import librosa
         import numpy as np
@@ -1787,23 +1479,7 @@ def _stop_observer():
 
 @mcp.tool()
 def get_pending_suggestions(max_items: int = 10) -> dict:
-    """
-    Return and clear pending suggestions from the background observer.
-
-    The observer thread watches the session state and queues suggestions
-    when it detects state changes matching known rules (new tracks without
-    devices, volume ceiling, solo tracks left on, etc.).
-
-    Call this after every tool interaction to surface proactive observations.
-    Returns an empty list if nothing has been detected.
-
-    Args:
-        max_items: Maximum number of suggestions to return (default 10).
-
-    Returns:
-        suggestions: list of {source, priority, message, action}
-        queue_length_before: how many were queued before this call
-    """
+    """Return and clear pending suggestions from the background observer."""
     with _observer_lock:
         before = len(_suggestion_queue)
         items = []
@@ -1818,12 +1494,7 @@ def get_pending_suggestions(max_items: int = 10) -> dict:
 
 @mcp.tool()
 def observer_status() -> dict:
-    """
-    Return the current status of the background observer thread.
-
-    Returns:
-        running, poll_interval_seconds, queue_length, last_snapshot_track_count
-    """
+    """Return the current status of the background observer thread."""
     with _observer_lock:
         queue_len = len(_suggestion_queue)
         last_snap = _observer_last_snapshot
@@ -1852,28 +1523,7 @@ def auto_humanize_if_robotic(
     velocity_amount: float = 8.0,
     seed: int | None = None,
 ) -> dict:
-    """
-    Check a clip's feel score and apply humanization automatically if it is too robotic.
-
-    Calls analyze_clip_feel() internally. If feel_score >= feel_score_threshold,
-    applies humanize_dilla() (style='dilla') or humanize_notes() (style='generic').
-    If the clip already feels human, nothing is modified.
-
-    Args:
-        track_index: Track containing the clip.
-        slot_index: Clip slot index.
-        feel_score_threshold: Apply if feel_score >= this (0=human, 100=robotic). Default 60.
-        style: 'dilla' for biased-late humanization, 'generic' for symmetric.
-        late_bias: Passed to humanize_dilla (ignored for style='generic').
-        max_early: Passed to humanize_dilla (ignored for style='generic').
-        max_late: Passed to humanize_dilla. Also used as timing_amount for 'generic'.
-        velocity_amount: Max velocity shift for either style.
-        seed: Optional random seed.
-
-    Returns:
-        applied (bool), feel_score_before, feel_score_after,
-        robotic_flags_before, humanization_style, note_count, reason
-    """
+    """Check a clip's feel score and apply humanization automatically if it is too robotic."""
     feel = analyze_clip_feel(track_index, slot_index)
     score_before = feel.get("feel_score", 0)
     flags_before = feel.get("robotic_flags", [])
@@ -1932,28 +1582,7 @@ def fix_groove_from_reference(
     velocity_blend: float = 0.3,
     seed: int | None = None,
 ) -> dict:
-    """
-    Compare a clip's feel against a stored reference and apply corrections to close the gap.
-
-    Calls compare_clip_feel() internally. If the clip is measurably tighter or more
-    uniform than the reference, applies targeted humanize_dilla() to bring it closer.
-    The correction is conservative by default (timing_blend=0.5).
-
-    Requires a feel profile created with designate_reference_clip().
-
-    Args:
-        track_index: Track containing the clip.
-        slot_index: Clip slot index.
-        reference_label: Label of the stored feel reference profile.
-        timing_blend: 0.0=no timing change, 1.0=fully match reference timing spread.
-        velocity_blend: 0.0=no velocity change, 1.0=fully match reference velocity spread.
-        seed: Optional random seed.
-
-    Returns:
-        applied (bool), flags_before, corrections_applied,
-        timing_variance_before, timing_variance_after,
-        velocity_std_before, velocity_std_after, reference_label
-    """
+    """Compare a clip's feel against a stored reference and apply corrections to close the gap."""
     with _reference_profiles_lock:
         has_label = reference_label in _reference_profiles
     if not has_label:
@@ -2044,22 +1673,7 @@ def batch_auto_humanize(
     style: str = "dilla",
     seed: int | None = None,
 ) -> dict:
-    """
-    Run auto_humanize_if_robotic() across multiple tracks at the same slot index.
-
-    Useful for checking all clips in a scene row and humanizing any that are too robotic.
-
-    Args:
-        track_indices: List of track indices to check.
-        slot_index: Clip slot index to check on each track.
-        feel_score_threshold: Apply humanization if feel_score >= this value. Default 60.
-        style: 'dilla' or 'generic'.
-        seed: Optional random seed (same seed applied to each clip for reproducibility).
-
-    Returns:
-        results: list of per-track {track_index, applied, feel_score_before, feel_score_after, note_count}
-        applied_count, skipped_count, total_checked
-    """
+    """Run auto_humanize_if_robotic() across multiple tracks at the same slot index."""
     results = []
     applied_count = 0
     skipped_count = 0
@@ -2112,25 +1726,7 @@ _MISSING_PLUGIN_INDICATORS = ["missing", "disabled", "unknown plugin", "vst not 
 
 @mcp.tool()
 def find_missing_plugins(dry_run: bool = True) -> dict:
-    """
-    Scan all tracks for missing or disabled plugin placeholders.
-
-    A "missing plugin" is a device whose name contains indicators like
-    "Missing", "Disabled", "Unknown Plugin", "VST Not Found", or "AU Not Found"
-    (case-insensitive), or whose ``is_active`` field is False, or whose
-    ``has_error`` field is True.
-
-    Args:
-        dry_run: If True (default), report what would be deleted without
-                 making any changes. Set to False to actually delete them.
-
-    Returns:
-        missing: list of {track_index, track_name, device_index, device_name, reason}
-        deleted: list of same shape (populated only when dry_run=False)
-        dry_run: bool echo
-        total_found: int
-        total_deleted: int
-    """
+    """Scan all tracks for missing or disabled plugin placeholders. dry_run=True by default — reports without making changes."""
     tracks = _send("get_tracks", {})
     missing = []
     for track in tracks:
@@ -2185,18 +1781,7 @@ def find_missing_plugins(dry_run: bool = True) -> dict:
 
 @mcp.tool()
 def get_missing_media_status() -> dict:
-    """
-    Report all missing audio files in the current Live set.
-
-    Calls the Remote Script to inspect clip sample references across
-    all tracks and return which samples are missing/offline.
-
-    Returns:
-        missing_samples: list of {track_index, track_name, clip_index, clip_name, sample_path, status}
-        total_missing: int
-        total_checked: int
-        can_search: bool  -- whether search_missing_media() is supported
-    """
+    """Report all missing audio files in the current Live set."""
     result = _send("get_missing_media", {})
     missing = result.get("missing", [])
     total_checked = result.get("total_checked", 0)
@@ -2210,23 +1795,7 @@ def get_missing_media_status() -> dict:
 
 @mcp.tool()
 def search_missing_media(search_folders: list) -> dict:
-    """
-    Attempt to relink missing audio samples by searching the given folders.
-
-    For each missing sample, searches the provided folders for a file with
-    a matching name and relinks it if found.
-
-    Args:
-        search_folders: List of absolute folder paths to search (e.g.
-                        ["/Users/me/Music/Samples", "/Volumes/Drive/Samples"])
-
-    Returns:
-        relinked: list of {sample_name, old_path, new_path, track_index, clip_index}
-        still_missing: list of {sample_name, original_path, track_index, clip_index}
-        relinked_count: int
-        still_missing_count: int
-        searched_folders: list of folders actually searched
-    """
+    """Attempt to relink missing audio samples by searching the given folders."""
     _send("begin_undo_step", {"name": "search_missing_media"})
     try:
         result = _send("search_missing_media", {"search_folders": search_folders})
@@ -2237,24 +1806,7 @@ def search_missing_media(search_folders: list) -> dict:
 
 @mcp.tool()
 def project_health_report() -> dict:
-    """
-    Run a full health audit of the current Live set.
-
-    Combines missing plugin detection, missing media status, and session
-    structure checks into a single report with a human-readable summary.
-
-    Returns:
-        set_name: str
-        track_count: int
-        missing_plugins: list (same as find_missing_plugins())
-        missing_media: list (same as get_missing_media_status())
-        empty_tracks: list of {track_index, track_name}
-        unnamed_tracks: list of {track_index, track_name}
-        armed_tracks: list of {track_index, track_name}
-        issues: list of human-readable issue strings
-        health_score: float  -- 0.0 (broken) to 1.0 (clean)
-        recommendations: list of str
-    """
+    """Run a full health audit of the current Live set."""
     # Gather data
     plugin_report = find_missing_plugins(dry_run=True)
     media_report = get_missing_media_status()
@@ -2361,14 +1913,7 @@ def project_health_report() -> dict:
 
 @mcp.tool()
 def find_empty_tracks() -> dict:
-    """
-    Find all tracks with no clips and no devices.
-
-    Returns:
-        empty_tracks: list of {track_index, track_name, type}
-        total_empty: int
-        suggestion: str
-    """
+    """Find all tracks with no clips and no devices."""
     tracks = _send("get_tracks", {})
     empty_tracks = []
     for track in tracks:
@@ -2395,14 +1940,7 @@ def find_empty_tracks() -> dict:
 
 @mcp.tool()
 def find_unused_returns() -> dict:
-    """
-    Find return tracks that no track is sending to (all sends at zero or minimum).
-
-    Returns:
-        unused_returns: list of {track_index, track_name}
-        total_unused: int
-        suggestion: str
-    """
+    """Find return tracks that no track is sending to (all sends at zero or minimum)."""
     try:
         return_tracks = _send("get_return_tracks", {})
     except Exception:
@@ -2446,17 +1984,7 @@ def find_unused_returns() -> dict:
 
 @mcp.tool()
 def cleanup_session(dry_run: bool = True) -> dict:
-    """
-    Remove empty tracks and unused return tracks.
-
-    Args:
-        dry_run: If True (default), report what would be removed. Set False to execute.
-
-    Returns:
-        would_remove / removed: list of {track_index, track_name, reason}
-        dry_run: bool
-        total_affected: int
-    """
+    """Remove empty tracks and unused return tracks. dry_run=True by default — reports without making changes."""
     empty_result = find_empty_tracks()
     unused_result = find_unused_returns()
 
@@ -2516,18 +2044,7 @@ _PROJECT_LOAD_DELAY_SECONDS: float = 2.0  # seconds to wait after opening a set 
 
 @mcp.tool()
 def open_set(set_path: str) -> dict:
-    """
-    Open an Ableton Live set file (.als) on the currently running Live instance.
-
-    Args:
-        set_path: Absolute path to the .als file
-
-    Returns:
-        success: bool
-        set_name: str
-        set_path: str
-        error: str or None
-    """
+    """Open an Ableton Live set file (.als) on the currently running Live instance."""
     set_path = str(set_path)
     set_name = os.path.splitext(os.path.basename(set_path))[0]
 
@@ -2550,24 +2067,7 @@ def open_set(set_path: str) -> dict:
 
 @mcp.tool()
 def batch_audit_projects(set_paths: list, save_reports: bool = True) -> dict:
-    """
-    Run project_health_report() on multiple Live sets in sequence.
-
-    Opens each set, runs the health report, optionally saves a JSON report
-    next to each .als file, then moves to the next.
-
-    Args:
-        set_paths: List of absolute paths to .als files
-        save_reports: If True, save a {set_name}_audit.json next to each .als file
-
-    Returns:
-        results: list of {set_path, set_name, health_score, missing_plugins,
-                          missing_media, issues, report_saved_to}
-        total_sets: int
-        completed: int
-        failed: list of {set_path, error}
-        summary: str  -- human readable e.g. "8/10 sets healthy, 2 have missing plugins"
-    """
+    """Run project_health_report() on multiple Live sets in sequence."""
     results = []
     failed = []
     healthy_count = 0
@@ -2647,18 +2147,7 @@ def batch_audit_projects(set_paths: list, save_reports: bool = True) -> dict:
 
 @mcp.tool()
 def save_project_audit(save_path: str | None = None) -> dict:
-    """Run project_health_report() and save the result as a JSON file.
-
-    Args:
-        save_path: Where to save.  If None, saves next to the current .als file
-                   as ``{project_name}_audit_{date}.json``.
-
-    Returns:
-        saved_to: str
-        health_score: int or float
-        summary: str
-        timestamp: str
-    """
+    """Run project_health_report() and save the result as a JSON file."""
     report = project_health_report()
     timestamp = datetime.datetime.now(datetime.timezone.utc).isoformat()
 
@@ -2685,14 +2174,7 @@ def save_project_audit(save_path: str | None = None) -> dict:
 
 @mcp.tool()
 def load_project_audit(audit_path: str) -> dict:
-    """Load a previously saved project audit JSON and return its contents.
-
-    Args:
-        audit_path: Path to the ``_audit.json`` file.
-
-    Returns:
-        The audit data dict, or an error dict if the file is not found.
-    """
+    """Load a previously saved project audit JSON and return its contents."""
     if not os.path.exists(audit_path):
         return {"error": "Audit file not found: {}".format(audit_path)}
     try:
@@ -2704,17 +2186,7 @@ def load_project_audit(audit_path: str) -> dict:
 
 @mcp.tool()
 def compare_project_audits(audit_path_a: str, audit_path_b: str) -> dict:
-    """Compare two saved project audits and return what changed.
-
-    Useful for tracking project health over time or comparing two versions.
-
-    Returns:
-        health_score_change: int
-        new_issues: list of str
-        resolved_issues: list of str
-        unchanged_issues: list of str
-        summary: str
-    """
+    """Compare two saved project audits and return what changed."""
     a = load_project_audit(audit_path_a)
     if "error" in a:
         return {"error": "Audit A: {}".format(a["error"])}

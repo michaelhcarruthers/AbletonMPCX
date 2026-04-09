@@ -24,22 +24,7 @@ def chop_clip_to_slots(
     target_track_index: int | None = None,
     start_slot_index: int | None = None,
 ) -> dict:
-    """Divide a clip into equal slices and place each in a new clip slot.
-
-    Reads the source clip length and creates `num_chops` equal slices,
-    placing each in `(target_track_index, start_slot_index + i)`.
-
-    Args:
-        track_index: Track containing the source clip.
-        slot_index: Clip slot index of the source clip.
-        num_chops: Number of equal slices to create.
-        target_track_index: Track to place chops in (defaults to source track).
-        start_slot_index: First slot for chops (defaults to slot_index + 1 if
-            same track, else 0).
-
-    Returns:
-        dict with chops_created, track_index, source_slot_index, slice_length, and chops list.
-    """
+    """Divide a clip into equal slices and place each in a new clip slot."""
     clip_info = _send("get_clip_info", {"track_index": track_index, "slot_index": slot_index})
     clip_length = float(clip_info.get("length", 0.0)) if isinstance(clip_info, dict) else 0.0
 
@@ -108,26 +93,7 @@ def chop_clip_on_transients(
     start_slot_index: int | None = None,
     sensitivity: float = 0.5,
 ) -> dict:
-    """Divide a clip at detected transient onsets and place each slice in a new clip slot.
-
-    Uses librosa to detect onset times in the audio file, then creates one
-    new clip per onset-to-onset region.
-
-    Args:
-        track_index: Track containing the source clip.
-        slot_index: Clip slot index of the source clip.
-        file_path: Absolute path to the audio file to analyse.
-        target_track_index: Track to place chops in (defaults to source track).
-        start_slot_index: First slot index for chops.
-        sensitivity: 0.0–1.0, higher = fewer onsets (default 0.5).
-            Maps to librosa delta: `delta = 0.07 + (1.0 - sensitivity) * 0.2`.
-
-    Returns:
-        dict with chops_created, onset_count, file_path, sensitivity, and chops list.
-
-    Raises:
-        ImportError: If librosa is not installed.
-    """
+    """Divide a clip at detected transient onsets and place each slice in a new clip slot."""
     try:
         import librosa  # noqa: PLC0415
     except ImportError as exc:
@@ -205,22 +171,7 @@ def distribute_chops_to_drum_rack(
     drum_rack_device_index: int,
     start_pad_note: int = 36,
 ) -> dict:
-    """Map a list of clip chops to drum rack pads via MIDI clips.
-
-    For each slot index, creates a new scene, creates a MIDI clip in the
-    drum rack track, and inserts a single note at the corresponding pad pitch
-    (`start_pad_note + i`).
-
-    Args:
-        track_index: Track holding the source chop clips.
-        slot_indices: List of slot indices to map (one per pad).
-        drum_rack_track_index: Track index containing the drum rack.
-        drum_rack_device_index: Device index of the drum rack (for reference).
-        start_pad_note: MIDI note number for the first pad (default 36 = C1).
-
-    Returns:
-        dict with pads_mapped, start_pad_note, and drum_rack_track_index.
-    """
+    """Map a list of clip chops to drum rack pads via MIDI clips."""
     pads_mapped = 0
     for i, si in enumerate(slot_indices):
         note = start_pad_note + i

@@ -22,25 +22,7 @@ def _find_spectrum_device(track_index: int) -> dict | None:
 
 @mcp.tool()
 def get_spectrum_bands(track_index: int) -> dict:
-    """
-    Read the current 8-band spectrum energy from the MCPSpectrumTelemetry plugin on a track.
-
-    Returns the latest band energy snapshot (dBFS per band) from the plugin running
-    inside Ableton Live. This is real-time telemetry — values reflect the current
-    audio passing through the track.
-
-    Bands: sub (20–60 Hz), bass (60–120 Hz), punch (120–250 Hz), body (250–500 Hz),
-           mid (500–2k Hz), upmid (2k–5k Hz), presence (5k–10k Hz), air (10k–20k Hz)
-
-    Args:
-        track_index: Index of the track with the MCPSpectrumTelemetry plugin.
-
-    Returns:
-        track_index: int
-        device_name: str
-        bands: dict of band name -> dBFS value
-        error: str or None
-    """
+    """Read the current 8-band spectrum energy from the MCPSpectrumTelemetry plugin on a track."""
     device = _find_spectrum_device(track_index)
     if device is None:
         return {
@@ -76,17 +58,7 @@ def get_spectrum_bands(track_index: int) -> dict:
 
 @mcp.tool()
 def get_spectrum_overview() -> dict:
-    """
-    Read spectrum band energy from all tracks that have a MCPSpectrumTelemetry plugin.
-
-    Scans all tracks and returns a snapshot of the current band energy for each
-    track that has the plugin loaded.
-
-    Returns:
-        tracks: list of {track_index, track_name, device_name, bands}
-        track_count: int — number of tracks with the plugin
-        error: str or None
-    """
+    """Read spectrum band energy from all tracks that have a MCPSpectrumTelemetry plugin."""
     tracks_data = _send("get_tracks")
     if not isinstance(tracks_data, list):
         return {"tracks": [], "track_count": 0, "error": "Could not retrieve tracks"}

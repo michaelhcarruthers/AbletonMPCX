@@ -62,20 +62,7 @@ def _save_json_cache(path: str, data) -> bool:
 
 @mcp.tool()
 def take_snapshot(label: str) -> dict:
-    """
-    Take a named snapshot of the current session state and store it in memory.
-
-    The snapshot is retrieved via get_session_snapshot() and stored under the
-    given label. Use diff_snapshots(label_a, label_b) to compare two snapshots.
-
-    Labels are ephemeral — they are lost when the MCP server restarts.
-
-    Args:
-        label: A name for this snapshot, e.g. 'before_eq', 'after_mix', 'v1'.
-
-    Returns:
-        label, track_count, scene_count, timestamp_ms
-    """
+    """Take a named snapshot of the current session state and store it in memory."""
     snapshot = _send("get_session_snapshot")
     snapshot["_label"] = label
     snapshot["_timestamp_ms"] = int(time.time() * 1000)
@@ -91,12 +78,7 @@ def take_snapshot(label: str) -> dict:
 
 @mcp.tool()
 def list_snapshots() -> dict:
-    """
-    List all stored snapshots by label and timestamp.
-
-    Returns:
-        snapshots: list of {label, track_count, scene_count, timestamp_ms}
-    """
+    """List all stored snapshots by label and timestamp."""
     with _snapshots_lock:
         return {
             "snapshots": [
@@ -162,29 +144,7 @@ def _diff_value(a, b, path: str, changes: list):
 
 @mcp.tool()
 def diff_snapshots(label_a: str, label_b: str) -> dict:
-    """
-    Compare two named snapshots and return what changed between them.
-
-    Args:
-        label_a: Label of the 'before' snapshot.
-        label_b: Label of the 'after' snapshot.
-
-    Returns:
-        label_a, label_b, change_count, changes: list of {path, before, after}
-
-    The 'path' uses dot notation, e.g.:
-        'tracks[0].volume'        — track 0 volume changed
-        'tracks[2].devices[1].is_active'  — device enabled/disabled
-        'master_track.volume'     — master volume changed
-        'tempo'                   — song tempo changed
-
-    Example workflow:
-        take_snapshot('before')
-        set_master_volume(0.9)
-        add_native_device(0, 'EQ Eight')
-        take_snapshot('after')
-        diff_snapshots('before', 'after')
-    """
+    """Compare two named snapshots and return what changed between them."""
     with _snapshots_lock:
         if label_a not in _snapshots:
             raise ValueError("No snapshot with label '{}'".format(label_a))
@@ -206,18 +166,7 @@ def diff_snapshots(label_a: str, label_b: str) -> dict:
 
 @mcp.tool()
 def diff_snapshot_vs_live(label: str) -> dict:
-    """
-    Compare a stored snapshot against the current live session state.
-
-    Equivalent to: take_snapshot('_live_now') then diff_snapshots(label, '_live_now'),
-    but without permanently storing the live snapshot.
-
-    Args:
-        label: Label of the stored 'before' snapshot to compare against live.
-
-    Returns:
-        label, change_count, changes: list of {path, before, after}
-    """
+    """Compare a stored snapshot against the current live session state."""
     with _snapshots_lock:
         if label not in _snapshots:
             raise ValueError("No snapshot with label '{}'".format(label))
@@ -237,17 +186,7 @@ def diff_snapshot_vs_live(label: str) -> dict:
 
 @mcp.tool()
 def save_snapshot_to_project(label: str) -> dict:
-    """
-    Capture the current session state and persist it to project memory on disk.
-
-    Unlike take_snapshot() which is in-memory only, this survives MCP server restarts.
-
-    Args:
-        label: Snapshot label.
-
-    Returns:
-        label, track_count, scene_count, timestamp
-    """
+    """Capture the current session state and persist it to project memory on disk."""
     mem = _get_memory()
     snapshot = _send("get_session_snapshot")
     snapshot["_label"] = label
@@ -267,15 +206,7 @@ def save_snapshot_to_project(label: str) -> dict:
 
 @mcp.tool()
 def load_snapshots_from_project() -> dict:
-    """
-    Load all persisted snapshots from project memory into the in-process store.
-
-    After calling this, diff_snapshots() and diff_snapshot_vs_live() can use
-    snapshots that were saved in previous sessions.
-
-    Returns:
-        loaded: list of snapshot labels loaded
-    """
+    """Load all persisted snapshots from project memory into the in-process store."""
     mem = _get_memory()
     persisted = mem.get("snapshots", {})
     with _snapshots_lock:
@@ -294,20 +225,7 @@ def save_device_snapshot(
     snapshot_name: str,
     device_index: int | None = None,
 ) -> dict:
-    """
-    Save the current parameter state of all devices on a track (or one device) as a named snapshot.
-
-    Snapshots are stored in ~/.ableton_mpcx/device_snapshots.json.
-    If a snapshot with the same name already exists for this track, it is overwritten.
-
-    Args:
-        track_index: Track to snapshot (-1 for master).
-        snapshot_name: Name for this snapshot (e.g. 'lo-fi', 'clean', 'warm').
-        device_index: If specified, snapshot only this device. If None, snapshot all devices.
-
-    Returns:
-        snapshot_name, track_index, devices_captured: int, parameter_count: int, saved_at: str
-    """
+    """Save the current parameter state of all devices on a track (or one device) as a named snapshot."""
     try:
         devices = _send("get_devices", {"track_index": track_index})
     except RuntimeError as e:
@@ -368,19 +286,7 @@ def recall_device_snapshot(
     snapshot_name: str,
     device_index: int | None = None,
 ) -> dict:
-    """
-    Restore a previously saved device parameter snapshot on a track.
-
-    All parameter changes are grouped into a single undo step.
-
-    Args:
-        track_index: Track to restore.
-        snapshot_name: Name of the snapshot to recall.
-        device_index: If specified, restore only this device. If None, restore all.
-
-    Returns:
-        snapshot_name, track_index, parameters_restored: int, devices_restored: int
-    """
+    """Restore a previously saved device parameter snapshot on a track."""
     all_snapshots = _load_json_cache(_DEVICE_SNAPSHOTS_PATH, {})
     track_key = str(track_index)
     if track_key not in all_snapshots or snapshot_name not in all_snapshots[track_key]:
@@ -437,15 +343,7 @@ def recall_device_snapshot(
 
 @mcp.tool()
 def list_device_snapshots(track_index: int | None = None) -> dict:
-    """
-    List all saved device snapshots, optionally filtered by track.
-
-    Args:
-        track_index: Filter to a specific track. None = list all tracks.
-
-    Returns:
-        snapshots: list of {track_index, snapshot_name, device_count, parameter_count, saved_at}
-    """
+    """List all saved device snapshots, optionally filtered by track."""
     all_snapshots = _load_json_cache(_DEVICE_SNAPSHOTS_PATH, {})
     results = []
     for track_key, track_snaps in all_snapshots.items():
@@ -471,19 +369,7 @@ def diff_device_snapshots(
     snapshot_b: str,
     device_index: int | None = None,
 ) -> dict:
-    """
-    Compare two device snapshots for a track and return parameter differences.
-
-    Args:
-        track_index: Track to compare.
-        snapshot_a: Name of the 'before' snapshot.
-        snapshot_b: Name of the 'after' snapshot.
-        device_index: Optional — compare only this device.
-
-    Returns:
-        snapshot_a, snapshot_b, track_index,
-        changes: list of {device_index, device_name, parameter_index, parameter_name, before, after, delta}
-    """
+    """Compare two device snapshots for a track and return parameter differences."""
     all_snapshots = _load_json_cache(_DEVICE_SNAPSHOTS_PATH, {})
     track_key = str(track_index)
 
@@ -549,23 +435,7 @@ def delete_device_snapshot(track_index: int, snapshot_name: str) -> dict:
 
 @mcp.tool()
 def save_version_snapshot(version_name: str) -> dict:
-    """
-    Save a named version snapshot of the current project.
-
-    Workflow:
-    1. Calls song.save() via _send("save_song") to save the current .als file
-    2. Finds the current .als file path via _send("get_song_file_path")
-    3. Copies it to "<OriginalName> - <version_name> [YYYY-MM-DD].als" in the same folder
-    4. Records the entry in ~/.ableton_mpcx/versions.json
-
-    Also captures a full_session_snapshot of all device states at this version.
-
-    Args:
-        version_name: Label for this version (e.g. 'lo-fi', 'clean', 'v2-with-strings').
-
-    Returns:
-        version_name, source_path, copy_path, saved_at, device_snapshot_captured (bool)
-    """
+    """Save a named version snapshot of the current project."""
     saved_at = datetime.datetime.now(datetime.timezone.utc).isoformat()
     source_path = None
     copy_path = None
@@ -627,13 +497,7 @@ def save_version_snapshot(version_name: str) -> dict:
 
 @mcp.tool()
 def list_version_snapshots() -> dict:
-    """
-    List all saved version snapshots for the current project.
-
-    Returns:
-        versions: list of {version_name, saved_at, copy_path, has_device_snapshot}
-        total: int
-    """
+    """List all saved version snapshots for the current project."""
     versions = _load_json_cache(_VERSIONS_PATH, [])
     summaries = [
         {
@@ -649,22 +513,7 @@ def list_version_snapshots() -> dict:
 
 @mcp.tool()
 def diff_version_snapshots(version_a: str, version_b: str) -> dict:
-    """
-    Compare device states between two saved version snapshots.
-
-    Uses the device snapshots captured at each version save to produce
-    a parameter-level diff across all tracks.
-
-    Args:
-        version_a: Name of the first version (the 'before').
-        version_b: Name of the second version (the 'after').
-
-    Returns:
-        version_a, version_b,
-        tracks_changed: list of {track_index, track_name, changes: [{device, param, before, after, delta}]}
-        tracks_unchanged: list of track names
-        summary: human-readable description of what changed between versions
-    """
+    """Compare device states between two saved version snapshots."""
     versions = _load_json_cache(_VERSIONS_PATH, [])
     ver_map = {v["version_name"]: v for v in versions}
 
@@ -743,21 +592,7 @@ def diff_version_snapshots(version_a: str, version_b: str) -> dict:
 
 @mcp.tool()
 def full_session_snapshot(snapshot_name: str) -> dict:
-    """
-    Capture a full device-parameter snapshot of every track in the session.
-
-    Iterates all regular tracks, the master track, and return tracks, reading
-    every device's full parameter state. The snapshot is saved to
-    ~/.ableton_mpcx/device_snapshots.json under the given name.
-
-    Use diff_device_snapshots() or diff_version_snapshots() to compare later.
-
-    Args:
-        snapshot_name: Name for this snapshot (e.g. 'initial', 'before_mastering').
-
-    Returns:
-        snapshot_name, tracks_captured: int, total_parameters: int, saved_at: str
-    """
+    """Capture a full device-parameter snapshot of every track in the session."""
     saved_at = datetime.datetime.now(datetime.timezone.utc).isoformat()
     tracks_captured = 0
     total_parameters = 0

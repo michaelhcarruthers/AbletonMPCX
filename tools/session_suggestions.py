@@ -18,21 +18,7 @@ from helpers import (
 
 @mcp.tool()
 def suggest_next_actions() -> dict:
-    """
-    Analyse the current session context and suggest logical next actions.
-
-    Looks at:
-    - Current session snapshot (tracks, devices, mixer state)
-    - Recent operation log
-    - Project memory (notes, preferences, track roles)
-    - Stored snapshots
-
-    Returns a list of suggestions with reasoning. These are observations only —
-    nothing is executed automatically.
-
-    Returns:
-        suggestions: list of {action, reason, priority ('high'|'medium'|'low')}
-    """
+    """Analyse the current session context and suggest logical next actions."""
     suggestions = []
 
     # 1. Snapshot suggestion — if no snapshot taken recently

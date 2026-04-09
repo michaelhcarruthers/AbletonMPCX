@@ -155,17 +155,7 @@ def set_loop(enabled: bool | None = None, loop_start: float | None = None, loop_
 
 @mcp.tool()
 def set_arrangement_position(position_beats: float) -> dict:
-    """
-    Set the arrangement playhead position in beats (absolute song time).
-
-    Use bars_beats_to_song_time() to convert bar/beat to absolute beats first.
-
-    Args:
-        position_beats: Absolute song time in beats (0.0 = start of song).
-
-    Returns:
-        dict with key 'position': the position that was set (in beats).
-    """
+    """Set the arrangement playhead position in beats (absolute song time)."""
     return _send("set_arrangement_position", {"position": position_beats})
 
 @mcp.tool()
@@ -394,11 +384,7 @@ def set_draw_mode(draw_mode: bool) -> dict:
 
 @mcp.tool()
 def focus_view(view_name: str) -> dict:
-    """
-    Focus a named view in Ableton Live.
-    Common view names: 'Session', 'Arranger', 'Detail', 'Detail/Clip',
-    'Detail/DeviceChain', 'Browser', 'Mixer'.
-    """
+    """Focus a named view in Ableton Live (e.g. 'Session', 'Arranger', 'Detail', 'Detail/Clip')."""
     return _send("focus_view", {"view_name": view_name})
 
 @mcp.tool()
@@ -448,10 +434,7 @@ def nudge_down() -> dict:
 
 @mcp.tool()
 def get_appointed_device() -> dict:
-    """
-    Return the currently appointed (focused) device in Live.
-    Returns track_index, device_index, name and class_name, or {"device": None} if none.
-    """
+    """Return the currently appointed (focused) device in Live."""
     return _send("get_appointed_device")
 
 # ---------------------------------------------------------------------------
@@ -466,28 +449,13 @@ def get_protocol_version() -> dict:
 
 @mcp.tool()
 def get_selected_context() -> dict:
-    """
-    Return everything currently selected/focused in Live:
-    selected_track, selected_scene, detail_clip (open in Detail View),
-    and appointed_device (focused device).
-
-    Use this at the start of a workflow to orient without making extra calls.
-    """
+    """Return everything currently selected/focused in Live: selected track, scene, and detail clip."""
     return _send("get_selected_context")
 
 
 @mcp.tool()
 def get_capabilities() -> dict:
-    """
-    Returns a structured summary of all registered MCP tools with their descriptions.
-    Call this on connect to understand what actions are available before acting.
-
-    Returns:
-        tools: dict mapping tool name to first-line description
-        tool_count: int
-        version: str
-        usage_hint: str
-    """
+    """Returns a structured summary of all registered MCP tools with their descriptions."""
     tools_map = {}
     for name, tool_obj in mcp._tool_manager._tools.items():
         description = (tool_obj.description or "").strip().split("\n")[0]
@@ -505,16 +473,7 @@ def get_capabilities() -> dict:
 
 @mcp.tool()
 def get_session_snapshot() -> dict:
-    """
-    Return a full normalised snapshot of the current session in a single call.
-
-    Includes: tempo, time signature, transport state, all tracks (with mixer
-    values and device list), return tracks, master track devices, and scene list.
-    Does NOT include clip notes (use get_notes per clip for that).
-
-    Use this at the start of a session to orient an agent completely,
-    or before/after a set of changes to compare state.
-    """
+    """Return a full normalised snapshot of the current session in a single call."""
     return _send("get_session_snapshot")
 
 
@@ -537,19 +496,7 @@ def get_session_snapshot() -> dict:
 
 @mcp.tool()
 def set_project_id(project_id: str) -> dict:
-    """
-    Set the current project identity for persistent memory.
-
-    All subsequent memory operations (notes, snapshots, operation log, preferences,
-    track roles) are scoped to this project_id.
-
-    Args:
-        project_id: A unique name for this project, e.g. 'my_album_track_3'.
-                    Use something meaningful — it becomes a filename on disk.
-
-    Returns:
-        project_id, memory_path, is_new (whether this is a fresh project)
-    """
+    """Set the current project identity for persistent memory."""
     helpers._current_project_id = project_id
     path = _memory_path(project_id)
     is_new = not os.path.exists(path)
@@ -565,12 +512,7 @@ def set_project_id(project_id: str) -> dict:
 
 @mcp.tool()
 def get_project_memory() -> dict:
-    """
-    Return the full persistent memory for the current project.
-
-    Includes: preferences, track roles, notes, snapshot labels, operation log summary.
-    Requires set_project_id() to have been called first.
-    """
+    """Return the full persistent memory for the current project."""
     mem = _get_memory()
     return {
         "project_id": mem["project_id"],
@@ -587,18 +529,7 @@ def get_project_memory() -> dict:
 
 @mcp.tool()
 def add_project_note(note: str, category: str = "general") -> dict:
-    """
-    Add a free-form note to the current project memory.
-
-    Use this to record intent, decisions, problems, or anything worth remembering.
-
-    Args:
-        note: The note text.
-        category: Optional category tag, e.g. 'mix', 'arrangement', 'intent', 'issue'.
-
-    Returns:
-        note_id, timestamp
-    """
+    """Add a free-form note to the current project memory."""
     mem = _get_memory()
     entry = {
         "id": len(mem.get("notes", [])),
@@ -643,25 +574,7 @@ def _get_track_roles() -> dict:
 
 @mcp.tool()
 def set_preference(key: str, value: Any) -> dict:
-    """
-    Store a user preference in the current project memory.
-
-    Preferences are free-form key/value pairs. Use them to record
-    working style, mix targets, or workflow habits.
-
-    Examples:
-        set_preference('preferred_reverb', 'Valhalla Room')
-        set_preference('target_lufs', -14.0)
-        set_preference('grit_on_melodics', True)
-        set_preference('low_mid_character', 'dense but not muddy')
-
-    Args:
-        key: Preference key string.
-        value: Any JSON-serialisable value.
-
-    Returns:
-        key, value
-    """
+    """Store a user preference in the current project memory."""
     mem = _get_memory()
     mem.setdefault("preferences", {})[key] = value
     _save_memory(helpers._current_project_id, mem)
@@ -685,19 +598,7 @@ def get_preferences() -> dict:
 
 @mcp.tool()
 def get_operation_log(limit: int = 50) -> dict:
-    """
-    Return the most recent operations from the in-process operation log.
-
-    The log captures every command sent to Ableton during this server session.
-    It is not automatically persisted unless flush_operation_log() is called.
-
-    Args:
-        limit: Maximum number of entries to return (most recent first).
-
-    Returns:
-        entries: list of {ts, command, params, result_summary}
-        total_in_memory: total entries in the current session log
-    """
+    """Return the most recent operations from the in-process operation log."""
     entries = list(reversed(_operation_log[-limit:]))
     return {
         "entries": entries,
@@ -707,15 +608,7 @@ def get_operation_log(limit: int = 50) -> dict:
 
 @mcp.tool()
 def flush_operation_log() -> dict:
-    """
-    Persist the current in-process operation log to project memory on disk.
-
-    Appends new entries to the project's stored log (capped at 5000 entries total).
-    Requires set_project_id() to have been called.
-
-    Returns:
-        flushed_count, total_stored
-    """
+    """Persist the current in-process operation log to project memory on disk."""
     mem = _get_memory()
     stored = mem.get("operation_log", [])
     stored.extend(_operation_log)
@@ -732,16 +625,7 @@ def flush_operation_log() -> dict:
 
 @mcp.tool()
 def get_stored_operation_log(limit: int = 100) -> dict:
-    """
-    Return the persisted operation log from project memory (across sessions).
-
-    Args:
-        limit: Maximum number of entries to return (most recent first).
-
-    Returns:
-        entries: list of {ts, command, params, result_summary}
-        total_stored: total entries stored on disk
-    """
+    """Return the persisted operation log from project memory (across sessions)."""
     mem = _get_memory()
     stored = mem.get("operation_log", [])
     return {
@@ -752,15 +636,7 @@ def get_stored_operation_log(limit: int = 100) -> dict:
 
 @mcp.tool()
 def summarise_session() -> dict:
-    """
-    Summarise what happened in the current session based on the operation log.
-
-    Returns counts of each command type, most frequent operations,
-    and a timeline of major state changes.
-
-    Returns:
-        session_start, command_counts, most_frequent, destructive_ops, total_ops
-    """
+    """Summarise what happened in the current session based on the operation log."""
     from collections import Counter
 
     if not _operation_log:
@@ -789,17 +665,7 @@ def summarise_session() -> dict:
 
 @mcp.tool()
 def analyse_mix_state() -> dict:
-    """
-    Analyse the current mix state and surface observations.
-
-    Looks at track volumes, panning, mute/solo state, device presence,
-    and compares against stored preferences if available.
-
-    Returns observations, not instructions. Nothing is modified.
-
-    Returns:
-        observations: list of {observation, category, severity ('info'|'warn'|'flag')}
-    """
+    """Analyse the current mix state and surface observations."""
     observations = []
 
     try:
@@ -917,19 +783,7 @@ def create_song_from_brief(
     key: str | None = None,
     bpm: float | None = None,
 ) -> dict:
-    """
-    Create a skeleton arrangement from a music style brief.
-
-    Supported styles: 'snoop', 'hip_hop', 'boom_bap', 'trap', 'lofi', or any value for a generic layout.
-
-    Args:
-        style: Music style preset.
-        key: Optional musical key (e.g. 'C', 'F#m'). Stored as metadata; no Ableton command is issued.
-        bpm: Override BPM. Uses style default if not provided.
-
-    Returns:
-        style, bpm, key, tracks_created, track_names, warnings
-    """
+    """Create a skeleton arrangement from a music style brief."""
     preset = _STYLE_PRESETS.get(style, _STYLE_FREE)
     bpm_used: float = bpm if bpm is not None else float(preset["bpm"])
     tracks: list[tuple[str, str]] = preset["tracks"]
@@ -1057,20 +911,7 @@ def _infer_role_from_devices(track_index: int) -> tuple[str, str]:
 
 @mcp.tool()
 def auto_name_track(track_index: int, dry_run: bool = False) -> dict:
-    """
-    Automatically name a track based on its device chain content.
-
-    Infers the track role by:
-    1. Checking device names against _DEVICE_TO_ROLE mappings
-    2. Using track position as last resort (Track 1, Track 2, etc.)
-
-    Args:
-        track_index: Track to name (-1 for master).
-        dry_run: If True, return the suggested name without applying it.
-
-    Returns:
-        track_index, suggested_name, inferred_role, method_used, applied (bool)
-    """
+    """Automatically name a track based on its device chain content."""
     role, method = _infer_role_from_devices(track_index)
     if role == "default":
         suggested_name = "Track {}".format(track_index + 1)
@@ -1104,17 +945,7 @@ def auto_name_track(track_index: int, dry_run: bool = False) -> dict:
 
 @mcp.tool()
 def auto_color_track(track_index: int, role: str | None = None, dry_run: bool = False) -> dict:
-    """
-    Set a track's color based on its inferred or specified role.
-
-    Args:
-        track_index: Track to color.
-        role: Override role (e.g. 'bass', 'pad', 'drums'). If None, infers from devices.
-        dry_run: If True, return the color value without applying.
-
-    Returns:
-        track_index, role, color_value, applied (bool)
-    """
+    """Set a track's color based on its inferred or specified role."""
     if role is None:
         role, _ = _infer_role_from_devices(track_index)
 
@@ -1144,17 +975,7 @@ def auto_color_track(track_index: int, role: str | None = None, dry_run: bool = 
 
 @mcp.tool()
 def auto_name_all_tracks(dry_run: bool = False, skip_named: bool = True) -> dict:
-    """
-    Auto-name and color all tracks in the session at once.
-
-    Args:
-        dry_run: If True, return suggestions without applying.
-        skip_named: If True, skip tracks that already have a non-default name (default True).
-
-    Returns:
-        results: list of {track_index, track_name, suggested_name, role, color, applied, skipped_reason}
-        applied_count, skipped_count
-    """
+    """Auto-name and color all tracks in the session at once."""
     try:
         tracks = _send("get_tracks")
     except RuntimeError as e:
@@ -1221,21 +1042,7 @@ def auto_name_all_tracks(dry_run: bool = False, skip_named: bool = True) -> dict
 
 @mcp.tool()
 def auto_name_clip(track_index: int, clip_index: int, dry_run: bool = False) -> dict:
-    """
-    Auto-name a clip based on its MIDI content or audio file name.
-
-    For MIDI clips: infers from note register (low=bass line, mid=chords, high=melody/lead)
-    and note density (sparse=melody, dense=chord/pad).
-    For audio clips: uses the audio file name as base.
-
-    Args:
-        track_index: Track containing the clip.
-        clip_index: Clip slot index.
-        dry_run: If True, return suggestion without applying.
-
-    Returns:
-        track_index, clip_index, suggested_name, inference_basis, applied (bool)
-    """
+    """Auto-name a clip based on its MIDI content or audio file name."""
     try:
         clip_info = _send("get_clip_info", {"track_index": track_index, "slot_index": clip_index})
     except RuntimeError as e:
@@ -1308,19 +1115,7 @@ def auto_name_clip(track_index: int, clip_index: int, dry_run: bool = False) -> 
 
 @mcp.tool()
 def auto_name_scene(scene_index: int, dry_run: bool = False) -> dict:
-    """
-    Auto-name a scene based on the clip names in that scene row.
-
-    Looks at clip names across all tracks in that scene row and infers
-    a section label (Verse, Chorus, Bridge, etc.) from common keywords.
-
-    Args:
-        scene_index: Scene to name.
-        dry_run: If True, return suggestion without applying.
-
-    Returns:
-        scene_index, suggested_name, inference_basis, applied (bool)
-    """
+    """Auto-name a scene based on the clip names in that scene row."""
     try:
         tracks = _send("get_tracks")
     except RuntimeError as e:
@@ -1426,24 +1221,7 @@ def build_scene_scaffold(
     color_code: bool = True,
     template: str | None = None,
 ) -> dict:
-    """
-    Create a set of named, color-coded scenes for a song structure in one command.
-
-    Args:
-        structure: Ordered list of section names, e.g. ["Intro", "Verse", "Chorus", "Outro"].
-                   Repeated sections are numbered automatically: Verse 1, Verse 2, etc.
-                   If None, uses the 'default' template.
-        bars_each: Dict of section_name → bar count, e.g. {"Intro": 8, "Verse": 16}.
-                   If a section is not in the dict, defaults to 8 bars.
-        color_code: If True, apply colors from _SCENE_SECTION_COLORS per section type.
-        template: Built-in template name. Options: 'default', 'hiphop', 'edm', 'pop', 'minimal'.
-                  If specified, overrides structure and bars_each.
-
-    Returns:
-        scenes_created: int,
-        scene_list: list of {scene_index, name, bars, color},
-        template_used: str | None
-    """
+    """Create a set of named, color-coded scenes for a song structure in one command."""
     template_used = None
     if template is not None:
         tpl = _SCAFFOLD_TEMPLATES.get(template, _SCAFFOLD_TEMPLATES["default"])
@@ -1526,12 +1304,7 @@ def build_scene_scaffold(
 
 @mcp.tool()
 def list_scaffold_templates() -> dict:
-    """
-    List all available scene scaffold templates with their structures.
-
-    Returns:
-        templates: list of {name, structure, total_bars, section_count}
-    """
+    """List all available scene scaffold templates with their structures."""
     results = []
     for name, tpl in _SCAFFOLD_TEMPLATES.items():
         structure = tpl["structure"]
@@ -1556,19 +1329,7 @@ def place_clip_in_arrangement(
     start_beat: float = 1.0,
     time_signature_numerator: int = 4,
 ) -> dict:
-    """
-    Place (duplicate) a Session View clip into the Arrangement View at a specific position.
-
-    Args:
-        track_index: Track containing the source clip.
-        clip_index: Session clip slot index to copy from.
-        start_bar: 1-based bar number where the clip should start in the arrangement.
-        start_beat: 1-based beat within the bar (default 1.0 = start of bar).
-        time_signature_numerator: Beats per bar (default 4).
-
-    Returns:
-        track_index, start_time_beats, clip_name, clip_length_beats
-    """
+    """Place (duplicate) a Session View clip into the Arrangement View at a specific position."""
     start_time_beats = _bars_beats_to_song_time(start_bar, start_beat, time_signature_numerator)
 
     clip_name = ""
@@ -1616,17 +1377,7 @@ def duplicate_clip_to_scenes(
     source_clip_index: int,
     target_scene_indices: list[int],
 ) -> dict:
-    """
-    Duplicate a clip into multiple scene slots on the same track.
-
-    Args:
-        track_index: Track containing the source clip.
-        source_clip_index: Source clip slot to copy from.
-        target_scene_indices: List of scene slot indices to copy into.
-
-    Returns:
-        source_clip_index, copies_made: int, target_scenes: list[int], skipped: list[int]
-    """
+    """Duplicate a clip into multiple scene slots on the same track."""
     copies_made = 0
     skipped = []
 
@@ -1666,27 +1417,7 @@ def arrange_from_scene_scaffold(
     layout: dict[str, int] | None = None,
     time_signature_numerator: int = 4,
 ) -> dict:
-    """
-    Build the Arrangement View from the current scene structure.
-
-    Reads the scene names and the clips in each scene, then places them
-    into the Arrangement in order, back to back.
-
-    By default uses actual clip lengths to determine placement.
-    Pass layout= to override bar counts per section name.
-
-    Args:
-        track_indices: Which tracks to arrange. If None, uses all tracks.
-        layout: Override bar counts per scene name, e.g. {"Verse": 16, "Chorus": 8}.
-                If a scene is not in layout, uses actual clip length.
-        time_signature_numerator: Beats per bar (default 4).
-
-    Returns:
-        scenes_placed: int,
-        placements: list of {scene_name, scene_index, start_bar, length_bars, tracks_placed},
-        total_bars: int,
-        arrangement_length_beats: float
-    """
+    """Build the Arrangement View from the current scene structure."""
     try:
         scenes = _send("get_scenes")
     except RuntimeError as e:
@@ -1786,26 +1517,7 @@ def arrange_from_scene_scaffold(
 
 @mcp.tool()
 def session_audit(fix: bool = False) -> dict:
-    """
-    Analyze the current session state and return a list of issues with suggestions.
-
-    Checks performed:
-    - Unnamed or default-named tracks (suggest auto_name_track)
-    - Tracks with no devices
-    - Tracks with arm still on
-    - No snapshots saved (suggest full_session_snapshot)
-    - Empty scenes in scaffold (scenes with no clips)
-
-    Args:
-        fix: If True, auto-apply safe fixes (auto-naming, disarming tracks).
-             Does NOT auto-apply mix corrections (those require human judgment).
-
-    Returns:
-        issues: list of {type, severity, description, suggestion, auto_fixable, fixed}
-        issues_found: int,
-        issues_fixed: int (if fix=True),
-        session_health: "good" | "warnings" | "issues"
-    """
+    """Analyze the current session state and return a list of issues with suggestions."""
     issues = []
     issues_fixed = 0
 
@@ -1938,31 +1650,7 @@ def mix_correction_loop(
     snapshot_after: bool = False,
     snapshot_name: str | None = None,
 ) -> dict:
-    """
-    Iteratively adjust a device parameter to improve a frequency band balance,
-    reading the analyzer after each step to verify improvement.
-
-    Args:
-        track_index: Track to adjust.
-        target_band: Band to improve (e.g. 'body', 'air', 'bass').
-        direction: 'reduce' to reduce crowding or 'boost' to fill a gap.
-        device_name: Device to adjust (e.g. 'Auto Filter', 'EQ Eight'). If None, auto-detects.
-        param_name: Parameter to adjust (e.g. 'Frequency', 'Gain'). If None, auto-detects.
-        max_steps: Maximum number of adjustment iterations (default 5).
-        verify: If True, re-read analyzer after each step to check improvement.
-        snapshot_after: If True and improvement was made, save a device snapshot.
-        snapshot_name: Name for the snapshot (default: 'post-correction-{band}').
-
-    Returns:
-        track_index, target_band, direction,
-        steps_taken: int,
-        before_value: float (analyzer reading before),
-        after_value: float (analyzer reading after),
-        improved: bool,
-        parameter_changes: list of {step, param, before, after},
-        snapshot_saved: bool,
-        summary: human-readable description of what was done
-    """
+    """Iteratively adjust a device parameter to improve a frequency band balance, reading the analyzer after each step."""
     if direction not in ("reduce", "boost"):
         return {"error": "direction must be 'reduce' or 'boost'"}
 
@@ -2127,30 +1815,7 @@ def mix_correction_loop(
 
 @mcp.tool()
 def auto_orient() -> dict:
-    """
-    Call this immediately on connecting to a Live session.
-
-    Surveys the current session and returns a structured orientation summary:
-    - Session name and tempo
-    - Track list with types (audio/midi/return/master), names, armed state, mute/solo state
-    - Active clip count in arrangement vs session view
-    - Any immediately obvious issues (unnamed tracks, armed tracks, missing media)
-    - Recommended first actions based on session state
-
-    This is the entry point for every AI session. Call it before any other tool.
-
-    Returns:
-        session_name: str
-        tempo: float
-        track_summary: list of {index, name, type, armed, muted, soloed, device_count}
-        arrangement_clip_count: int
-        session_clip_count: int
-        unnamed_tracks: list of {index, name}
-        armed_tracks: list of {index, name}
-        issues: list of str
-        recommended_actions: list of str
-        orientation_complete: bool
-    """
+    """Call this immediately on connecting to a Live session."""
     _default_name_pattern = re.compile(
         r"^(Audio|MIDI|1-Audio|1-MIDI)\s*\d*$|^\d+$", re.IGNORECASE
     )
@@ -2255,20 +1920,7 @@ def auto_orient() -> dict:
 
 @mcp.tool()
 def get_session_diff() -> dict:
-    """Return only what has changed in the session since the last call.
-
-    On the first call returns the full state snapshot.  On subsequent calls
-    returns only the fields that differ from the previous snapshot.
-    Dramatically reduces token usage when monitoring a session over time.
-
-    Returns:
-        changed_tracks: list of {track_index, track_name, changed_fields}
-        changed_devices: list of {track_index, device_index, changed_parameters}
-        tempo_changed: bool
-        new_tempo: float or None
-        is_first_snapshot: bool
-        total_changes: int
-    """
+    """Return only what has changed in the session since the last call."""
     snapshot = _send("get_session_snapshot")
     diff = cache_state("session_diff", snapshot)
 
@@ -2347,23 +1999,7 @@ def get_session_diff() -> dict:
 
 @mcp.tool()
 def get_full_session_state() -> dict:
-    """Return complete session state in a single tool call.
-
-    Bundles session info + all tracks + all devices + all clips + a levels
-    overview derived from mixer device data.  Use this instead of calling
-    each tool separately when you need a full picture.
-
-    Returns:
-        session: dict (song info)
-        tracks: list (all tracks with devices and clips)
-        devices_by_track: dict mapping track_index (str) to list of devices
-        arrangement_clips: list (arrangement clips)
-        levels: dict (per-track volume/pan summary)
-        fetched_at: float (Unix timestamp)
-        total_tracks: int
-        total_devices: int
-        total_clips: int
-    """
+    """Return complete session state in a single tool call."""
     snapshot = _send("get_session_snapshot")
     tracks = snapshot.get("tracks", []) if isinstance(snapshot, dict) else []
 
@@ -2421,29 +2057,7 @@ def _db_from_linear(linear: float) -> float:
 
 @mcp.tool()
 def get_session_health() -> dict:
-    """
-    Return a single structured health summary of the current session.
-
-    Combines track state, mix levels, routing issues, and device chain checks
-    into one call. Nothing is modified.
-
-    Checks performed:
-    - Tracks with default/unnamed names
-    - Tracks currently armed for recording
-    - Tracks above 0 dBFS (volume clipping)
-    - Tracks with no devices
-    - Soloed tracks (easy to forget)
-    - Master bus level
-    - Tracks with all sends at zero (possible routing oversight)
-
-    Returns:
-        issues: list of {severity ("warn"|"flag"|"info"), category, description, track_index (optional)}
-        issue_count: int
-        health: "clean" | "warnings" | "critical"
-        session_name: str
-        tempo: float
-        track_count: int
-    """
+    """Return a single structured health summary of the current session."""
     snapshot = _send("get_session_snapshot")
     tracks = snapshot.get("tracks", []) if isinstance(snapshot, dict) else []
     master = snapshot.get("master_track", {}) if isinstance(snapshot, dict) else {}

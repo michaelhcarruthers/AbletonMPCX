@@ -14,7 +14,7 @@ import tools.devices      # noqa: F401
 import tools.audit        # noqa: F401
 import tools.performance  # noqa: F401
 import tools.diagnostics  # noqa: F401
-import tools.analysis             # noqa: F401
+# import tools.analysis             # noqa: F401  # disabled: requires exported audio files
 import tools.arrangement_bridge   # noqa: F401
 import tools.observer_bridge      # noqa: F401
 import tools.realtime_analyzer    # noqa: F401

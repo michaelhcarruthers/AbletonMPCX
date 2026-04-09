@@ -23,16 +23,7 @@ _UNITY_VOLUME: float = 0.85
 
 @mcp.tool()
 def set_track_role(track_index: int, role: str, persist: bool = True) -> dict:
-    """Assign a semantic role to a track (e.g. 'kick', 'snare', 'bass', 'lead', 'pad', 'fx', 'master').
-
-    Args:
-        track_index: Zero-based index of the track.
-        role: Semantic role string to assign.
-        persist: If True (default), saves the role to project memory.
-
-    Returns:
-        dict with track_index, role, and persisted flag.
-    """
+    """Assign a semantic role to a track (e.g. 'kick', 'snare', 'bass', 'lead', 'pad', 'fx', 'master')."""
     mem = _get_memory()
     roles = mem.setdefault("track_roles", {})
     roles[str(track_index)] = role
@@ -43,11 +34,7 @@ def set_track_role(track_index: int, role: str, persist: bool = True) -> dict:
 
 @mcp.tool()
 def get_track_roles() -> dict:
-    """Return all stored track roles from project memory.
-
-    Returns:
-        dict with roles mapping (track_index_str -> role) and count.
-    """
+    """Return all stored track roles from project memory."""
     _load_reference_profiles_from_project()
     mem = _get_memory()
     roles = mem.get("track_roles", {})
@@ -56,15 +43,7 @@ def get_track_roles() -> dict:
 
 @mcp.tool()
 def clear_track_role(track_index: int, persist: bool = True) -> dict:
-    """Remove the role assigned to a track.
-
-    Args:
-        track_index: Zero-based index of the track.
-        persist: If True (default), saves the updated memory to disk.
-
-    Returns:
-        dict with track_index and removed flag.
-    """
+    """Remove the role assigned to a track."""
     mem = _get_memory()
     roles = mem.setdefault("track_roles", {})
     removed = str(track_index) in roles
@@ -76,15 +55,7 @@ def clear_track_role(track_index: int, persist: bool = True) -> dict:
 
 @mcp.tool()
 def validate_track_roles() -> dict:
-    """Validate stored track roles against the current session.
-
-    Checks whether each stored track index still exists and whether the
-    stored track name matches the current name. Flags mismatches as
-    'unverified' rather than silently remapping them.
-
-    Returns:
-        dict with valid, unverified, and missing lists, plus total count.
-    """
+    """Validate stored track roles against the current session."""
     mem = _get_memory()
     stored_roles: dict[str, str] = mem.get("track_roles", {})
     if not stored_roles:
@@ -134,17 +105,7 @@ def _vol_to_db(vol: float) -> float:
 
 @mcp.tool()
 def suggest_gain_staging(headroom_db: float = 6.0) -> dict:
-    """Analyse current track volumes and flag gain-staging issues.
-
-    Live's mixer volume runs 0.0–1.0 where 0.85 ≈ unity (0 dBFS).
-    Tracks above `(0 - headroom_db)` dB or at exactly 0.0 are flagged.
-
-    Args:
-        headroom_db: Desired headroom in dB below unity (default 6.0).
-
-    Returns:
-        dict with suggestions list, headroom_db, and track_count.
-    """
+    """Analyse current track volumes and flag gain-staging issues."""
     snapshot = _send("get_session_snapshot")
     tracks = snapshot.get("tracks", []) if isinstance(snapshot, dict) else []
     threshold_db = -headroom_db
@@ -175,19 +136,7 @@ def apply_gain_staging(
     track_indices: list[int] | None = None,
     dry_run: bool = True,
 ) -> dict:
-    """Set track volumes to a target dB level relative to unity.
-
-    Calculates `target_scalar = 10^(target_db/20) * 0.85` and applies it
-    to all specified tracks (or all tracks if `track_indices` is empty).
-
-    Args:
-        target_db: Target level in dBFS relative to unity (default -6.0).
-        track_indices: Specific track indices to adjust; all tracks if empty/None.
-        dry_run: If True (default), returns the plan without touching Live.
-
-    Returns:
-        dict with applied, dry_run, changes list, and target_db.
-    """
+    """Set track volumes to a target dB level relative to unity."""
     snapshot = _send("get_session_snapshot")
     tracks = snapshot.get("tracks", []) if isinstance(snapshot, dict) else []
     target_scalar = (10 ** (target_db / 20.0)) * _UNITY_VOLUME

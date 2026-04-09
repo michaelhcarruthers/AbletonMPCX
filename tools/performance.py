@@ -22,28 +22,7 @@ def reverb_throw(
     peak_wet: float = 0.9,
     time_signature_numerator: int = 4,
 ) -> dict:
-    """
-    Add a reverb throw automation: Dry/Wet ramps from 0 → peak_wet → 0 over length_beats.
-
-    Finds the first Reverb device on the track (or use device_index to specify one).
-    If no Reverb is found, adds one first.
-    Writes automation to the Dry/Wet parameter in the Arrangement View.
-
-    The shape is: 0 at start, peak_wet at midpoint, 0 at end.
-
-    Args:
-        track_index: Track to add the effect to.
-        start_bar: 1-based bar number where the throw starts.
-        start_beat: 1-based beat within the bar.
-        length_beats: Duration of the throw in beats (default 1.0 = one beat).
-        device_index: Specific device index. If None, finds first Reverb on track.
-        peak_wet: Peak Dry/Wet value (0.0-1.0, default 0.9).
-        time_signature_numerator: Beats per bar (default 4).
-
-    Returns:
-        track_index, device_index, device_name, parameter_name,
-        start_time_beats, end_time_beats, peak_wet, points_written
-    """
+    """Add a reverb throw automation: Dry/Wet ramps from 0 → peak_wet → 0 over length_beats."""
     _send("begin_undo_step", {"name": "reverb_throw"})
     try:
         if device_index is None:
@@ -102,27 +81,7 @@ def filter_sweep(
     device_index: int | None = None,
     time_signature_numerator: int = 4,
 ) -> dict:
-    """
-    Add a filter sweep: automates Auto Filter cutoff frequency from start_freq to end_freq.
-
-    Finds the first Auto Filter on the track (or use device_index).
-    If no Auto Filter is found, adds one.
-    Writes a linear ramp on the frequency parameter in the Arrangement View.
-
-    Args:
-        track_index: Track to sweep.
-        start_bar: 1-based bar number where the sweep starts.
-        start_beat: 1-based beat within the bar.
-        length_beats: Duration of the sweep in beats.
-        start_freq_hz: Starting cutoff frequency in Hz.
-        end_freq_hz: Ending cutoff frequency in Hz.
-        device_index: Specific Auto Filter device index. If None, auto-detect.
-        time_signature_numerator: Beats per bar (default 4).
-
-    Returns:
-        track_index, device_index, start_freq_hz, end_freq_hz,
-        start_time_beats, end_time_beats, points_written
-    """
+    """Add a filter sweep: automates Auto Filter cutoff frequency from start_freq to end_freq."""
     _send("begin_undo_step", {"name": "filter_sweep"})
     try:
         if device_index is None:
@@ -171,28 +130,7 @@ def delay_echo_out(
     peak_feedback: float = 0.85,
     time_signature_numerator: int = 4,
 ) -> dict:
-    """
-    Add a delay echo-out: ramps Feedback up then cuts Dry/Wet to 0 at the end.
-
-    Finds the first Delay or Echo device on the track (or use device_index).
-    If no delay device is found, adds a Simple Delay.
-
-    Shape:
-    - Feedback: ramps from current value to peak_feedback over length_beats
-    - Dry/Wet: stays at current value, then snaps to 0 at the end
-
-    Args:
-        track_index: Track to apply the echo-out to.
-        start_bar: 1-based bar number.
-        start_beat: 1-based beat.
-        length_beats: Duration in beats.
-        device_index: Specific delay device. If None, auto-detect.
-        peak_feedback: Maximum feedback value (0.0-1.0).
-        time_signature_numerator: Beats per bar.
-
-    Returns:
-        track_index, device_index, device_name, start_time_beats, end_time_beats, points_written
-    """
+    """Add a delay echo-out: ramps Feedback up then cuts Dry/Wet to 0 at the end."""
     _send("begin_undo_step", {"name": "delay_echo_out"})
     try:
         if device_index is None:
@@ -283,23 +221,7 @@ def stutter_clip(
     chop_size_beats: float = 0.125,
     time_signature_numerator: int = 4,
 ) -> dict:
-    """
-    Create a volume stutter effect by automating track volume on/off at chop_size_beats intervals.
-
-    Writes alternating 0.0/1.0 volume automation points to create a gate/chop effect.
-    Uses the track's mixer volume parameter in the Arrangement View.
-
-    Args:
-        track_index: Track to stutter.
-        start_bar: 1-based bar number.
-        start_beat: 1-based beat.
-        length_beats: Total duration of the stutter in beats.
-        chop_size_beats: Size of each chop in beats (default 0.125 = 1/32 note at 1 beat = quarter).
-        time_signature_numerator: Beats per bar.
-
-    Returns:
-        track_index, start_time_beats, end_time_beats, chop_count, points_written
-    """
+    """Create a volume stutter effect by automating track volume on/off at chop_size_beats intervals."""
     _send("begin_undo_step", {"name": "stutter_clip"})
     try:
         # Get the volume parameter index from the mixer
@@ -360,37 +282,7 @@ def add_performance_fx(
     time_signature_numerator: int = 4,
     **kwargs,
 ) -> dict:
-    """
-    Add a performance effect to a track at a musical position.
-
-    This is the unified entry point — dispatches to the appropriate specific tool.
-
-    fx_type options:
-        'reverb_throw'   — reverb wet automation swell
-        'filter_sweep'   — Auto Filter cutoff ramp
-        'delay_echo_out' — delay feedback ramp + wet cutoff
-        'stutter'        — volume chop gate
-
-    Args:
-        track_index: Track to apply the effect to.
-        fx_type: Type of effect (see above).
-        start_bar: 1-based bar number.
-        start_beat: 1-based beat within the bar.
-        length_beats: Duration in beats.
-        time_signature_numerator: Beats per bar (default 4).
-        **kwargs: Additional parameters passed to the specific effect tool.
-                  e.g. peak_wet=0.8 for reverb_throw,
-                       start_freq_hz=100, end_freq_hz=8000 for filter_sweep
-
-    Returns:
-        fx_type, track_index, start_bar, start_beat, length_beats,
-        plus all fields returned by the specific effect tool.
-
-    Examples:
-        add_performance_fx(0, 'reverb_throw', 50, 3, 1.0)
-        add_performance_fx(1, 'filter_sweep', 32, 1, 4.0, start_freq_hz=80, end_freq_hz=12000)
-        add_performance_fx(2, 'stutter', 64, 1, 1.0, chop_size_beats=0.0625)
-    """
+    """Add a performance effect to a track at a musical position."""
     common_kwargs = dict(
         track_index=track_index,
         start_bar=start_bar,
@@ -514,17 +406,7 @@ _SETUP_CHAINS: dict[str, list[tuple[str, dict]]] = {
 
 @mcp.tool()
 def list_macro_definitions() -> dict:
-    """
-    List all available performance macro names and the devices/parameters each requires.
-
-    Use this before calling perform_macro() or check_macro_readiness() to see
-    what macros are available and what they target.
-
-    Returns:
-        macros: dict of {macro_name: {steps: [{device, param, required}], step_count}}
-        available_macro_names: list of macro name strings
-        setup_chains: list of available setup chain names (for setup_fx_chain())
-    """
+    """List all available performance macro names and the devices/parameters each requires."""
     macros = {}
     for name, steps in _MACRO_DEFINITIONS.items():
         macros[name] = {
@@ -547,24 +429,7 @@ def list_macro_definitions() -> dict:
 
 @mcp.tool()
 def check_macro_readiness(track_index: int, macro_name: str) -> dict:
-    """
-    Check whether all required devices for a macro are present on the track.
-
-    Call this before perform_macro() to get a pre-flight report without
-    making any changes. Claude can use this to tell you what's missing
-    and offer to run setup_fx_chain() to fix it.
-
-    Args:
-        track_index: Track to check (-1 for master).
-        macro_name: Name of the macro to check (see list_macro_definitions()).
-
-    Returns:
-        macro_name, ready (bool),
-        steps_ready: list of {device, param, device_index, device_name, parameter_index, status: "ready"}
-        steps_missing: list of {device, param, required, status: "missing", reason}
-        can_partially_apply (bool): True if at least one non-required step is ready
-        suggestion: human-readable message about what to do next
-    """
+    """Check whether all required devices for a macro are present on the track."""
     if macro_name not in _MACRO_DEFINITIONS:
         raise ValueError(
             "Unknown macro '{}'. Available: {}".format(macro_name, sorted(_MACRO_DEFINITIONS.keys()))
@@ -685,43 +550,7 @@ def perform_macro(
     intensity: float = 1.0,
     time_signature_numerator: int = 4,
 ) -> dict:
-    """
-    Trigger a named performance macro on a track at a musical position.
-
-    A macro is a multi-parameter gesture — it targets multiple devices and
-    parameters simultaneously to create a musical effect (build, throw, drop, etc).
-
-    IMPORTANT: This tool NEVER adds devices. It only targets devices already
-    present on the track. Use check_macro_readiness() first to see what's available,
-    and setup_fx_chain() to add missing devices if needed.
-
-    intensity (0.0–1.0) scales all parameter values proportionally.
-    At intensity=1.0 the full curve values are used.
-    At intensity=0.5 all values are halved relative to their mid-point.
-
-    Available macros: build, break, throw, drop, heat, space, tension, release, filter_drive
-    Use list_macro_definitions() to see all available macros and their targets.
-
-    Args:
-        track_index: Track to apply the macro to (-1 for master).
-        macro_name: Name of the macro (e.g. 'build', 'throw', 'drop').
-        start_bar: 1-based bar number where the macro starts.
-        start_beat: 1-based beat within the bar.
-        length_beats: Duration of the macro in beats.
-        intensity: Scale factor for all parameter values (0.0–1.0, default 1.0).
-        time_signature_numerator: Beats per bar (default 4).
-
-    Returns:
-        macro_name, track_index, start_time_beats, end_time_beats, intensity,
-        applied: list of {device_name, parameter_name, points_written}
-        skipped: list of {device, param, reason}
-        applied_count, skipped_count
-
-    Example:
-        perform_macro(1, 'build', 31, 1, 4.0)
-        perform_macro(0, 'throw', 50, 3, 1.0, intensity=0.7)
-        perform_macro(2, 'filter_drive', 64, 1, 2.0)
-    """
+    """Trigger a named performance macro on a track at a musical position."""
     if macro_name not in _MACRO_DEFINITIONS:
         raise ValueError(
             "Unknown macro '{}'. Available: {}".format(macro_name, sorted(_MACRO_DEFINITIONS.keys()))
@@ -847,31 +676,7 @@ def setup_fx_chain(
     chain_type: str,
     track_name: str | None = None,
 ) -> dict:
-    """
-    Create a device chain on a track for use with performance macros.
-
-    This is the ONLY tool that adds devices. It is intended for one-time
-    setup — not for repeated use during performance.
-
-    Best practice: run this on a dedicated return track or utility track,
-    not on source tracks with existing processing chains.
-
-    Available chain types:
-        'dj_throw_bus'  — Reverb + Simple Delay + Auto Filter + Utility
-        'build_chain'   — Auto Filter + Saturator + Utility
-        'heat_chain'    — Saturator + Compressor + Auto Filter
-
-    Use list_macro_definitions() to see which macros work best with each chain type.
-
-    Args:
-        track_index: Track to add the chain to (-1 for master).
-        chain_type: Name of the chain preset (see above).
-        track_name: Optional — rename the track after adding the chain.
-
-    Returns:
-        chain_type, track_index, devices_added: list of device names,
-        device_count, track_name (if renamed)
-    """
+    """Create a device chain on a track for use with performance macros."""
     if chain_type not in _SETUP_CHAINS:
         raise ValueError(
             "Unknown chain type '{}'. Available: {}".format(
@@ -918,27 +723,7 @@ def set_macro_intensity(
     macro_name: str,
     intensity: float,
 ) -> dict:
-    """
-    Apply a macro's end-state parameter values at a fixed intensity — no automation.
-
-    Unlike perform_macro() which writes time-based automation curves,
-    this sets all macro parameters to their 'end' values scaled by intensity,
-    immediately and statically. Useful for real-time level setting.
-
-    intensity=0.0 sets all parameters to their curve start values.
-    intensity=1.0 sets all parameters to their curve end values.
-    intensity=0.5 sets all to the midpoint between start and end.
-
-    Args:
-        track_index: Track to apply to.
-        macro_name: Macro name (see list_macro_definitions()).
-        intensity: 0.0–1.0 blend between start and end curve values.
-
-    Returns:
-        macro_name, track_index, intensity,
-        applied: list of {device_name, parameter_name, value_set}
-        skipped: list of {device, param, reason}
-    """
+    """Apply a macro's end-state parameter values at a fixed intensity — no automation."""
     if macro_name not in _MACRO_DEFINITIONS:
         raise ValueError(
             "Unknown macro '{}'. Available: {}".format(macro_name, sorted(_MACRO_DEFINITIONS.keys()))
@@ -1033,30 +818,7 @@ def perform_macro_live(
     intensity: float = 1.0,
     curve: str = "ease_in_out",
 ) -> dict:
-    """
-    Animate a named performance macro on a track in real time — no automation written.
-
-    Uses perform_device_parameter_moves() (fire-and-forget) to sweep all macro
-    parameters from their start-curve values to their end-curve values over
-    duration_ms milliseconds. Returns immediately while the animation runs inside
-    Live's main thread.
-
-    Unlike perform_macro() (which writes arrangement automation), this is for
-    live session performance — no arrangement clips are touched.
-
-    Args:
-        track_index: Track to apply to.
-        macro_name: Macro name (see list_macro_definitions()).
-        duration_ms: Total duration of the sweep in milliseconds (default 2000).
-        intensity: Scales end values (0.0–1.0, default 1.0).
-        curve: Animation curve for all moves — "linear", "ease_in", "ease_out",
-               "ease_in_out" (default "ease_in_out").
-
-    Returns:
-        macro_name, track_index, duration_ms, intensity,
-        moves_scheduled: int,
-        skipped: list of {device, param, reason}
-    """
+    """Animate a named performance macro on a track in real time — no automation written."""
     if macro_name not in _MACRO_DEFINITIONS:
         raise ValueError(
             "Unknown macro '{}'. Available: {}".format(macro_name, sorted(_MACRO_DEFINITIONS.keys()))

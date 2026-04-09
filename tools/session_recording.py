@@ -29,25 +29,7 @@ def setup_resampling_route(
     track_name: str = "Resample",
     armed: bool = True,
 ) -> dict:
-    """
-    Set up resampling routing between a source track (or master) and a target audio track.
-
-    Workflow:
-    1. If resample_track_index is None, creates a new audio track named track_name
-    2. Sets the new/target track's input routing to the source track output (or Master if source is None)
-    3. Sets monitor to "In"
-    4. Arms the track for recording if armed=True
-
-    Args:
-        source_track_index: Track to resample from. None = resample from Master output.
-        resample_track_index: Existing audio track to use as resample target. None = create new.
-        track_name: Name for the new resample track (default "Resample").
-        armed: Whether to arm the resample track for recording (default True).
-
-    Returns:
-        resample_track_index, resample_track_name, source_routing, armed, monitor_mode,
-        instructions: human-readable summary of what was set up and how to use it
-    """
+    """Set up resampling routing between a source track (or master) and a target audio track."""
     if resample_track_index is None:
         try:
             _send("create_audio_track", {"index": -1})
@@ -113,15 +95,7 @@ def setup_resampling_route(
 
 @mcp.tool()
 def teardown_resampling_route(resample_track_index: int) -> dict:
-    """
-    Reset a resampling track's routing back to defaults and disarm it.
-
-    Args:
-        resample_track_index: The resample track to reset.
-
-    Returns:
-        resample_track_index, disarmed (bool), routing_reset (bool)
-    """
+    """Reset a resampling track's routing back to defaults and disarm it."""
     disarmed = False
     try:
         _send("set_track_arm", {"track_index": resample_track_index, "arm": False})
@@ -150,12 +124,7 @@ def teardown_resampling_route(resample_track_index: int) -> dict:
 
 @mcp.tool()
 def get_resampling_status(resample_track_index: int) -> dict:
-    """
-    Return the current routing and arm status of a track, to verify resampling is set up correctly.
-
-    Returns:
-        track_index, track_name, input_routing, monitor_mode, armed, ready_to_resample (bool)
-    """
+    """Return the current routing and arm status of a track, to verify resampling is set up correctly."""
     try:
         tracks = _send("get_tracks")
         track = next(
@@ -200,31 +169,7 @@ def render_track_to_audio(
     new_track_name: str | None = None,
     target_track_index: int | None = None,
 ) -> dict:
-    """
-    Print a track's audio output to a new audio track for a given bar range.
-
-    Automates the "resample" workflow:
-    1. Optionally duplicates the source clip until it fills the requested range.
-    2. Creates a new audio track routed to the source track (Post FX) or Resampling.
-    3. Arms the new track and starts Arrangement recording for exactly the bar range.
-    4. Returns immediately; a background thread stops recording after the bar range elapses.
-
-    Useful for printing third-party plugin edits (e.g. Melodyne) to audio.
-
-    Args:
-        source_track_index: Track to capture audio from.
-        start_bar: First bar of the range to record (1-based, default 1).
-        end_bar: Bar after the last bar to record (default 9 = 8 bars).
-        use_resampling: If True, route from master Resampling instead of the source track directly.
-        post_fx: If True (default), capture post-effects signal.
-        ensure_full_length: If True (default), try to extend the source clip to fill the range.
-        new_track_name: Name for the new audio track (default: "{source_track_name} [Rendered]").
-        target_track_index: Position to insert the new track (default: right after source track).
-
-    Returns:
-        status ("recording_started"), new_track_index, new_track_name, source_track_name,
-        bars_recorded, duration_seconds, note (stop time description)
-    """
+    """Print a track's audio output to a new audio track for a given bar range."""
     warnings: list[str] = []
 
     # --- Gather song info (tempo + time signature) ---
@@ -473,41 +418,7 @@ def setup_sidechain_route(
     sidechain_amount_param_index: int | None = None,
     sidechain_amount: float | None = None,
 ) -> dict:
-    """
-    Automate Kickstart 2 (or any sidechain-capable plugin) sidechain setup.
-
-    Routes the Post FX output of the source track (e.g. kick) into the
-    destination track's input and sets Monitor to "In", so that a plugin
-    like Kickstart 2 on the destination track receives the kick signal as its
-    sidechain trigger.
-
-    Optionally sets a sidechain duck-amount parameter on the destination
-    device in the same call.
-
-    Workflow:
-    1. Look up the source track name via get_tracks.
-    2. Call setup_resampling_route (Post FX routing + Monitor In) from the
-       Remote Script, routing source → dest.
-    3. If dest_device_index, sidechain_amount_param_index, and
-       sidechain_amount are all supplied, set that parameter value.
-
-    Args:
-        source_track_index: Index of the kick (or any source) track.
-        dest_track_index: Index of the bass (or destination) track where the
-            sidechain plugin lives.
-        dest_device_index: Device index on the dest track for setting the
-            sidechain amount parameter (optional).
-        sidechain_amount_param_index: Parameter index on the sidechain plugin
-            that controls the duck amount (optional).
-        sidechain_amount: Normalized value 0.0–1.0 to set for the duck amount
-            parameter (optional). Only applied when dest_device_index and
-            sidechain_amount_param_index are also provided.
-
-    Returns:
-        source_track_index, source_track_name, dest_track_index,
-        routing_result (Remote Script response), parameter_set (bool),
-        instructions (human-readable summary)
-    """
+    """Automate Kickstart 2 (or any sidechain-capable plugin) sidechain setup."""
     try:
         tracks = _send("get_tracks")
     except RuntimeError as e:
@@ -567,19 +478,7 @@ def setup_sidechain_route(
 
 @mcp.tool()
 def teardown_sidechain_route(dest_track_index: int) -> dict:
-    """
-    Reset arm and monitoring state on the sidechain destination track.
-
-    Reverses the routing set up by setup_sidechain_route by calling the
-    Remote Script's teardown_resampling_route command, which disarms the
-    destination track and resets its monitoring state to Auto.
-
-    Args:
-        dest_track_index: The destination track to reset.
-
-    Returns:
-        dest_track_index, teardown_result (Remote Script response)
-    """
+    """Reset arm and monitoring state on the sidechain destination track."""
     try:
         teardown_result = _send("teardown_resampling_route", {
             "dest_track_index": dest_track_index,
@@ -606,42 +505,7 @@ def dump_session_to_arrangement(
     disarm_after: bool = True,
     reset_metronome: bool = True,
 ) -> dict:
-    """
-    Fire all clips from a session scene slot and record them to the Arrangement.
-
-    All clips start at bar 1 (beat 0) in the Arrangement.  A background thread
-    automatically stops recording and cleans up after the longest clip finishes.
-
-    Workflow:
-    1. Determine which tracks have a clip at slot_index (or use track_indices).
-    2. Calculate the longest clip length to set the stop time.
-    3. Arm all target tracks.
-    4. Move playhead to beat 0 (bar 1).
-    5. Enable Arrangement record mode.
-    6. Stop any currently playing clips.
-    7. Fire all target clips simultaneously.
-    8. Start Arrangement playback.
-    9. A background thread stops playback, disables record mode, and optionally
-       disarms tracks and turns off the metronome after the clips finish.
-
-    Args:
-        slot_index: Which session row (scene slot) to fire. Default 0 = first
-            scene.
-        track_indices: Which tracks to include. None = all tracks that have a
-            clip at slot_index.
-        stop_after_beats: Override stop time in beats. If None, auto-calculated
-            from the longest clip in the target slot.
-        time_signature_numerator: Beats per bar, used only for the default
-            fallback stop time. Default 4.
-        disarm_after: If True (default), disarm all target tracks after
-            recording stops.
-        reset_metronome: If True (default), turn off the metronome after
-            recording stops.
-
-    Returns:
-        status ("recording_started"), slot_index, tracks_firing, track_count,
-        stop_after_beats, duration_seconds, tempo, note
-    """
+    """Fire all clips from a session scene slot and record them to the Arrangement."""
     # 1. Get song info for tempo
     try:
         song_info = _send("get_song_info")
