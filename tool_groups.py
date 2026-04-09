@@ -5,6 +5,15 @@ to the right subset of tools without exceeding OpenAI's 128-tool limit.
 """
 
 TOOL_GROUPS: dict[str, list[str]] = {
+    "base": [
+        "get_song_info_minimal",
+        "get_tracks",
+        "list_arrangement_clips",
+        "get_arrangement_overview",
+        "write_dynamic_automation",
+        "duplicate_arrangement_clip",
+        "duplicate_arrangement_clip_batch",
+    ],
     "session": [
         "get_session", "set_session", "load_", "save_", "snapshot",
         "recall_snapshot", "diff_snapshot", "list_snapshot",

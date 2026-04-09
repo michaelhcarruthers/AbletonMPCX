@@ -1461,13 +1461,18 @@ class AbletonMPCX(ControlSurface):
         return {}
 
     def _cmd_duplicate_clip_to_time(self, params):
-        track_index = params.get("track_index", 0)
-        clip_index = params.get("clip_index", 0)
+        track_index = int(params.get("track_index", 0))
+        clip_index = int(params.get("clip_index", 0))
         target_time = float(params.get("target_time", 0.0))
         try:
             track = self._song.tracks[track_index]
-            clip = track.arrangement_clips[clip_index]
-            track.duplicate_clip_to_arrangement(clip, target_time)
+            clips = list(track.arrangement_clips)
+            if clip_index < 0 or clip_index >= len(clips):
+                return {"success": False, "error": "clip_index {} out of range — track has {} arrangement clips".format(clip_index, len(clips))}
+            clip = clips[clip_index]
+            def fn():
+                track.duplicate_clip_to_arrangement(clip, target_time)
+            self._run_on_main_thread(fn)
             return {
                 "success": True,
                 "track_index": track_index,
@@ -1476,6 +1481,24 @@ class AbletonMPCX(ControlSurface):
             }
         except Exception as e:
             return {"success": False, "error": str(e)}
+
+    def _cmd_move_clip_slot(self, params):
+        track_index = int(params["track_index"])
+        from_slot_index = int(params["from_slot_index"])
+        to_slot_index = int(params["to_slot_index"])
+        track = self._get_track(track_index)
+        slots = list(track.clip_slots)
+        if from_slot_index < 0 or from_slot_index >= len(slots):
+            raise IndexError("from_slot_index {} out of range".format(from_slot_index))
+        if to_slot_index < 0 or to_slot_index >= len(slots):
+            raise IndexError("to_slot_index {} out of range".format(to_slot_index))
+        from_slot = slots[from_slot_index]
+        to_slot = slots[to_slot_index]
+        def fn():
+            from_slot.duplicate_clip_to(to_slot)
+            from_slot.delete_clip()
+        self._run_on_main_thread(fn)
+        return {"from_slot_index": from_slot_index, "to_slot_index": to_slot_index}
 
     # -------------------------------------------------------------------------
     # Clip (read)

@@ -1469,10 +1469,10 @@ def duplicate_clip_to_scenes(
                             "from_slot_index": source_clip_index + 1,
                             "to_slot_index": target_idx,
                         })
-                    except RuntimeError:
+                    except RuntimeError as move_err:
                         # move_clip_slot not available — record as skipped so
                         # we never silently write to the wrong slot.
-                        skipped.append(target_idx)
+                        skipped.append({"slot": target_idx, "reason": str(move_err)})
                         continue
                     if clip_name:
                         try:
@@ -1485,15 +1485,16 @@ def duplicate_clip_to_scenes(
                         except RuntimeError:
                             pass
                     copies_made += 1
-                except RuntimeError:
-                    skipped.append(target_idx)
+                except RuntimeError as e:
+                    skipped.append({"slot": target_idx, "reason": str(e)})
 
+        skipped_slots = {s if isinstance(s, int) else s["slot"] for s in skipped}
         results.append({
             "track_index": track_index,
             "source_clip_index": source_clip_index,
             "clip_type": "midi" if is_midi else "audio",
             "copies_made": copies_made,
-            "target_scenes": [i for i in target_scene_indices if i not in skipped],
+            "target_scenes": [i for i in target_scene_indices if i not in skipped_slots],
             "skipped": skipped,
         })
 
