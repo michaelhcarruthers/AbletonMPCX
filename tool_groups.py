@@ -89,7 +89,6 @@ TOOL_GROUPS: dict[str, list[str]] = {
 
 TOOL_GROUP_MODULES: dict[str, list[str]] = {
     "base": [
-        "tools.clips",                # list_arrangement_clips, get_arrangement_overview, set_clip_envelope_points, duplicate_arrangement_clip, duplicate_arrangement_clip_batch
         "tools.arrangement_bridge",   # write_dynamic_automation, write_arrangement_volume_automation
     ],
     "session": [
