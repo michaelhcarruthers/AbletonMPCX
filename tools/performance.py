@@ -20,6 +20,54 @@ def _get_time_sig_numerator(override: int | None = None) -> int:
         return 4
 
 
+def _bars_beats_to_song_time(start_bar: int, start_beat: float, time_sig_numerator: int) -> float:
+    """Convert 1-indexed bar + beat position to absolute song time in beats."""
+    return (start_bar - 1) * time_sig_numerator + (start_beat - 1)
+
+
+def _find_or_add_device(track_index: int, device_name: str) -> int:
+    """Find a device by name on a track, or add it if not present. Returns device index."""
+    try:
+        devices = _send("get_devices", {"track_index": track_index, "is_return_track": False}, _log=False)
+    except Exception:
+        devices = []
+    name_lower = device_name.lower()
+    for d in devices:
+        if name_lower in d.get("name", "").lower():
+            return d["index"]
+    # Not found — add it
+    result = _send("add_native_device", {
+        "track_index": track_index,
+        "device_name": device_name,
+        "is_return_track": False,
+    })
+    # Re-fetch to get the new index
+    devices = _send("get_devices", {"track_index": track_index, "is_return_track": False}, _log=False)
+    for d in devices:
+        if name_lower in d.get("name", "").lower():
+            return d["index"]
+    raise RuntimeError(f"Could not find or add device '{device_name}' on track {track_index}")
+
+
+def _find_device_parameter_by_name(
+    track_index: int, device_index: int, param_name: str
+) -> tuple[int, dict]:
+    """Find a device parameter by name. Returns (parameter_index, parameter_info)."""
+    result = _send("get_device_parameters", {
+        "track_index": track_index,
+        "device_index": device_index,
+        "is_return_track": False,
+    })
+    params = result.get("parameters", []) if isinstance(result, dict) else result if isinstance(result, list) else []
+    name_lower = param_name.lower()
+    for p in params:
+        if name_lower in p.get("name", "").lower():
+            return p["index"], p
+    raise RuntimeError(
+        f"Parameter '{param_name}' not found on device {device_index} of track {track_index}"
+    )
+
+
 # ---------------------------------------------------------------------------
 # Performance FX MCP tools
 # ---------------------------------------------------------------------------
