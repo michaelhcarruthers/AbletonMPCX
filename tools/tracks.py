@@ -236,15 +236,6 @@ def clone_track(
 
 
 @mcp.tool()
-def setup_resampling_route(dest_track_index: int, source_track_name: str) -> dict:
-    """Configure a destination track to record resampled audio from a source track."""
-    return _send("setup_resampling_route", {
-        "dest_track_index": dest_track_index,
-        "source_track_name": source_track_name,
-    })
-
-
-@mcp.tool()
 def get_track_devices(track_index: int, is_return_track: bool = False) -> dict:
     """Return the device names and count for a track without fetching parameters."""
     return _send("get_track_devices", {"track_index": track_index, "is_return_track": is_return_track})

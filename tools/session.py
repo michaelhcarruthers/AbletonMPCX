@@ -893,12 +893,13 @@ _SCENE_SECTION_COLORS = {
 # ---------------------------------------------------------------------------
 
 
-def _infer_role_from_devices(track_index: int) -> tuple[str, str]:
+def _infer_role_from_devices(track_index: int, devices: list | None = None) -> tuple[str, str]:
     """Return (role, method_used) by inspecting device names on the track."""
-    try:
-        devices = _send("get_devices", {"track_index": track_index})
-    except RuntimeError:
-        devices = []
+    if devices is None:
+        try:
+            devices = _send("get_devices", {"track_index": track_index})
+        except RuntimeError:
+            devices = []
     for device in devices:
         name_lower = device.get("name", "").lower()
         for key, role in _DEVICE_TO_ROLE.items():
@@ -1002,7 +1003,7 @@ def auto_name_all_tracks(dry_run: bool = False, skip_named: bool = True) -> dict
             if not is_default:
                 skipped_reason = "already_named"
 
-        role, _ = _infer_role_from_devices(idx)
+        role, _ = _infer_role_from_devices(idx, devices=track.get("devices", None))
 
         if role == "default":
             suggested_name = "Track {}".format(idx + 1)
@@ -1622,8 +1623,9 @@ def session_audit(fix: bool = False) -> dict:
                 })
     except RuntimeError as e:
         logger.debug("Could not check scenes during session audit: %s", e)
+    has_critical = any(i["severity"] in ("warning", "critical") for i in issues)
     has_warning = any(i["severity"] == "warning" for i in issues)
-    if has_issue:
+    if has_critical:
         session_health = "issues"
     elif has_warning:
         session_health = "warnings"
