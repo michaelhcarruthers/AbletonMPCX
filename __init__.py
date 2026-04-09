@@ -2198,23 +2198,54 @@ class AbletonMPCX(ControlSurface):
         """Write automation points to an arrangement lane for a device parameter."""
         track_index = int(params["track_index"])
         device_index = params.get("device_index")
-        parameter_index = int(params["parameter_index"])
+        parameter_type = params.get("parameter_type")
         points = params.get("points", [])
         clear_range = bool(params.get("clear_range", False))
 
         track = self._get_track(track_index)
 
-        if device_index is not None:
+        if parameter_type == "volume":
+            target_param = track.mixer_device.volume
+            param_name = "volume"
+        elif parameter_type == "panning":
+            target_param = track.mixer_device.panning
+            param_name = "panning"
+        elif parameter_type == "device_parameter":
+            parameter_name = params.get("parameter_name")
+            if device_index is None or parameter_name is None:
+                raise RuntimeError(
+                    "parameter_type 'device_parameter' requires both device_index and parameter_name"
+                )
             device = self._get_device(track_index, int(device_index))
-            parameters = list(device.parameters)
+            target_param = next(
+                (p for p in device.parameters if p.name == parameter_name), None
+            )
+            if target_param is None:
+                raise RuntimeError(
+                    "Parameter '{}' not found on device at index {}".format(
+                        parameter_name, device_index
+                    )
+                )
+            param_name = parameter_name
         else:
-            parameters = list(track.mixer_device.parameters)
-            device_index = None
+            # Legacy path: look up by parameter_index
+            if "parameter_index" not in params:
+                raise RuntimeError(
+                    "Either parameter_type ('volume', 'panning', 'device_parameter') "
+                    "or parameter_index must be provided"
+                )
+            parameter_index = int(params["parameter_index"])
+            if device_index is not None:
+                device = self._get_device(track_index, int(device_index))
+                parameters = list(device.parameters)
+            else:
+                parameters = list(track.mixer_device.parameters)
+                device_index = None
 
-        if parameter_index < 0 or parameter_index >= len(parameters):
-            raise IndexError("parameter_index {} out of range".format(parameter_index))
-        target_param = parameters[parameter_index]
-        param_name = target_param.name
+            if parameter_index < 0 or parameter_index >= len(parameters):
+                raise IndexError("parameter_index {} out of range".format(parameter_index))
+            target_param = parameters[parameter_index]
+            param_name = target_param.name
 
         def fn():
             if not hasattr(track, "automation_envelopes"):
