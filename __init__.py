@@ -1322,6 +1322,21 @@ class AbletonMPCX(ControlSurface):
         self._run_on_main_thread(fn)
         return {}
 
+    def _cmd_duplicate_clip_to_time(self, params):
+        track_index = params.get("track_index", 0)
+        clip_index = params.get("clip_index", 0)
+        target_time = float(params.get("target_time", 0.0))
+        track = self._song.tracks[track_index]
+        clip = track.arrangement_clips[clip_index]
+        # Live API: AudioClip and MidiClip both inherit duplicate_clip_to_time
+        clip.duplicate_clip_to_time(target_time)
+        return {
+            "success": True,
+            "track_index": track_index,
+            "source_clip_index": clip_index,
+            "target_time": target_time,
+        }
+
     # -------------------------------------------------------------------------
     # Clip (read)
     # -------------------------------------------------------------------------

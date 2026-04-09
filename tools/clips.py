@@ -549,6 +549,78 @@ def delete_arrangement_clip_batch(clips: list[dict]) -> dict:
 
 
 @mcp.tool()
+def duplicate_arrangement_clip(
+    track_index: int,
+    clip_index: int,
+    target_time_beats: float,
+) -> dict:
+    """Copy an existing Arrangement clip to a new position on the same track.
+
+    track_index: zero-based track index
+    clip_index: zero-based index into track.arrangement_clips
+    target_time_beats: absolute song position in beats where the copy should start
+
+    Uses the Live API duplicate_clip_to_time — works for both audio and MIDI clips.
+    """
+    result = _send("duplicate_clip_to_time", {
+        "track_index": track_index,
+        "clip_index": clip_index,
+        "target_time": target_time_beats,
+    })
+    return result
+
+
+@mcp.tool()
+def duplicate_arrangement_clip_batch(
+    operations: list[dict],
+) -> dict:
+    """Copy multiple Arrangement clips to new timeline positions in a single call.
+
+    Each operation must be a dict with:
+      - track_index (int)
+      - clip_index (int): source clip index in track.arrangement_clips
+      - target_times (list[float]): list of absolute beat positions to copy to
+
+    Returns a summary of successful copies and failures.
+    """
+    results = []
+    total_copies = 0
+
+    for op in operations:
+        track_index = op["track_index"]
+        clip_index = op["clip_index"]
+        target_times = op["target_times"]
+        copies = []
+        failed = []
+
+        for t in target_times:
+            try:
+                _send("duplicate_clip_to_time", {
+                    "track_index": track_index,
+                    "clip_index": clip_index,
+                    "target_time": t,
+                })
+                copies.append(t)
+                total_copies += 1
+            except RuntimeError as e:
+                failed.append({"target_time": t, "error": str(e)})
+
+        results.append({
+            "track_index": track_index,
+            "clip_index": clip_index,
+            "copies_made": len(copies),
+            "target_times": copies,
+            "failed": failed,
+        })
+
+    return {
+        "results": results,
+        "total_copies": total_copies,
+        "operations_count": len(operations),
+    }
+
+
+@mcp.tool()
 def place_clip_in_arrangement_batch(
     placements: list[dict],
     time_signature_numerator: int | None = None,
