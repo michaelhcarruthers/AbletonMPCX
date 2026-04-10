@@ -40,6 +40,7 @@ from helpers import (
     _load_reference_profiles_from_project,
 )
 from helpers.summarizer import summarize_session
+from helpers.cache import cache_state  # noqa: E402
 
 # ---------------------------------------------------------------------------
 # Mix Analysis and Sound Recommendation
@@ -1180,3 +1181,628 @@ def get_latency_report() -> dict:
         "recommendations": recommendations,
     }
 
+
+
+# ---------------------------------------------------------------------------
+# Views / context (moved from tools.session)
+# ---------------------------------------------------------------------------
+
+@mcp.tool()
+def focus_view(view_name: str) -> dict:
+    """Focus a named view in Ableton Live (e.g. 'Session', 'Arranger', 'Detail', 'Detail/Clip')."""
+    return _send("focus_view", {"view_name": view_name})
+
+
+@mcp.tool()
+def show_view(view_name: str) -> dict:
+    """Show a named panel/view. See focus_view for common view names."""
+    return _send("show_view", {"view_name": view_name})
+
+
+@mcp.tool()
+def hide_view(view_name: str) -> dict:
+    """Hide a named panel/view. See focus_view for common view names."""
+    return _send("hide_view", {"view_name": view_name})
+
+
+@mcp.tool()
+def is_view_visible(view_name: str) -> dict:
+    """Return whether the named view/panel is currently visible."""
+    return _send("is_view_visible", {"view_name": view_name})
+
+
+@mcp.tool()
+def available_main_views() -> dict:
+    """Return the list of available main view names."""
+    return _send("available_main_views")
+
+
+@mcp.tool()
+def get_selected_context() -> dict:
+    """Return everything currently selected/focused in Live: selected track, scene, and detail clip."""
+    return _send("get_selected_context")
+
+
+@mcp.tool()
+def get_selected_track() -> dict:
+    """Return the currently selected track index and name."""
+    return _send("get_selected_track")
+
+
+@mcp.tool()
+def get_selected_scene() -> dict:
+    """Return the currently selected scene index and name."""
+    return _send("get_selected_scene")
+
+
+@mcp.tool()
+def set_selected_track(track_index: int) -> dict:
+    """Select the track at track_index."""
+    return _send("set_selected_track", {"track_index": track_index})
+
+
+@mcp.tool()
+def set_selected_scene(scene_index: int) -> dict:
+    """Select the scene at scene_index."""
+    return _send("set_selected_scene", {"scene_index": scene_index})
+
+
+@mcp.tool()
+def get_appointed_device() -> dict:
+    """Return the currently appointed (focused) device in Live."""
+    return _send("get_appointed_device")
+
+
+@mcp.tool()
+def get_protocol_version() -> dict:
+    """Return the AbletonMPCX protocol version string."""
+    return _send("get_protocol_version")
+
+
+@mcp.tool()
+def get_capabilities() -> dict:
+    """Returns a structured summary of all registered MCP tools with their descriptions."""
+    tools_map = {}
+    for name, tool_obj in mcp._tool_manager._tools.items():
+        description = (tool_obj.description or "").strip().split("\n")[0]
+        tools_map[name] = description
+    return {
+        "tool_count": len(tools_map),
+        "tools": tools_map,
+        "version": "AbletonMPCX 1.0",
+        "usage_hint": (
+            "Call get_session_snapshot() to orient fully. "
+            "Use tool names to discover capabilities."
+        ),
+    }
+
+
+# ---------------------------------------------------------------------------
+# Mix analysis and session state (moved from tools.session)
+# ---------------------------------------------------------------------------
+
+@mcp.tool()
+def analyse_mix_state() -> dict:
+    """Analyse the current mix state and surface observations."""
+    observations = []
+
+    try:
+        snapshot = _send("get_session_snapshot")
+        tracks = snapshot.get("tracks", [])
+        master = snapshot.get("master_track", {})
+
+        # Volume checks
+        hot_tracks = [t for t in tracks if t.get("volume", 0) > 0.95]
+        if hot_tracks:
+            observations.append({
+                "observation": "Tracks near maximum volume: {}".format([t["name"] for t in hot_tracks]),
+                "category": "levels",
+                "severity": "warn",
+            })
+
+        silent_tracks = [t for t in tracks if not t.get("mute") and t.get("volume", 1.0) < 0.01]
+        if silent_tracks:
+            observations.append({
+                "observation": "Tracks at near-zero volume (not muted): {}".format([t["name"] for t in silent_tracks]),
+                "category": "levels",
+                "severity": "warn",
+            })
+
+        # Panning checks
+        hard_panned = [t for t in tracks if abs(t.get("pan", 0)) > 0.95]
+        if hard_panned:
+            observations.append({
+                "observation": "Tracks hard-panned: {}".format([t["name"] for t in hard_panned]),
+                "category": "panning",
+                "severity": "info",
+            })
+
+        # Solo check
+        soloed = [t for t in tracks if t.get("solo")]
+        if soloed:
+            observations.append({
+                "observation": "Tracks currently soloed: {}".format([t["name"] for t in soloed]),
+                "category": "monitoring",
+                "severity": "flag",
+            })
+
+        # Master device check
+        master_devices = master.get("devices", [])
+        device_names = [d["name"] for d in master_devices]
+        has_limiter = any("limit" in n.lower() for n in device_names)
+        has_eq = any("eq" in n.lower() for n in device_names)
+
+        if not has_limiter:
+            observations.append({
+                "observation": "No limiter on master track.",
+                "category": "master_chain",
+                "severity": "info",
+            })
+        if not has_eq:
+            observations.append({
+                "observation": "No EQ on master track.",
+                "category": "master_chain",
+                "severity": "info",
+            })
+
+        # Armed tracks check
+        armed = [t for t in tracks if t.get("arm")]
+        if armed:
+            observations.append({
+                "observation": "Tracks currently armed for recording: {}".format([t["name"] for t in armed]),
+                "category": "recording",
+                "severity": "info",
+            })
+
+        # Compare against preferences if available
+        if helpers._current_project_id:
+            try:
+                mem = _get_memory()
+                target_lufs = mem.get("preferences", {}).get("target_lufs")
+                if target_lufs:
+                    observations.append({
+                        "observation": "Target LUFS preference set to {}. Use an external meter to verify.".format(target_lufs),
+                        "category": "levels",
+                        "severity": "info",
+                    })
+            except Exception as e:
+                logger.debug("Could not read project memory for mix analysis: %s", e)
+
+    except Exception as e:
+        observations.append({
+            "observation": "Could not read session state: {}".format(str(e)),
+            "category": "error",
+            "severity": "flag",
+        })
+
+    return {
+        "observation_count": len(observations),
+        "observations": observations,
+    }
+
+
+@mcp.tool()
+def mix_correction_loop(
+    track_index: int,
+    target_band: str,
+    direction: str,
+    device_name: str | None = None,
+    param_name: str | None = None,
+    max_steps: int = 5,
+    verify: bool = True,
+    snapshot_after: bool = False,
+    snapshot_name: str | None = None,
+) -> dict:
+    """Iteratively adjust a device parameter to improve a frequency band balance, reading the analyzer after each step."""
+    from tools.session_snapshots import save_device_snapshot
+
+    if direction not in ("reduce", "boost"):
+        return {"error": "direction must be 'reduce' or 'boost'"}
+
+    def _read_band_value():
+        return None
+
+    before_value = _read_band_value()
+
+    target_device_index = None
+    target_parameter_index = None
+    target_param_name = param_name
+
+    try:
+        devices = _send("get_devices", {"track_index": track_index})
+    except RuntimeError as e:
+        return {"error": "Could not get devices: {}".format(e)}
+
+    for device in devices:
+        dev_idx = device.get("index", device.get("device_index", 0))
+        dev_name = device.get("name", "")
+        if device_name and device_name.lower() not in dev_name.lower():
+            continue
+
+        is_eq = any(k in dev_name.lower() for k in ["eq", "filter", "equalizer"])
+        if device_name is None and not is_eq:
+            continue
+
+        try:
+            params_result = _send("get_device_parameters", {
+                "track_index": track_index,
+                "device_index": dev_idx,
+            })
+            params = params_result.get("parameters", params_result) if isinstance(params_result, dict) else params_result
+            for p in params:
+                p_name = p.get("name", "")
+                if param_name and param_name.lower() not in p_name.lower():
+                    continue
+                if param_name is None and "gain" not in p_name.lower():
+                    continue
+                target_device_index = dev_idx
+                target_parameter_index = p.get("index", p.get("parameter_index", 0))
+                target_param_name = p_name
+                break
+        except RuntimeError as e:
+            logger.debug("Could not get parameters for device %s on track %s: %s", dev_idx, track_index, e)
+
+        if target_device_index is not None:
+            break
+
+    if target_device_index is None or target_parameter_index is None:
+        return {
+            "error": "Could not find a suitable device/parameter to adjust. "
+                     "Specify device_name and param_name explicitly.",
+            "track_index": track_index,
+            "target_band": target_band,
+            "direction": direction,
+        }
+
+    try:
+        params_result = _send("get_device_parameters", {
+            "track_index": track_index,
+            "device_index": target_device_index,
+        })
+        params = params_result.get("parameters", params_result) if isinstance(params_result, dict) else params_result
+        current_param = next(
+            (p for p in params if p.get("index", p.get("parameter_index")) == target_parameter_index),
+            None,
+        )
+    except RuntimeError as e:
+        return {"error": "Could not get parameters: {}".format(e)}
+
+    if current_param is None:
+        return {"error": "Parameter index {} not found.".format(target_parameter_index)}
+
+    current_value = float(current_param.get("value", 0.0))
+    p_min = float(current_param.get("min", current_value - 12))
+    p_max = float(current_param.get("max", current_value + 12))
+    step_size = (p_max - p_min) / 20.0
+
+    parameter_changes = []
+    steps_taken = 0
+
+    for step in range(max_steps):
+        old_value = current_value
+        if direction == "reduce":
+            new_value = max(p_min, current_value - step_size)
+        else:
+            new_value = min(p_max, current_value + step_size)
+
+        try:
+            _send("set_device_parameter", {
+                "track_index": track_index,
+                "device_index": target_device_index,
+                "parameter_index": target_parameter_index,
+                "value": new_value,
+            })
+            current_value = new_value
+            steps_taken += 1
+            parameter_changes.append({
+                "step": step + 1,
+                "param": target_param_name,
+                "before": old_value,
+                "after": new_value,
+            })
+        except RuntimeError:
+            break
+
+        if verify:
+            new_band = _read_band_value()
+            if new_band is not None and before_value is not None:
+                if direction == "reduce" and new_band < before_value:
+                    break
+                if direction == "boost" and new_band > before_value:
+                    break
+
+    after_value = _read_band_value()
+    improved = False
+    if before_value is not None and after_value is not None:
+        if direction == "reduce":
+            improved = after_value < before_value
+        else:
+            improved = after_value > before_value
+
+    snapshot_saved = False
+    if snapshot_after and improved:
+        snap_label = snapshot_name or "post-correction-{}".format(target_band)
+        try:
+            save_device_snapshot(track_index, snap_label, device_index=target_device_index)
+            snapshot_saved = True
+        except Exception as e:
+            logger.warning("Could not save post-correction snapshot: %s", e)
+
+    if steps_taken > 0:
+        summary = "Adjusted '{}' on track {} by {} step(s) to {} the '{}' band. Improved: {}.".format(
+            target_param_name, track_index, steps_taken, direction, target_band, improved
+        )
+    else:
+        summary = "No adjustments were made to track {}.".format(track_index)
+
+    return {
+        "track_index": track_index,
+        "target_band": target_band,
+        "direction": direction,
+        "steps_taken": steps_taken,
+        "before_value": before_value,
+        "after_value": after_value,
+        "improved": improved,
+        "parameter_changes": parameter_changes,
+        "snapshot_saved": snapshot_saved,
+        "summary": summary,
+    }
+
+
+@mcp.tool()
+def get_session_health() -> dict:
+    """Return a single structured health summary of the current session."""
+    snapshot = _send("get_session_snapshot")
+    tracks = snapshot.get("tracks", []) if isinstance(snapshot, dict) else []
+    master = snapshot.get("master_track", {}) if isinstance(snapshot, dict) else {}
+
+    issues: list[dict] = []
+
+    DEFAULT_NAME_PATTERNS = {"audio", "midi", "1-audio", "1-midi", "audio track", "midi track"}
+
+    for track in tracks:
+        idx = track.get("index", track.get("track_index"))
+        name = track.get("name", "")
+        name_lower = name.lower().strip()
+        mixer = track.get("mixer_device", {}) or {}
+        devices = track.get("devices", []) or []
+        sends = mixer.get("sends", []) or []
+
+        if not name or name_lower in DEFAULT_NAME_PATTERNS or name_lower.startswith(("audio ", "midi ")):
+            issues.append({
+                "severity": "info",
+                "category": "naming",
+                "description": "Track has a default/unnamed name: '{}'".format(name),
+                "track_index": idx,
+            })
+
+        if track.get("arm"):
+            issues.append({
+                "severity": "warn",
+                "category": "recording",
+                "description": "Track '{}' is armed for recording".format(name),
+                "track_index": idx,
+            })
+
+        volume = mixer.get("volume")
+        if volume is not None:
+            db = _db_from_linear(volume)
+            if db > 0:
+                issues.append({
+                    "severity": "warn",
+                    "category": "levels",
+                    "description": "Track '{}' volume is above 0 dBFS ({:+.1f} dB)".format(name, db),
+                    "track_index": idx,
+                })
+
+        if len(devices) == 0:
+            issues.append({
+                "severity": "info",
+                "category": "devices",
+                "description": "Track '{}' has no devices".format(name),
+                "track_index": idx,
+            })
+
+        if track.get("solo"):
+            issues.append({
+                "severity": "flag",
+                "category": "monitoring",
+                "description": "Track '{}' is soloed".format(name),
+                "track_index": idx,
+            })
+
+        if sends:
+            def _send_value(s: object) -> float:
+                if isinstance(s, (int, float)):
+                    return float(s)
+                if isinstance(s, dict):
+                    return float(s.get("value", 0))
+                return 0.0
+            if all(_send_value(s) == 0.0 for s in sends):
+                issues.append({
+                    "severity": "info",
+                    "category": "routing",
+                    "description": "Track '{}' has all sends at zero".format(name),
+                    "track_index": idx,
+                })
+
+    master_mixer = master.get("mixer_device", {}) or {}
+    master_vol = master_mixer.get("volume") if isinstance(master_mixer, dict) else master.get("volume")
+    if master_vol is not None:
+        db = _db_from_linear(master_vol)
+        if db > 0:
+            issues.append({
+                "severity": "warn",
+                "category": "levels",
+                "description": "Master bus volume is above 0 dBFS ({:+.1f} dB)".format(db),
+                "track_index": -1,
+            })
+        else:
+            issues.append({
+                "severity": "info",
+                "category": "levels",
+                "description": "Master bus: {:+.1f} dB".format(db),
+                "track_index": -1,
+            })
+
+    severities = {i["severity"] for i in issues}
+    if "warn" in severities or "critical" in severities:
+        health = "warnings"
+    elif "flag" in severities:
+        health = "warnings"
+    else:
+        health = "clean"
+
+    return {
+        "issues": issues,
+        "issue_count": len(issues),
+        "health": health,
+        "session_name": snapshot.get("name", "") if isinstance(snapshot, dict) else "",
+        "tempo": snapshot.get("tempo", 0.0) if isinstance(snapshot, dict) else 0.0,
+        "track_count": len(tracks),
+    }
+
+
+@mcp.tool()
+def get_session_state(compact: bool = False) -> dict:
+    """Return session state. compact=False returns full structured state; compact=True returns a token-efficient human-readable summary."""
+    import time as _time
+    if compact:
+        from helpers.summarizer import summarize_session as _summarize_session
+        snapshot = _send("get_session_snapshot")
+        return {"summary": _summarize_session(snapshot)}
+
+    snapshot = _send("get_session_snapshot")
+    tracks = snapshot.get("tracks", []) if isinstance(snapshot, dict) else []
+
+    devices_by_track: dict[str, list] = {}
+    total_devices = 0
+    for t in tracks:
+        idx = t.get("index", t.get("track_index"))
+        devs = t.get("devices", [])
+        if devs:
+            devices_by_track[str(idx)] = devs
+            total_devices += len(devs)
+
+    levels: dict[str, dict] = {}
+    for t in tracks:
+        idx = t.get("index", t.get("track_index"))
+        mixer = t.get("mixer_device", {}) or {}
+        levels[str(idx)] = {
+            "name": t.get("name", ""),
+            "volume": mixer.get("volume"),
+            "pan": mixer.get("panning"),
+            "mute": t.get("mute", False),
+        }
+
+    try:
+        arrangement_clips = _send("get_arrangement_clips")
+    except Exception:
+        arrangement_clips = []
+
+    total_clips = len(arrangement_clips) if isinstance(arrangement_clips, list) else 0
+
+    return {
+        "session": snapshot,
+        "tracks": tracks,
+        "devices_by_track": devices_by_track,
+        "arrangement_clips": arrangement_clips,
+        "levels": levels,
+        "fetched_at": _time.time(),
+        "total_tracks": len(tracks),
+        "total_devices": total_devices,
+        "total_clips": total_clips,
+    }
+
+
+@mcp.tool()
+def get_session_diff() -> dict:
+    """Return only what has changed in the session since the last call."""
+    snapshot = _send("get_session_snapshot")
+    diff = cache_state("session_diff", snapshot)
+
+    if diff.get("first_snapshot"):
+        return {
+            "is_first_snapshot": True,
+            "changed_tracks": [],
+            "changed_devices": [],
+            "tempo_changed": False,
+            "new_tempo": snapshot.get("tempo"),
+            "total_changes": 0,
+            "snapshot": snapshot,
+        }
+
+    changed_tracks: list[dict] = []
+    changed_devices: list[dict] = []
+    tempo_changed = False
+    new_tempo = None
+
+    top_changed = diff.get("changed", {})
+
+    if "tempo" in top_changed:
+        tempo_changed = True
+        new_tempo = top_changed["tempo"].get("to")
+
+    tracks_diff = top_changed.get("tracks", {})
+    if isinstance(tracks_diff, dict):
+        nested = tracks_diff.get("changed", {})
+        for idx_str, track_change in nested.items():
+            if not isinstance(track_change, dict):
+                continue
+            track_idx = int(idx_str) if str(idx_str).isdigit() else idx_str
+            changed_fields = list(track_change.get("changed", {}).keys())
+            tracks_list = snapshot.get("tracks", [])
+            track_name = ""
+            if isinstance(tracks_list, list) and isinstance(track_idx, int) and track_idx < len(tracks_list):
+                track_name = tracks_list[track_idx].get("name", "")
+            changed_tracks.append({
+                "track_index": track_idx,
+                "track_name": track_name,
+                "changed_fields": changed_fields,
+            })
+            devices_diff = track_change.get("changed", {}).get("devices", {})
+            if isinstance(devices_diff, dict):
+                for dev_idx_str, dev_change in devices_diff.get("changed", {}).items():
+                    changed_devices.append({
+                        "track_index": track_idx,
+                        "device_index": int(dev_idx_str) if str(dev_idx_str).isdigit() else dev_idx_str,
+                        "changed_parameters": list(dev_change.get("changed", {}).keys()) if isinstance(dev_change, dict) else [],
+                    })
+
+    total_changes = (
+        len(top_changed)
+        + len(diff.get("added", {}))
+        + len(diff.get("removed", []))
+    )
+
+    return {
+        "is_first_snapshot": False,
+        "changed_tracks": changed_tracks,
+        "changed_devices": changed_devices,
+        "tempo_changed": tempo_changed,
+        "new_tempo": new_tempo,
+        "total_changes": total_changes,
+    }
+
+
+@mcp.tool()
+def summarise_session() -> dict:
+    """Summarise what happened in the current session based on the operation log."""
+    from collections import Counter
+
+    if not _operation_log:
+        return {"total_ops": 0, "command_counts": {}, "most_frequent": [], "destructive_ops": []}
+
+    counter = Counter(entry["command"] for entry in _operation_log)
+    destructive = [
+        e for e in _operation_log
+        if any(kw in e["command"] for kw in ("delete", "remove", "create", "duplicate", "add_notes"))
+    ]
+
+    return {
+        "session_start": _operation_log[0]["ts"] if _operation_log else None,
+        "total_ops": len(_operation_log),
+        "command_counts": dict(counter.most_common()),
+        "most_frequent": [{"command": cmd, "count": cnt} for cmd, cnt in counter.most_common(10)],
+        "destructive_ops": destructive[-20:],
+    }

@@ -2264,3 +2264,71 @@ def get_session_health() -> dict:
 # Render / Print to audio
 # ---------------------------------------------------------------------------
 
+
+# ---------------------------------------------------------------------------
+# Re-exports for backward compatibility
+# Functions moved to dedicated modules — keep importable from tools.session.
+# ---------------------------------------------------------------------------
+
+# Track CRUD → tools.tracks
+from tools.tracks import (  # noqa: F401
+    create_audio_track,
+    create_midi_track,
+    create_return_track,
+    delete_track,
+    delete_return_track,
+    duplicate_track,
+)
+
+# Arrangement / scaffold → tools.arrangement_bridge
+from tools.arrangement_bridge import (  # noqa: F401
+    build_scene_scaffold,
+    list_scaffold_templates,
+    place_clip_in_arrangement,
+    duplicate_clip_to_scenes,
+    arrange_from_scene_scaffold,
+    insert_tempo_section,
+    create_song_from_brief,
+    auto_name_clip,
+    auto_name_scene,
+    _get_time_sig_numerator,
+    _bars_beats_to_song_time,
+    _SCAFFOLD_TEMPLATES,
+    _SCENE_SECTION_COLORS,
+    _STYLE_PRESETS,
+    _STYLE_FREE,
+)
+
+# Auto-naming / audit → tools.audit
+from tools.audit import (  # noqa: F401
+    auto_name_track,
+    auto_color_track,
+    auto_name_all_tracks,
+    session_audit,
+    _ROLE_COLORS,
+    _DEVICE_TO_ROLE,
+    _infer_role_from_devices,
+)
+
+# Mix analysis, views, session state → tools.diagnostics
+from tools.diagnostics import (  # noqa: F401
+    analyse_mix_state,
+    mix_correction_loop,
+    get_session_health,
+    get_session_state,
+    get_session_diff,
+    summarise_session,
+    focus_view,
+    show_view,
+    hide_view,
+    is_view_visible,
+    available_main_views,
+    get_selected_context,
+    get_selected_track,
+    get_selected_scene,
+    set_selected_track,
+    set_selected_scene,
+    get_appointed_device,
+    get_capabilities,
+    get_protocol_version,
+)
