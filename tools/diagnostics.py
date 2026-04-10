@@ -937,7 +937,7 @@ def _db_from_linear(linear: float) -> float:
 @mcp.tool()
 def diagnose_track(track_index: int) -> dict:
     """Run a full diagnostic on a single track and return structured findings."""
-    tracks = _send("get_tracks")
+    tracks = _send("get_tracks", {"slim": False})
     if not isinstance(tracks, list) or track_index >= len(tracks):
         return {
             "track_name": "",
@@ -1030,7 +1030,7 @@ def diagnose_track(track_index: int) -> dict:
 @mcp.tool()
 def diagnose_mix() -> dict:
     """Run a diagnostic across the entire mix and return structured findings."""
-    tracks = _send("get_tracks")
+    tracks = _send("get_tracks", {"slim": False})
     if not isinstance(tracks, list):
         return {
             "warnings": [],
