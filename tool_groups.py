@@ -12,6 +12,8 @@ TOOL_GROUPS: dict[str, list[str]] = {
         "get_arrangement_overview",
         "write_dynamic_automation",
         "write_arrangement_volume_automation",
+        "mix_section",
+        "analyze_section_levels",
         "duplicate_arrangement_clip",
         "duplicate_arrangement_clip_batch",
         "set_clip_envelope_points",
@@ -40,6 +42,7 @@ TOOL_GROUPS: dict[str, list[str]] = {
         "move_track", "fold_track", "set_crossfader", "get_crossfader",
         "set_master_volume", "get_master_volume", "set_cue_volume",
         "get_return_tracks",
+        "mix_section", "analyze_section_levels",
     ],
     "clips": [
         "fire_clip", "stop_clip", "get_clip", "set_clip", "create_clip",
@@ -67,6 +70,7 @@ TOOL_GROUPS: dict[str, list[str]] = {
         "set_punch_", "get_punch_",
         "write_dynamic_automation",
         "write_arrangement_volume_automation",
+        "mix_section", "analyze_section_levels",
     ],
     "performance": [
         "perform_macro", "perform_macro_live", "setup_sidechain",
