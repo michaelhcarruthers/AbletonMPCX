@@ -48,6 +48,20 @@ import tools.observer_bridge     # noqa: F401
 import tools.audit               # noqa: F401
 import tools.mix_templates       # noqa: F401
 import tools.theory              # noqa: F401
+# Split sub-modules (provide focused access alongside the parent modules above)
+import tools.transport           # noqa: F401
+import tools.song_settings       # noqa: F401
+import tools.track_management    # noqa: F401
+import tools.humanization        # noqa: F401
+import tools.audio_analysis      # noqa: F401
+import tools.reference_profiles  # noqa: F401
+import tools.project_health      # noqa: F401
+import tools.sound_library       # noqa: F401
+import tools.screenshot          # noqa: F401
+import tools.mix_analysis        # noqa: F401
+import tools.scene_management    # noqa: F401
+import tools.browser             # noqa: F401
+import tools.rack                # noqa: F401
 
 # Start the background observer thread (defined in tools.audit)
 from tools.audit import _start_observer
