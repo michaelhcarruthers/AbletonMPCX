@@ -247,7 +247,10 @@ def mix_section(
     # Get current track volumes for defaults
     try:
         tracks_info = _send("get_tracks", {"slim": False})
-        current_volumes = {t["index"]: t.get("volume", 0.85) for t in tracks_info if isinstance(tracks_info, list)}
+        if isinstance(tracks_info, list):
+            current_volumes = {t["index"]: t.get("volume", 0.85) for t in tracks_info}
+        else:
+            current_volumes = {}
     except Exception:
         current_volumes = {}
 
@@ -395,7 +398,11 @@ def analyze_section_levels(
 
     if track_indices is not None:
         track_filter = set(track_indices)
-        all_tracks = [t for t in all_tracks if t.get("index", t.get("track_index")) in track_filter]
+        all_tracks = [t for t in all_tracks if (t.get("index") if "index" in t else t.get("track_index")) in track_filter]
+
+    def _track_idx(t: dict) -> int:
+        """Return a consistent track index from a track dict (handles both key names)."""
+        return t.get("index") if "index" in t else t.get("track_index", 0)
 
     def vol_to_db(v: float) -> float:
         """Approximate dB from Live's normalised mixer value."""
@@ -411,7 +418,7 @@ def analyze_section_levels(
     # Try to read automation value at beat_position; fall back to fader value
     levels = []
     for t in all_tracks:
-        t_idx = t.get("index", t.get("track_index", 0))
+        t_idx = _track_idx(t)
         t_name = t.get("name", "Track {}".format(t_idx))
         fader_vol = float(t.get("volume", 0.85))
 

@@ -2443,7 +2443,7 @@ class AbletonMPCX(ControlSurface):
                 self._cmd_write_arrangement_automation(write)
                 applied += 1
             except Exception as e:
-                errors.append({"write_index": i, "error": str(e)})
+                errors.append({"write_index": i, "track_index": write.get("track_index"), "error": str(e)})
 
         return {"writes_applied": applied, "errors": errors}
 
