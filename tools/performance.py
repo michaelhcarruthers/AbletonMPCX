@@ -288,20 +288,6 @@ def stutter_clip(
     tsn = _get_time_sig_numerator(time_signature_numerator)
     _send("begin_undo_step", {"name": "stutter_clip"})
     try:
-        # Get the volume parameter index from the mixer
-        mixer_params = _send("get_arrangement_automation_targets", {
-            "track_index": track_index,
-        }, _log=False)
-        params_list = mixer_params.get("parameters", [])
-        vol_idx = None
-        for p in params_list:
-            if "volume" in p["name"].lower() or "vol" in p["name"].lower():
-                vol_idx = p["parameter_index"]
-                break
-        if vol_idx is None:
-            # Fallback: use index 0 (typically volume for mixer)
-            vol_idx = 0
-
         start_time = _bars_beats_to_song_time(start_bar, start_beat, tsn)
         end_time = start_time + length_beats
 
@@ -319,8 +305,7 @@ def stutter_clip(
 
         result = _send("write_arrangement_automation", {
             "track_index": track_index,
-            "device_index": None,
-            "parameter_index": vol_idx,
+            "parameter_type": "volume",
             "points": points,
             "clear_range": True,
         })
