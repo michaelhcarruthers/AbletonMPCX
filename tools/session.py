@@ -88,245 +88,67 @@ from tools.session_recording import (  # noqa: E402,F401
     render_track_to_audio,
 )
 
-# ---------------------------------------------------------------------------
-# Application
-# ---------------------------------------------------------------------------
-
-def get_app_version() -> dict:
-    """Return the running Ableton Live version."""
-    return _send("get_app_version")
-
-# ---------------------------------------------------------------------------
-# Song
-# ---------------------------------------------------------------------------
-
-def get_song_info() -> dict:
-    """Return the current song's tempo, transport state, loop settings, etc."""
-    return _send("get_song_info")
-
-def get_song_info_minimal() -> dict:
-    """Return only tempo, time signature, bar count, and playhead — no track or clip data. Use this instead of get_song_info when you only need timing context."""
-    return _send("get_song_info_minimal", {})
-
-def set_tempo(tempo: float) -> dict:
-    """Set the song tempo (20-999 BPM)."""
-    return _send("set_tempo", {"tempo": tempo})
-
-def set_time_signature(numerator: int | None = None, denominator: int | None = None) -> dict:
-    """Set the song time signature numerator and/or denominator."""
-    params: dict[str, int] = {}
-    if numerator is not None:
-        params["numerator"] = numerator
-    if denominator is not None:
-        params["denominator"] = denominator
-    return _send("set_time_signature", params)
-
-def set_record_mode(record_mode: bool) -> dict:
-    """Enable or disable Arrangement Record."""
-    return _send("set_record_mode", {"record_mode": record_mode})
-
-def set_session_record(session_record: bool) -> dict:
-    """Enable or disable Session Overdub."""
-    return _send("set_session_record", {"session_record": session_record})
-
-def set_overdub(overdub: bool) -> dict:
-    """Enable or disable MIDI Arrangement Overdub."""
-    return _send("set_overdub", {"overdub": overdub})
-
-def set_metronome(metronome: bool) -> dict:
-    """Enable or disable the metronome."""
-    return _send("set_metronome", {"metronome": metronome})
-
-def set_loop(enabled: bool | None = None, loop_start: float | None = None, loop_length: float | None = None) -> dict:
-    """Set Arrangement loop state, start position (beats) and/or length (beats)."""
-    params: dict[str, Any] = {}
-    if enabled is not None:
-        params["enabled"] = enabled
-    if loop_start is not None:
-        params["loop_start"] = loop_start
-    if loop_length is not None:
-        params["loop_length"] = loop_length
-    return _send("set_loop", params)
-
-def set_arrangement_position(position_beats: float) -> dict:
-    """Set the arrangement playhead position in beats (absolute song time)."""
-    return _send("set_arrangement_position", {"position": position_beats})
-
-def set_swing_amount(value: float) -> dict:
-    """Set the global swing amount (0.0-1.0)."""
-    if not 0.0 <= value <= 1.0:
-        raise ValueError("swing_amount must be between 0.0 and 1.0")
-    return _send("set_swing_amount", {"value": value})
-
-def set_groove_amount(value: float) -> dict:
-    """Set the global groove amount (0.0-1.0)."""
-    if not 0.0 <= value <= 1.0:
-        raise ValueError("groove_amount must be between 0.0 and 1.0")
-    return _send("set_groove_amount", {"value": value})
-
-def set_back_to_arranger(value: bool) -> dict:
-    """Enable or disable Back to Arranger mode."""
-    return _send("set_back_to_arranger", {"value": value})
-
-def set_clip_trigger_quantization(value: int) -> dict:
-    """Set the global clip trigger quantization (0-13, matching Live's ClipTriggerQuantization enum)."""
-    if not 0 <= value <= 13:
-        raise ValueError("clip_trigger_quantization must be between 0 and 13")
-    return _send("set_clip_trigger_quantization", {"value": value})
-
-def set_midi_recording_quantization(value: int) -> dict:
-    """Set the MIDI recording quantization (0-8, matching Live's RecordingQuantization enum)."""
-    if not 0 <= value <= 8:
-        raise ValueError("midi_recording_quantization must be between 0 and 8")
-    return _send("set_midi_recording_quantization", {"value": value})
-
-def set_scale_mode(scale_mode: bool) -> dict:
-    """Enable or disable scale mode."""
-    return _send("set_scale_mode", {"scale_mode": scale_mode})
-
-def set_scale_name(scale_name: str) -> dict:
-    """Set the scale name (e.g. 'Major', 'Minor', 'Dorian')."""
-    return _send("set_scale_name", {"scale_name": scale_name})
-
-def set_root_note(root_note: int) -> dict:
-    """Set the root note for the scale (0=C, 1=C#, ..., 11=B)."""
-    if not 0 <= root_note <= 11:
-        raise ValueError("root_note must be between 0 and 11")
-    return _send("set_root_note", {"root_note": root_note})
-
-def set_or_delete_cue() -> dict:
-    """Toggle (create or delete) a cue point at the current playback position."""
-    return _send("set_or_delete_cue")
-
-def re_enable_automation() -> dict:
-    """Re-enable automation that has been overridden."""
-    return _send("re_enable_automation")
-
-def play_selection() -> dict:
-    """Play the current selection in the Arrangement."""
-    return _send("play_selection")
-
-def start_playing() -> dict:
-    """Start playback from the insert marker."""
-    return _send("start_playing")
-
-def stop_playing() -> dict:
-    """Stop playback."""
-    return _send("stop_playing")
-
-def continue_playing() -> dict:
-    """Continue playback from the current position."""
-    return _send("continue_playing")
-
-def tap_tempo() -> dict:
-    """Send a tap tempo pulse."""
-    return _send("tap_tempo")
-
-@mcp.tool()
-def undo() -> dict:
-    """Undo the last operation."""
-    return _send("undo")
-
-@mcp.tool()
-def redo() -> dict:
-    """Redo the last undone operation."""
-    return _send("redo")
-
-def capture_midi(destination: int = 0) -> dict:
-    """Capture recently played MIDI. destination: 0=auto, 1=session, 2=arrangement."""
-    return _send("capture_midi", {"destination": destination})
-
-def capture_and_insert_scene() -> dict:
-    """Capture currently playing clips into a new scene."""
-    return _send("capture_and_insert_scene")
-
-def create_audio_track(index: int = -1) -> dict:
-    """Create a new audio track. index=-1 appends at end."""
-    return _send("create_audio_track", {"index": index})
-
-def create_midi_track(index: int = -1) -> dict:
-    """Create a new MIDI track. index=-1 appends at end."""
-    return _send("create_midi_track", {"index": index})
-
-def create_return_track() -> dict:
-    """Add a new return track."""
-    return _send("create_return_track")
-
-def create_scene(index: int = -1) -> dict:
-    """Create a new scene. index=-1 appends at end."""
-    return _send("create_scene", {"index": index})
-
-def delete_scene(index: int) -> dict:
-    """Delete the scene at index."""
-    return _send("delete_scene", {"scene_index": index})
-
-def delete_track(track_index: int) -> dict:
-    """Delete the track at track_index."""
-    return _send("delete_track", {"track_index": track_index})
-
-def delete_return_track(index: int) -> dict:
-    """Delete the return track at index."""
-    return _send("delete_return_track", {"index": index})
-
-def duplicate_scene(index: int) -> dict:
-    """Duplicate the scene at index."""
-    return _send("duplicate_scene", {"scene_index": index})
-
-def duplicate_track(track_index: int) -> dict:
-    """Duplicate the track at track_index."""
-    return _send("duplicate_track", {"track_index": track_index})
-
-def jump_by(beats: float) -> dict:
-    """Jump the playback position by the given number of beats (positive or negative)."""
-    return _send("jump_by", {"beats": beats})
-
-def jump_to_next_cue() -> dict:
-    """Jump to the next cue point."""
-    return _send("jump_to_next_cue")
-
-def jump_to_prev_cue() -> dict:
-    """Jump to the previous cue point."""
-    return _send("jump_to_prev_cue")
-
-def stop_all_clips(quantized: int = 1) -> dict:
-    """Stop all clips. quantized=0 stops immediately regardless of quantization."""
-    return _send("stop_all_clips", {"quantized": quantized})
-
-def get_cue_points() -> list:
-    """Return all cue points as a list of {name, time} dicts."""
-    return _send("get_cue_points")
-
-def jump_to_cue_point(index: int) -> dict:
-    """Jump to the cue point at index."""
-    return _send("jump_to_cue_point", {"index": index})
+from tools.transport import (  # noqa: E402,F401
+    get_app_version,
+    start_playing,
+    stop_playing,
+    continue_playing,
+    play_selection,
+    tap_tempo,
+    undo,
+    redo,
+    capture_midi,
+    capture_and_insert_scene,
+    jump_by,
+    jump_to_next_cue,
+    jump_to_prev_cue,
+    jump_to_cue_point,
+    stop_all_clips,
+    get_cue_points,
+    set_or_delete_cue,
+    re_enable_automation,
+    get_follow_song,
+    set_follow_song,
+    get_selected_track,
+    set_selected_track,
+    get_selected_scene,
+    set_selected_scene,
+)
+from tools.song_settings import (  # noqa: E402,F401
+    get_song_info,
+    get_song_info_minimal,
+    set_tempo,
+    set_time_signature,
+    set_scale_name,
+    set_root_note,
+    set_record_mode,
+    set_session_record,
+    set_overdub,
+    set_metronome,
+    set_loop,
+    set_arrangement_position,
+    set_back_to_arranger,
+    set_swing_amount,
+    set_groove_amount,
+    set_clip_trigger_quantization,
+    set_midi_recording_quantization,
+    set_scale_mode,
+)
+from tools.track_management import (  # noqa: E402,F401
+    create_audio_track,
+    create_midi_track,
+    create_return_track,
+    create_scene,
+    delete_scene,
+    duplicate_scene,
+    delete_track,
+    delete_return_track,
+    duplicate_track,
+)
 
 # ---------------------------------------------------------------------------
 # Song.View
 # ---------------------------------------------------------------------------
-
-def get_selected_track() -> dict:
-    """Return the currently selected track index and name."""
-    return _send("get_selected_track")
-
-def set_selected_track(track_index: int) -> dict:
-    """Select the track at track_index."""
-    return _send("set_selected_track", {"track_index": track_index})
-
-def get_selected_scene() -> dict:
-    """Return the currently selected scene index and name."""
-    return _send("get_selected_scene")
-
-def set_selected_scene(scene_index: int) -> dict:
-    """Select the scene at scene_index."""
-    return _send("set_selected_scene", {"scene_index": scene_index})
-
-def get_follow_song() -> dict:
-    """Return whether Follow Song is enabled."""
-    return _send("get_follow_song")
-
-def set_follow_song(follow_song: bool) -> dict:
-    """Enable or disable Follow Song."""
-    return _send("set_follow_song", {"follow_song": follow_song})
 
 def get_draw_mode() -> dict:
     """Return whether Draw Mode is enabled in the current view."""
