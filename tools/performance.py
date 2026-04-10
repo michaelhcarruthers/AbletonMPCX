@@ -367,503 +367,307 @@ def add_performance_fx(
     }
 
 # ---------------------------------------------------------------------------
-# Performance macro definitions
-# Each entry is a list of parameter targets. The execution engine in
-# perform_macro() reads these — adding a new macro never requires code changes.
-#
-# curve: list of (position_ratio, value) tuples
-#   position_ratio: 0.0 = start of range, 1.0 = end of range
-#   value: raw parameter value (0.0–1.0 normalized unless otherwise noted)
-#
-# device: substring to match against device name (case-insensitive)
-# param: substring to match against parameter name (case-insensitive)
-# required: if True, device is required; missing required steps are flagged in check_macro_readiness()
+# Rack macro helpers
 # ---------------------------------------------------------------------------
 
-_MACRO_DEFINITIONS: dict[str, list[dict]] = {
-    "build": [
-        {"device": "Auto Filter", "param": "Frequency",  "curve": [(0.0, 0.1), (1.0, 0.85)], "required": False},
-        {"device": "Auto Filter", "param": "Resonance",  "curve": [(0.0, 0.2), (1.0, 0.55)], "required": False},
-        {"device": "Saturator",   "param": "Drive",       "curve": [(0.0, 0.0), (1.0, 0.65)], "required": False},
-        {"device": "Utility",     "param": "Width",       "curve": [(0.0, 0.8), (1.0, 1.0)],  "required": False},
-        {"device": "Reverb",      "param": "Dry/Wet",     "curve": [(0.0, 0.0), (1.0, 0.35)], "required": False},
-    ],
-    "break": [
-        {"device": "Auto Filter", "param": "Frequency",  "curve": [(0.0, 0.85), (1.0, 0.05)], "required": False},
-        {"device": "Auto Filter", "param": "Resonance",  "curve": [(0.0, 0.2),  (1.0, 0.6)],  "required": False},
-        {"device": "Simple Delay", "param": "Feedback",  "curve": [(0.0, 0.3),  (0.7, 0.85), (1.0, 0.0)], "required": False},
-        {"device": "Utility",     "param": "Width",      "curve": [(0.0, 1.0),  (1.0, 0.6)],  "required": False},
-    ],
-    "throw": [
-        {"device": "Reverb",      "param": "Dry/Wet",    "curve": [(0.0, 0.0), (0.5, 1.0), (1.0, 0.0)], "required": False},
-        {"device": "Auto Filter", "param": "Frequency",  "curve": [(0.0, 0.4), (0.5, 0.85), (1.0, 0.4)], "required": False},
-    ],
-    "drop": [
-        {"device": "Auto Filter", "param": "Frequency",  "curve": [(0.0, 0.9),  (1.0, 0.04)], "required": False},
-        {"device": "Simple Delay", "param": "Dry/Wet",   "curve": [(0.0, 0.0),  (0.6, 0.8),  (1.0, 0.0)], "required": False},
-        {"device": "Simple Delay", "param": "Feedback",  "curve": [(0.0, 0.3),  (0.8, 0.85), (1.0, 0.0)], "required": False},
-    ],
-    "heat": [
-        {"device": "Saturator",   "param": "Drive",      "curve": [(0.0, 0.0), (1.0, 0.8)],  "required": False},
-        {"device": "Auto Filter", "param": "Resonance",  "curve": [(0.0, 0.2), (1.0, 0.7)],  "required": False},
-        {"device": "Compressor",  "param": "Threshold",  "curve": [(0.0, 0.7), (1.0, 0.3)],  "required": False},
-    ],
-    "space": [
-        {"device": "Reverb",       "param": "Dry/Wet",   "curve": [(0.0, 0.05), (1.0, 0.7)],  "required": False},
-        {"device": "Simple Delay", "param": "Dry/Wet",   "curve": [(0.0, 0.0),  (1.0, 0.5)],  "required": False},
-        {"device": "Utility",     "param": "Width",      "curve": [(0.0, 0.7), (1.0, 1.0)],  "required": False},
-    ],
-    "tension": [
-        {"device": "Auto Filter", "param": "Frequency",  "curve": [(0.0, 0.7), (1.0, 0.12)], "required": False},
-        {"device": "Auto Filter", "param": "Resonance",  "curve": [(0.0, 0.3), (1.0, 0.75)], "required": False},
-        {"device": "Saturator",   "param": "Drive",      "curve": [(0.0, 0.1), (1.0, 0.55)], "required": False},
-    ],
-    "release": [
-        {"device": "Reverb",      "param": "Dry/Wet",    "curve": [(0.0, 0.0), (0.3, 0.9), (1.0, 0.3)], "required": False},
-        {"device": "Auto Filter", "param": "Frequency",  "curve": [(0.0, 0.1), (1.0, 0.95)], "required": False},
-        {"device": "Saturator",   "param": "Drive",      "curve": [(0.0, 0.6), (1.0, 0.0)],  "required": False},
-        {"device": "Utility",     "param": "Width",      "curve": [(0.0, 0.5), (1.0, 1.0)],  "required": False},
-    ],
-    "filter_drive": [
-        # The classic combo: filter sweep + drive rise together
-        {"device": "Auto Filter", "param": "Frequency",  "curve": [(0.0, 0.1), (1.0, 0.9)],  "required": True},
-        {"device": "Auto Filter", "param": "Resonance",  "curve": [(0.0, 0.2), (0.7, 0.65), (1.0, 0.3)], "required": False},
-        {"device": "Saturator",   "param": "Drive",      "curve": [(0.0, 0.1), (0.6, 0.75), (1.0, 0.2)], "required": False},
-    ],
-}
-
-_SETUP_CHAINS: dict[str, list[tuple[str, dict]]] = {
-    "dj_throw_bus": [
-        ("Reverb", {}),
-        ("Simple Delay", {}),
-        ("Auto Filter", {}),
-        ("Utility", {}),
-    ],
-    "build_chain": [
-        ("Auto Filter", {}),
-        ("Saturator", {}),
-        ("Utility", {}),
-    ],
-    "heat_chain": [
-        ("Saturator", {}),
-        ("Compressor", {}),
-        ("Auto Filter", {}),
-    ],
-    "basic": [
-        ("Utility", {}),
-        ("Auto Filter", {}),
-        ("Saturator", {}),
-    ],
-}
-
-
-
-@mcp.tool()
-def list_macro_definitions() -> dict:
-    """List all available performance macro names and the devices/parameters each requires."""
-    macros = {}
-    for name, steps in _MACRO_DEFINITIONS.items():
-        macros[name] = {
-            "steps": [
-                {
-                    "device": s["device"],
-                    "param": s["param"],
-                    "required": s.get("required", False),
-                }
-                for s in steps
-            ],
-            "step_count": len(steps),
-        }
-    return {
-        "macros": macros,
-        "available_macro_names": sorted(_MACRO_DEFINITIONS.keys()),
-        "setup_chains": sorted(_SETUP_CHAINS.keys()),
-    }
-
-
-@mcp.tool()
-def check_macro_readiness(track_index: int, macro_name: str) -> dict:
-    """Check whether all required devices for a macro are present on the track."""
-    if macro_name not in _MACRO_DEFINITIONS:
-        raise ValueError(
-            "Unknown macro '{}'. Available: {}".format(macro_name, sorted(_MACRO_DEFINITIONS.keys()))
-        )
-
-    steps = _MACRO_DEFINITIONS[macro_name]
-
+def _find_rack_on_track(track_index: int) -> tuple[int, dict] | None:
+    """Find the first Audio Effect Rack or Instrument Rack on a track.
+    Returns (device_index, device_info) or None if not found.
+    """
     try:
-        devices_result = _send("get_devices", {"track_index": track_index, "is_return_track": False})
+        devices = _send("get_devices", {"track_index": track_index, "is_return_track": False})
+    except Exception:
+        return None
+    for d in devices:
+        # class_name for racks: "AudioEffectGroupDevice", "InstrumentGroupDevice", "MidiEffectGroupDevice"
+        class_name = d.get("class_name", "")
+        name = d.get("name", "").lower()
+        if "group" in class_name.lower() or "rack" in name:
+            return d.get("index", d.get("device_index", 0)), d
+    return None
+
+
+def _get_rack_macros(track_index: int, device_index: int) -> list[dict]:
+    """Return the macro knob parameters from a rack device.
+    Macro knobs are the first 8 parameters (indices 0–7) of a rack.
+    Returns list of {index, name, value, min, max}.
+    """
+    try:
+        result = _send("get_device_parameters", {
+            "track_index": track_index,
+            "device_index": device_index,
+            "is_return_track": False,
+        })
     except Exception as e:
-        raise RuntimeError("Could not get devices for track {}: {}".format(track_index, e))
+        raise RuntimeError("Could not read rack parameters on track {}: {}".format(track_index, e))
+    params = result.get("parameters", []) if isinstance(result, dict) else []
+    # Rack macro knobs are the first 8 parameters
+    return params[:8]
 
-    steps_ready = []
-    steps_missing = []
 
-    for step in steps:
-        device_name_pattern = step["device"].lower()
-        param_name_pattern = step["param"].lower()
+@mcp.tool()
+def get_rack_macros(track_index: int, device_index: int | None = None) -> dict:
+    """Read the macro knob names and current values from a rack on a track.
 
-        # Find device
-        matched_device = None
-        for d in devices_result:
-            if device_name_pattern in d["name"].lower():
-                matched_device = d
-                break
-
-        if matched_device is None:
-            steps_missing.append({
-                "device": step["device"],
-                "param": step["param"],
-                "required": step.get("required", False),
-                "status": "missing",
-                "reason": "No device matching '{}' found on track {}".format(step["device"], track_index),
-            })
-            continue
-
-        # Find parameter
-        try:
-            params_result = _send("get_device_parameters", {
+    If device_index is not provided, the first rack found on the track is used.
+    Returns the 8 macro knob names, values, and ranges so Claude can see what
+    is mapped before performing a macro move.
+    """
+    if device_index is None:
+        found = _find_rack_on_track(track_index)
+        if found is None:
+            return {
+                "error": "No rack found on track {}. Add an Audio Effect Rack or Instrument Rack first.".format(track_index),
                 "track_index": track_index,
-                "device_index": matched_device["index"],
-                "is_return_track": False,
-            })
-        except Exception:
-            steps_missing.append({
-                "device": step["device"],
-                "param": step["param"],
-                "required": step.get("required", False),
-                "status": "missing",
-                "reason": "Could not read parameters from '{}'".format(matched_device["name"]),
-            })
-            continue
-
-        matched_param = None
-        for p in params_result.get("parameters", []):
-            if param_name_pattern in p["name"].lower():
-                matched_param = p
-                break
-
-        if matched_param is None:
-            steps_missing.append({
-                "device": step["device"],
-                "param": step["param"],
-                "required": step.get("required", False),
-                "status": "missing",
-                "reason": "Parameter '{}' not found on device '{}'".format(
-                    step["param"], matched_device["name"]),
-            })
-        else:
-            steps_ready.append({
-                "device": step["device"],
-                "param": step["param"],
-                "device_index": matched_device["index"],
-                "device_name": matched_device["name"],
-                "parameter_index": matched_param["index"],
-                "parameter_name": matched_param["name"],
-                "status": "ready",
-            })
-
-    all_ready = len(steps_missing) == 0
-    can_partially_apply = len(steps_ready) > 0
-
-    if all_ready:
-        suggestion = "Macro '{}' is fully ready on track {}.".format(macro_name, track_index)
-    elif can_partially_apply:
-        missing_devices = list({s["device"] for s in steps_missing})
-        suggestion = (
-            "Macro '{}' will partially apply ({}/{} steps ready). "
-            "Missing devices: {}. "
-            "Run setup_fx_chain(track_index, 'build_chain') to add missing devices.".format(
-                macro_name, len(steps_ready), len(steps), missing_devices)
-        )
+            }
+        device_index, device_info = found
     else:
-        suggestion = (
-            "Macro '{}' cannot apply — no required devices found on track {}. "
-            "Run setup_fx_chain() to create a suitable device chain first.".format(
-                macro_name, track_index)
-        )
+        try:
+            devices = _send("get_devices", {"track_index": track_index, "is_return_track": False})
+            device_info = next((d for d in devices if d.get("index", d.get("device_index")) == device_index), {})
+        except Exception as e:
+            return {"error": str(e), "track_index": track_index}
 
+    macros = _get_rack_macros(track_index, device_index)
     return {
-        "macro_name": macro_name,
         "track_index": track_index,
-        "ready": all_ready,
-        "steps_ready": steps_ready,
-        "steps_missing": steps_missing,
-        "can_partially_apply": can_partially_apply,
-        "suggestion": suggestion,
+        "device_index": device_index,
+        "rack_name": device_info.get("name", "Rack"),
+        "macros": [
+            {
+                "index": m["index"],
+                "name": m.get("name", "Macro {}".format(i + 1)),
+                "value": m.get("value", 0.0),
+                "min": m.get("min", 0.0),
+                "max": m.get("max", 1.0),
+            }
+            for i, m in enumerate(macros)
+        ],
+        "macro_count": len(macros),
     }
 
 
 @mcp.tool()
 def perform_macro(
     track_index: int,
-    macro_name: str,
+    knob_targets: dict,
     duration_ms: float = 2000.0,
-    intensity: float = 1.0,
-    curve: str = "linear",
+    curve: str = "ease_in_out",
+    device_index: int | None = None,
 ) -> dict:
-    """Animate a named performance macro on a track using gesture-wrapped parameter moves.
+    """Animate rack macro knobs to target values using gesture-wrapped parameter moves.
 
-    This uses the same real-time gesture path as perform_macro_live but is the
-    primary macro execution tool. Automation recording will capture it as a smooth
-    curve if the track is armed and Live's automation arm is on.
+    knob_targets: dict mapping knob name substring (case-insensitive) OR "Macro N" to a
+                  target value (0.0–1.0 normalised). Example:
+                  {"Filter": 0.8, "Drive": 0.6, "Space": 0.3}
+                  or {"Macro 1": 0.8, "Macro 2": 0.6}
 
-    Works for both native Ableton devices AND third-party VST/AU plugins.
+    If device_index is not provided, the first rack on the track is used.
+
+    Reads the rack's macro knob names at call time — no hard-coded definitions.
+    Works with any devices inside the rack (native, VST, AU).
     """
-    if macro_name not in _MACRO_DEFINITIONS:
-        raise ValueError(
-            "Unknown macro '{}'. Available: {}".format(macro_name, sorted(_MACRO_DEFINITIONS.keys()))
-        )
-
     valid_curves = {"linear", "ease_in", "ease_out", "ease_in_out"}
     if curve not in valid_curves:
         raise ValueError("Invalid curve '{}'. Valid options: {}".format(curve, sorted(valid_curves)))
 
-    intensity = max(0.0, min(1.0, intensity))
-    steps = _MACRO_DEFINITIONS[macro_name]
+    if device_index is None:
+        found = _find_rack_on_track(track_index)
+        if found is None:
+            raise RuntimeError(
+                "No rack found on track {}. Add an Audio Effect Rack first, "
+                "then map your device parameters to macro knobs.".format(track_index)
+            )
+        device_index, _ = found
 
-    try:
-        devices_result = _send("get_devices", {"track_index": track_index, "is_return_track": False})
-    except Exception as e:
-        raise RuntimeError("Could not get devices for track {}: {}".format(track_index, e))
+    macros = _get_rack_macros(track_index, device_index)
 
-    # Group moves by device so we can call perform_device_parameter_moves once per device
-    moves_by_device: dict[int, list[dict]] = {}
-    device_map: dict[int, dict] = {}
+    moves = []
+    matched = []
     skipped = []
 
-    for step in steps:
-        device_name_pattern = step["device"].lower()
-        param_name_pattern = step["param"].lower()
-
-        matched_device = None
-        for d in devices_result:
-            if device_name_pattern in d["name"].lower():
-                matched_device = d
+    for knob_target_name, target_value in knob_targets.items():
+        search = knob_target_name.strip().lower()
+        matched_macro = None
+        for m in macros:
+            macro_name = m.get("name", "").lower()
+            if search in macro_name or macro_name in search:
+                matched_macro = m
                 break
 
-        if matched_device is None:
+        if matched_macro is None:
             skipped.append({
-                "device": step["device"],
-                "param": step["param"],
-                "reason": "No device matching '{}' found on track {}".format(
-                    step["device"], track_index),
+                "knob": knob_target_name,
+                "reason": "No macro knob matching '{}' found. Available: {}".format(
+                    knob_target_name, [m.get("name") for m in macros]
+                ),
             })
             continue
 
-        try:
-            params_result = _send("get_device_parameters", {
-                "track_index": track_index,
-                "device_index": matched_device["index"],
-                "is_return_track": False,
-            })
-        except Exception as e:
-            skipped.append({
-                "device": step["device"],
-                "param": step["param"],
-                "reason": "Could not read parameters: {}".format(str(e)),
-            })
-            continue
-
-        matched_param = None
-        for p in params_result.get("parameters", []):
-            if param_name_pattern in p["name"].lower():
-                matched_param = p
-                break
-
-        if matched_param is None:
-            skipped.append({
-                "device": step["device"],
-                "param": step["param"],
-                "reason": "Parameter '{}' not found on '{}'".format(
-                    step["param"], matched_device["name"]),
-            })
-            continue
-
-        # Use the end value from the curve, scaled by intensity
-        curve_points = step["curve"]
-        end_val = curve_points[-1][1]
-        target = max(0.0, min(1.0, end_val * intensity))
-
-        dev_idx = matched_device["index"]
-        device_map[dev_idx] = matched_device
-        moves_by_device.setdefault(dev_idx, []).append({
-            "parameter_index": matched_param["index"],
+        target = max(0.0, min(1.0, float(target_value)))
+        moves.append({
+            "parameter_index": matched_macro["index"],
             "target": target,
             "duration_ms": duration_ms,
             "curve": curve,
         })
-
-    moves_scheduled = 0
-    for dev_idx, moves in moves_by_device.items():
-        result = _send("perform_device_parameter_moves", {
-            "track_index": track_index,
-            "device_index": dev_idx,
-            "moves": moves,
-            "is_return_track": False,
+        matched.append({
+            "knob": knob_target_name,
+            "macro_name": matched_macro.get("name"),
+            "macro_index": matched_macro["index"],
+            "target": target,
         })
-        moves_scheduled += result.get("moves_scheduled", len(moves))
 
-    missing_devices = sorted({s["device"] for s in skipped})
-
-    if moves_scheduled == 0:
+    if not moves:
         raise RuntimeError(
-            "perform_macro: macro '{}' applied 0 moves on track {}. "
-            "Missing devices: {}. "
-            "Run setup_fx_chain_basic({}) to add required devices.".format(
-                macro_name, track_index, missing_devices, track_index
-            )
+            "perform_macro: no macro knobs matched on track {}. "
+            "Call get_rack_macros({}) first to see available knob names.".format(track_index, track_index)
         )
+
+    result = _send("perform_device_parameter_moves", {
+        "track_index": track_index,
+        "device_index": device_index,
+        "moves": moves,
+        "is_return_track": False,
+    })
 
     return {
         "status": "ok",
-        "macro_name": macro_name,
         "track_index": track_index,
+        "device_index": device_index,
         "duration_ms": duration_ms,
-        "intensity": intensity,
         "curve": curve,
-        "moves_scheduled": moves_scheduled,
-        "missing_devices": missing_devices,
+        "moves_scheduled": result.get("moves_scheduled", len(moves)),
+        "matched": matched,
+        "skipped": skipped,
     }
+
+
+@mcp.tool()
+def perform_macro_live(
+    track_index: int,
+    knob_targets: dict,
+    duration_ms: float = 2000.0,
+    curve: str = "ease_in_out",
+    device_index: int | None = None,
+) -> dict:
+    """Alias for perform_macro — animate rack macro knobs in real time.
+
+    knob_targets: dict mapping knob name substring to target value (0.0–1.0).
+    Reads rack macro knob names at call time.
+    """
+    return perform_macro(
+        track_index=track_index,
+        knob_targets=knob_targets,
+        duration_ms=duration_ms,
+        curve=curve,
+        device_index=device_index,
+    )
 
 
 @mcp.tool()
 def perform_macro_to_arrangement(
     track_index: int,
-    macro_name: str,
+    knob_targets: dict,
     start_bar: int,
     start_beat: float,
     length_beats: float,
-    intensity: float = 1.0,
     time_signature_numerator: int | None = None,
+    device_index: int | None = None,
 ) -> dict:
-    """Write a named performance macro as arrangement automation curves.
+    """Write rack macro knob moves as arrangement automation curves.
 
-    This is the explicit "write to Arrangement View" variant of perform_macro.
+    knob_targets: dict mapping knob name substring to a tuple (start_value, end_value)
+                  or a single float end_value (start = current value).
+                  Example: {"Filter": (0.1, 0.9), "Drive": (0.0, 0.7)}
 
-    Prerequisites — this will fail if any are not met:
-      - An arrangement clip must already exist on the track covering the target time range
-      - Live's automation arm must be enabled
-      - The track must contain the devices required by the macro
-
-    For real-time gesture-based execution (always works, no prereqs), use perform_macro instead.
+    Reads rack macro knob names at call time.
+    Requires an arrangement clip to exist on the track covering the target time range
+    and Live's automation arm to be enabled.
     """
     tsn = _get_time_sig_numerator(time_signature_numerator)
-    if macro_name not in _MACRO_DEFINITIONS:
-        raise ValueError(
-            "Unknown macro '{}'. Available: {}".format(macro_name, sorted(_MACRO_DEFINITIONS.keys()))
-        )
-
-    intensity = max(0.0, min(1.0, intensity))
-    steps = _MACRO_DEFINITIONS[macro_name]
-
-    # Convert musical time to beats
     start_time = _bars_beats_to_song_time(start_bar, start_beat, tsn)
     end_time = start_time + length_beats
 
-    try:
-        devices_result = _send("get_devices", {"track_index": track_index, "is_return_track": False})
-    except Exception as e:
-        raise RuntimeError("Could not get devices for track {}: {}".format(track_index, e))
+    if device_index is None:
+        found = _find_rack_on_track(track_index)
+        if found is None:
+            raise RuntimeError(
+                "No rack found on track {}. Add an Audio Effect Rack first.".format(track_index)
+            )
+        device_index, _ = found
+
+    macros = _get_rack_macros(track_index, device_index)
 
     applied = []
     skipped = []
 
-    _send("begin_undo_step", {"name": "perform_macro_to_arrangement: {}".format(macro_name)})
+    _send("begin_undo_step", {"name": "perform_macro_to_arrangement"})
     try:
-        for step in steps:
-            device_name_pattern = step["device"].lower()
-            param_name_pattern = step["param"].lower()
-
-            # Find device on track
-            matched_device = None
-            for d in devices_result:
-                if device_name_pattern in d["name"].lower():
-                    matched_device = d
+        for knob_target_name, target_spec in knob_targets.items():
+            search = knob_target_name.strip().lower()
+            matched_macro = None
+            for m in macros:
+                macro_name = m.get("name", "").lower()
+                if search in macro_name or macro_name in search:
+                    matched_macro = m
                     break
 
-            if matched_device is None:
+            if matched_macro is None:
                 skipped.append({
-                    "device": step["device"],
-                    "param": step["param"],
-                    "reason": "No device matching '{}' found on track {}".format(
-                        step["device"], track_index),
+                    "knob": knob_target_name,
+                    "reason": "No macro knob matching '{}' found. Available: {}".format(
+                        knob_target_name, [m.get("name") for m in macros]
+                    ),
                 })
                 continue
 
-            # Find parameter
-            try:
-                params_result = _send("get_device_parameters", {
-                    "track_index": track_index,
-                    "device_index": matched_device["index"],
-                    "is_return_track": False,
-                })
-            except Exception as e:
-                skipped.append({
-                    "device": step["device"],
-                    "param": step["param"],
-                    "reason": "Could not read parameters: {}".format(str(e)),
-                })
-                continue
+            # Resolve start/end values
+            if isinstance(target_spec, (list, tuple)) and len(target_spec) == 2:
+                start_val, end_val = float(target_spec[0]), float(target_spec[1])
+            else:
+                start_val = float(matched_macro.get("value", 0.0))
+                end_val = float(target_spec)
 
-            matched_param = None
-            for p in params_result.get("parameters", []):
-                if param_name_pattern in p["name"].lower():
-                    matched_param = p
-                    break
+            start_val = max(0.0, min(1.0, start_val))
+            end_val = max(0.0, min(1.0, end_val))
 
-            if matched_param is None:
-                skipped.append({
-                    "device": step["device"],
-                    "param": step["param"],
-                    "reason": "Parameter '{}' not found on '{}'".format(
-                        step["param"], matched_device["name"]),
-                })
-                continue
+            points = [
+                {"time": start_time, "value": start_val},
+                {"time": end_time, "value": end_val},
+            ]
 
-            # Build automation points from curve + intensity scaling
-            curve = step["curve"]
-            points = []
-            for pos_ratio, value in curve:
-                # Scale value by intensity around the midpoint (0.5)
-                scaled_value = 0.5 + (value - 0.5) * intensity
-                scaled_value = max(0.0, min(1.0, scaled_value))
-                abs_time = start_time + pos_ratio * length_beats
-                points.append({"time": abs_time, "value": scaled_value})
-
-            # Write automation
             try:
                 write_result = _send("write_arrangement_automation", {
                     "track_index": track_index,
-                    "device_index": matched_device["index"],
-                    "parameter_index": matched_param["index"],
+                    "device_index": device_index,
+                    "parameter_index": matched_macro["index"],
                     "points": points,
                     "clear_range": True,
                 })
                 applied.append({
-                    "device_name": matched_device["name"],
-                    "parameter_name": matched_param["name"],
+                    "knob": knob_target_name,
+                    "macro_name": matched_macro.get("name"),
+                    "start_value": start_val,
+                    "end_value": end_val,
                     "points_written": write_result.get("points_written", len(points)),
                 })
             except Exception as e:
                 skipped.append({
-                    "device": step["device"],
-                    "param": step["param"],
+                    "knob": knob_target_name,
                     "reason": "Automation write failed: {}. "
                               "Ensure an arrangement clip exists on track {} covering beats {:.1f}–{:.1f} "
                               "and that Live's automation arm is enabled.".format(
                                   str(e), track_index, start_time, end_time),
                 })
-
     finally:
         _send("end_undo_step", {})
 
     return {
-        "macro_name": macro_name,
         "track_index": track_index,
+        "device_index": device_index,
         "start_time_beats": start_time,
         "end_time_beats": end_time,
-        "intensity": intensity,
         "applied": applied,
         "skipped": skipped,
         "applied_count": len(applied),
@@ -872,278 +676,145 @@ def perform_macro_to_arrangement(
 
 
 @mcp.tool()
-def setup_fx_chain(
-    track_index: int,
-    chain_type: str,
-    track_name: str | None = None,
-) -> dict:
-    """Create a device chain on a track for use with performance macros."""
-    if chain_type not in _SETUP_CHAINS:
-        raise ValueError(
-            "Unknown chain type '{}'. Available: {}".format(
-                chain_type, sorted(_SETUP_CHAINS.keys()))
-        )
-
-    chain_steps = _SETUP_CHAINS[chain_type]
-    devices_added = []
-
-    _send("begin_undo_step", {"name": "setup_fx_chain: {}".format(chain_type)})
-    try:
-        for device_name, _ in chain_steps:
-            try:
-                _send("add_native_device", {
-                    "track_index": track_index,
-                    "device_name": device_name,
-                    "is_return_track": False,
-                })
-                devices_added.append(device_name)
-            except Exception as e:
-                # Non-fatal: log and continue
-                devices_added.append("{} (FAILED: {})".format(device_name, str(e)))
-
-        if track_name:
-            try:
-                _send("set_track_name", {"track_index": track_index, "name": track_name})
-            except Exception as e:
-                logger.debug("Could not set track name during setup_performance_chain: %s", e)
-    finally:
-        _send("end_undo_step", {})
-
-    return {
-        "chain_type": chain_type,
-        "track_index": track_index,
-        "devices_added": devices_added,
-        "device_count": len([d for d in devices_added if "FAILED" not in d]),
-        "track_name": track_name,
-    }
-
-
-@mcp.tool()
-def setup_fx_chain_basic(
-    track_index: int,
-    track_name: str | None = None,
-) -> dict:
-    """Add a minimal native device chain (Utility → Auto Filter → Saturator) to a track.
-
-    This is the prerequisite chain for most performance macros. Call this before
-    perform_macro_live() when no native devices are present on the track.
-    """
-    return setup_fx_chain(track_index=track_index, chain_type="basic", track_name=track_name)
-
-
-@mcp.tool()
 def set_macro_intensity(
     track_index: int,
-    macro_name: str,
-    intensity: float,
+    knob_targets: dict,
+    device_index: int | None = None,
 ) -> dict:
-    """Apply a macro's end-state parameter values at a fixed intensity — no automation."""
-    if macro_name not in _MACRO_DEFINITIONS:
-        raise ValueError(
-            "Unknown macro '{}'. Available: {}".format(macro_name, sorted(_MACRO_DEFINITIONS.keys()))
-        )
+    """Set rack macro knob values instantly — no animation, no automation written.
 
-    intensity = max(0.0, min(1.0, intensity))
-    steps = _MACRO_DEFINITIONS[macro_name]
+    knob_targets: dict mapping knob name substring to a target value (0.0–1.0).
+    Reads rack macro knob names at call time.
+    """
+    if device_index is None:
+        found = _find_rack_on_track(track_index)
+        if found is None:
+            raise RuntimeError("No rack found on track {}.".format(track_index))
+        device_index, _ = found
 
-    try:
-        devices_result = _send("get_devices", {"track_index": track_index, "is_return_track": False})
-    except Exception as e:
-        raise RuntimeError("Could not get devices for track {}: {}".format(track_index, e))
+    macros = _get_rack_macros(track_index, device_index)
 
     applied = []
     skipped = []
 
-    for step in steps:
-        device_name_pattern = step["device"].lower()
-        param_name_pattern = step["param"].lower()
-
-        matched_device = None
-        for d in devices_result:
-            if device_name_pattern in d["name"].lower():
-                matched_device = d
+    for knob_target_name, target_value in knob_targets.items():
+        search = knob_target_name.strip().lower()
+        matched_macro = None
+        for m in macros:
+            macro_name = m.get("name", "").lower()
+            if search in macro_name or macro_name in search:
+                matched_macro = m
                 break
 
-        if matched_device is None:
-            skipped.append({"device": step["device"], "param": step["param"],
-                             "reason": "Device not found"})
+        if matched_macro is None:
+            skipped.append({"knob": knob_target_name, "reason": "No matching macro knob found"})
             continue
 
-        try:
-            params_result = _send("get_device_parameters", {
-                "track_index": track_index,
-                "device_index": matched_device["index"],
-                "is_return_track": False,
-            })
-        except Exception:
-            skipped.append({"device": step["device"], "param": step["param"],
-                             "reason": "Could not read parameters"})
-            continue
-
-        matched_param = None
-        for p in params_result.get("parameters", []):
-            if param_name_pattern in p["name"].lower():
-                matched_param = p
-                break
-
-        if matched_param is None:
-            skipped.append({"device": step["device"], "param": step["param"],
-                             "reason": "Parameter not found"})
-            continue
-
-        # Interpolate between first and last curve points
-        curve = step["curve"]
-        start_val = curve[0][1]
-        end_val = curve[-1][1]
-        value = start_val + (end_val - start_val) * intensity
-        value = max(0.0, min(1.0, value))
-
+        value = max(0.0, min(1.0, float(target_value)))
         try:
             _send("set_device_parameter", {
                 "track_index": track_index,
-                "device_index": matched_device["index"],
-                "parameter_index": matched_param["index"],
+                "device_index": device_index,
+                "parameter_index": matched_macro["index"],
                 "value": value,
                 "is_return_track": False,
             })
             applied.append({
-                "device_name": matched_device["name"],
-                "parameter_name": matched_param["name"],
+                "knob": knob_target_name,
+                "macro_name": matched_macro.get("name"),
                 "value_set": round(value, 4),
             })
         except Exception as e:
-            skipped.append({"device": step["device"], "param": step["param"],
-                             "reason": "Set failed: {}".format(str(e))})
+            skipped.append({"knob": knob_target_name, "reason": "Set failed: {}".format(str(e))})
 
     return {
-        "macro_name": macro_name,
         "track_index": track_index,
-        "intensity": intensity,
+        "device_index": device_index,
         "applied": applied,
         "skipped": skipped,
     }
 
 
 @mcp.tool()
-def perform_macro_live(
+def setup_performance_rack(
     track_index: int,
-    macro_name: str,
-    duration_ms: float = 2000.0,
-    intensity: float = 1.0,
-    curve: str = "ease_in_out",
+    macro_names: list[str] | None = None,
+    track_name: str | None = None,
 ) -> dict:
-    """Animate a named performance macro on a track in real time — no automation written."""
-    if macro_name not in _MACRO_DEFINITIONS:
-        raise ValueError(
-            "Unknown macro '{}'. Available: {}".format(macro_name, sorted(_MACRO_DEFINITIONS.keys()))
-        )
+    """Add an Audio Effect Rack to a track and optionally name its macro knobs.
 
-    valid_curves = {"linear", "ease_in", "ease_out", "ease_in_out"}
-    if curve not in valid_curves:
-        raise ValueError("Invalid curve '{}'. Valid options: {}".format(curve, sorted(valid_curves)))
+    macro_names: list of up to 8 strings to assign to Macro 1–8.
+                 Example: ["Filter", "Resonance", "Drive", "Space", "Width", "Crush", "Macro 7", "Macro 8"]
+                 If fewer than 8 are provided, remaining knobs keep their default names.
 
-    intensity = max(0.0, min(1.0, intensity))
-    steps = _MACRO_DEFINITIONS[macro_name]
-
+    After this, add devices inside the rack and map parameters to the named macro knobs
+    using Ableton's macro mapping UI. Then call perform_macro() to animate those knobs.
+    """
+    _send("begin_undo_step", {"name": "setup_performance_rack"})
     try:
-        devices_result = _send("get_devices", {"track_index": track_index, "is_return_track": False})
-    except Exception as e:
-        raise RuntimeError("Could not get devices for track {}: {}".format(track_index, e))
-
-    # Group moves by device so we can call perform_device_parameter_moves once per device
-    moves_by_device: dict[int, list[dict]] = {}
-    device_map: dict[int, dict] = {}
-    skipped = []
-
-    for step in steps:
-        device_name_pattern = step["device"].lower()
-        param_name_pattern = step["param"].lower()
-
-        matched_device = None
-        for d in devices_result:
-            if device_name_pattern in d["name"].lower():
-                matched_device = d
-                break
-
-        if matched_device is None:
-            skipped.append({
-                "device": step["device"],
-                "param": step["param"],
-                "reason": "No device matching '{}' found on track {}".format(
-                    step["device"], track_index),
-            })
-            continue
-
-        try:
-            params_result = _send("get_device_parameters", {
-                "track_index": track_index,
-                "device_index": matched_device["index"],
-                "is_return_track": False,
-            })
-        except Exception as e:
-            skipped.append({
-                "device": step["device"],
-                "param": step["param"],
-                "reason": "Could not read parameters: {}".format(str(e)),
-            })
-            continue
-
-        matched_param = None
-        for p in params_result.get("parameters", []):
-            if param_name_pattern in p["name"].lower():
-                matched_param = p
-                break
-
-        if matched_param is None:
-            skipped.append({
-                "device": step["device"],
-                "param": step["param"],
-                "reason": "Parameter '{}' not found on '{}'".format(
-                    step["param"], matched_device["name"]),
-            })
-            continue
-
-        # Use the end value from the curve, scaled by intensity
-        curve_points = step["curve"]
-        end_val = curve_points[-1][1]
-        target = max(0.0, min(1.0, end_val * intensity))
-
-        dev_idx = matched_device["index"]
-        device_map[dev_idx] = matched_device
-        moves_by_device.setdefault(dev_idx, []).append({
-            "parameter_index": matched_param["index"],
-            "target": target,
-            "duration_ms": duration_ms,
-            "curve": curve,
-        })
-
-    moves_scheduled = 0
-    for dev_idx, moves in moves_by_device.items():
-        result = _send("perform_device_parameter_moves", {
+        _send("add_native_device", {
             "track_index": track_index,
-            "device_index": dev_idx,
-            "moves": moves,
+            "device_name": "Audio Effect Rack",
             "is_return_track": False,
         })
-        moves_scheduled += result.get("moves_scheduled", len(moves))
+    except Exception as e:
+        _send("end_undo_step", {})
+        raise RuntimeError("Could not add Audio Effect Rack: {}".format(e))
 
-    missing_devices = sorted({s["device"] for s in skipped})
+    # Find the rack we just added
+    try:
+        devices = _send("get_devices", {"track_index": track_index, "is_return_track": False})
+    except Exception as e:
+        _send("end_undo_step", {})
+        raise RuntimeError("Could not read devices after adding rack: {}".format(e))
 
-    if moves_scheduled == 0:
-        raise RuntimeError(
-            "perform_macro_live: macro '{}' applied 0 moves on track {}. "
-            "Missing devices: {}. "
-            "Run setup_fx_chain_basic({}) to add required devices.".format(
-                macro_name, track_index, missing_devices, track_index
-            )
-        )
+    rack_index = None
+    for d in reversed(devices):  # most recently added is last
+        class_name = d.get("class_name", "")
+        name = d.get("name", "").lower()
+        if "group" in class_name.lower() or "rack" in name:
+            rack_index = d.get("index", d.get("device_index", 0))
+            break
+
+    if rack_index is None:
+        _send("end_undo_step", {})
+        raise RuntimeError("Rack was added but could not be found on track {}.".format(track_index))
+
+    # Rename macro knobs if requested
+    macros_named = []
+    if macro_names:
+        macros = _get_rack_macros(track_index, rack_index)
+        for i, name in enumerate(macro_names[:8]):
+            if i < len(macros):
+                try:
+                    _send("set_device_parameter_name", {
+                        "track_index": track_index,
+                        "device_index": rack_index,
+                        "parameter_index": macros[i]["index"],
+                        "name": name,
+                    })
+                    macros_named.append({"index": i + 1, "name": name})
+                except Exception:
+                    # Naming macros may not be supported via API — note but don't fail
+                    macros_named.append({"index": i + 1, "name": name, "note": "API rename not supported — rename manually in Live"})
+
+    if track_name:
+        try:
+            _send("set_track_name", {"track_index": track_index, "name": track_name})
+        except Exception as e:
+            logger.debug("Could not set track name: %s", e)
+
+    _send("end_undo_step", {})
 
     return {
-        "status": "ok",
-        "macros_set": moves_scheduled,
-        "target_track": track_index,
-        "missing_devices": missing_devices,
+        "track_index": track_index,
+        "rack_device_index": rack_index,
+        "macros_named": macros_named,
+        "track_name": track_name,
+        "next_steps": (
+            "Rack added. Now: (1) open the rack in Live, (2) add devices inside it, "
+            "(3) map device parameters to the named macro knobs using Ableton's macro mapping (CMD+M), "
+            "(4) call get_rack_macros({}) to verify, then use perform_macro() to animate them.".format(track_index)
+        ),
     }
-
-
 
