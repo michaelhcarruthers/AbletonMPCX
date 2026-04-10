@@ -2248,6 +2248,10 @@ class AbletonMPCX(ControlSurface):
         points = params.get("points", [])
         clear_range = bool(params.get("clear_range", False))
 
+        # Bug 5: early return for empty points
+        if not points:
+            return {"error": "points must not be empty", "points_written": 0}
+
         track = self._get_track(track_index)
 
         if parameter_type == "volume":
@@ -2289,67 +2293,115 @@ class AbletonMPCX(ControlSurface):
             param_name = target_param.name
 
         def fn():
-            # Arrangement automation is written through arrangement clips.
-            # track.automation_envelopes does not exist in Live's Remote Script
-            # API — the correct approach is clip.automation_envelope(param).
-            try:
-                arr_clips = list(track.arrangement_clips)
-            except AttributeError:
-                raise RuntimeError(
-                    "track.arrangement_clips not available — "
-                    "requires Live 9+ with arrangement support."
-                )
-            if not arr_clips:
-                raise RuntimeError(
-                    "No arrangement clips on track {} — "
-                    "create an arrangement clip first, then write automation.".format(
-                        track_index
-                    )
-                )
-            # Pick the clip that covers the widest time range (most likely to
-            # span the requested automation points).
-            clip = max(arr_clips, key=lambda c: c.length)
+            # Bug 0: Use the correct arrangement automation API.
+            # Primary: DeviceParameter.automation_envelope (Live 11+, direct arrangement lane)
+            # Secondary: track.arrangement_envelopes (iterate and match by parameter)
+            # Fallback: clip.automation_envelope (last resort; times are clip-relative)
+            env = None
+            clip = None
+            clip_start = 0.0
 
-            if not hasattr(clip, "automation_envelope") or not callable(clip.automation_envelope):
-                raise RuntimeError(
-                    "clip.automation_envelope() not available in this Live version."
-                )
-            env = clip.automation_envelope(target_param)
+            # Primary path: DeviceParameter exposes arrangement envelope directly
+            if hasattr(target_param, "automation_envelope"):
+                try:
+                    env = target_param.automation_envelope
+                except Exception:  # Live's C API can raise various undocumented exceptions
+                    env = None
+
+            # Secondary path: iterate track.arrangement_envelopes
+            if env is None and hasattr(track, "arrangement_envelopes"):
+                try:
+                    for ae in track.arrangement_envelopes:
+                        if hasattr(ae, "parameter") and ae.parameter == target_param:
+                            env = ae
+                            break
+                except Exception:  # Live's C API can raise various undocumented exceptions
+                    env = None
+
+            # Fallback path: clip.automation_envelope (Session View API, last resort)
             if env is None:
-                raise RuntimeError(
-                    "Could not get or create arrangement automation envelope "
-                    "for parameter '{}'.".format(param_name)
-                )
-            clip_start = clip.start_time
-            if clear_range and points:
+                try:
+                    arr_clips = list(track.arrangement_clips)
+                except AttributeError:
+                    raise RuntimeError(
+                        "track.arrangement_clips not available — "
+                        "requires Live 9+ with arrangement support."
+                    )
+                if not arr_clips:
+                    raise RuntimeError(
+                        "No arrangement clips on track {} — "
+                        "create an arrangement clip first, then write automation.".format(
+                            track_index
+                        )
+                    )
+                # Bug 1: Pick the clip with most overlap with the automation time range
                 times = [float(pt["time"]) for pt in points]
                 start_time = min(times)
                 end_time = max(times)
-                # Adjust times to be relative to the clip's start_time
-                rel_start = max(0.0, start_time - clip_start)
-                rel_end = max(0.0, end_time - clip_start)
+
+                def _overlap(c):
+                    c_end = c.start_time + c.length
+                    return max(0.0, min(end_time, c_end) - max(start_time, c.start_time))
+
+                clip = max(arr_clips, key=_overlap)
+                clip_start = clip.start_time
+
+                if not hasattr(clip, "automation_envelope") or not callable(clip.automation_envelope):
+                    raise RuntimeError(
+                        "clip.automation_envelope() not available in this Live version."
+                    )
+                env = clip.automation_envelope(target_param)
+                if env is None:
+                    raise RuntimeError(
+                        "Could not get or create arrangement automation envelope "
+                        "for parameter '{}'.".format(param_name)
+                    )
+
+            if clear_range:
+                times = [float(pt["time"]) for pt in points]
+                start_time = min(times)
+                end_time = max(times)
+                if clip is not None:
+                    # Bug 4: clamp clear window to the actual clip span
+                    rel_start = max(0.0, start_time - clip_start)
+                    rel_end = min(clip.length, max(0.0, end_time - clip_start))
+                else:
+                    rel_start = start_time
+                    rel_end = end_time
                 try:
                     env.clear_envelope(rel_start, rel_end - rel_start)
                 except AttributeError:
                     pass
+
+            # Bug 3: count only points that are actually written
+            points_written = 0
             for pt in points:
                 abs_time = float(pt["time"])
                 rel_time = abs_time - clip_start
                 if rel_time < 0.0:
                     continue  # point is before this clip — skip
+                # Bug 2: skip points beyond the clip's end
+                if clip is not None and rel_time > clip.length:
+                    continue
                 try:
-                    env.insert_step(rel_time, 0.0, float(pt["value"]))
+                    env.insert_step(rel_time, 0.0, float(pt["value"]))  # 0.0 = instantaneous step duration
+                    points_written += 1
                 except AttributeError:
                     raise RuntimeError("insert_step not available in this Live version")
-            return len(points)
+            return points_written
 
         points_written = self._run_on_main_thread(fn)
-        return {
+        # Bug 6: only include device_index when it is actually relevant
+        result = {
             "points_written": points_written,
             "parameter_name": param_name,
             "track_index": track_index,
-            "device_index": device_index,
         }
+        if parameter_type == "device_parameter" or (
+            parameter_type is None and device_index is not None
+        ):
+            result["device_index"] = device_index
+        return result
 
     # -------------------------------------------------------------------------
     # Device (read)
