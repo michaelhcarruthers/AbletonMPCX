@@ -403,6 +403,7 @@ def perform_device_parameter_moves(
     ``parameter_index`` is absent the index is resolved automatically via a
     case-insensitive substring match against the device's parameter list.
     """
+    step_ms = max(1, int(step_ms))
     # Fetch device parameters once if any move uses name-based resolution.
     cached_parameters: list | None = None
     if any("parameter_index" not in m and "parameter_name" in m for m in moves):

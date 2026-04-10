@@ -238,6 +238,9 @@ def analysis_tool(action: str, **kwargs) -> dict:
             "valid_actions": sorted(_ACTIONS.keys()),
         }
     try:
+        # Unwrap if Claude passed kwargs as a nested dict literal
+        if "kwargs" in kwargs and isinstance(kwargs["kwargs"], dict):
+            kwargs = {**kwargs["kwargs"]}
         return _ACTIONS[action](**kwargs)
     except TypeError as exc:
         return {"status": "error", "error": str(exc)}
