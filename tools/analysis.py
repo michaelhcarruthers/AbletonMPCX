@@ -10,6 +10,7 @@ from helpers import mcp
 # get_loudness — pyloudnorm (ITU-R BS.1770-4)
 # ---------------------------------------------------------------------------
 
+@mcp.tool()
 def get_loudness(file_path: str) -> dict:
     """Measure perceptual loudness of an audio file using ITU-R BS.1770-4."""
     try:
@@ -53,6 +54,7 @@ def get_loudness(file_path: str) -> dict:
 # get_onsets — aubio
 # ---------------------------------------------------------------------------
 
+@mcp.tool()
 def get_onsets(file_path: str, method: str = "complex", threshold: float = 0.3) -> dict:
     """Detect note/transient onsets in an audio file using aubio."""
     try:
@@ -101,6 +103,7 @@ def get_onsets(file_path: str, method: str = "complex", threshold: float = 0.3) 
 # get_spectral_descriptors — essentia
 # ---------------------------------------------------------------------------
 
+@mcp.tool()
 def get_spectral_descriptors(file_path: str) -> dict:
     """Extract perceptual spectral descriptors from an audio file using Essentia."""
     try:
@@ -160,6 +163,7 @@ def get_spectral_descriptors(file_path: str) -> dict:
 # get_beat_tracking — madmom
 # ---------------------------------------------------------------------------
 
+@mcp.tool()
 def get_beat_tracking(file_path: str) -> dict:
     """Detect beats and downbeats in an audio file using madmom."""
     try:
@@ -215,6 +219,7 @@ def get_beat_tracking(file_path: str) -> dict:
 # get_envelope — scipy.signal
 # ---------------------------------------------------------------------------
 
+@mcp.tool()
 def get_envelope(file_path: str, smoothing_ms: float = 10.0, num_points: int = 200) -> dict:
     """Extract a smoothed amplitude envelope from an audio file using scipy."""
     try:
