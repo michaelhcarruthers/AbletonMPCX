@@ -12,6 +12,7 @@ import socket
 import struct
 import threading
 import traceback
+import uuid
 
 try:
     import Queue as queue
@@ -53,6 +54,7 @@ class AbletonMPCX(ControlSurface):
         self._server_socket = None
         self._server_thread = None
         self._running = False
+        self._active_gesture_tokens = set()
         self._initialized = True  # safe to call self.song() from here onward
         self._start_server()
 
@@ -1775,6 +1777,7 @@ class AbletonMPCX(ControlSurface):
                     try:
                         if slim:
                             results.append({
+                                "track_index": t_idx,
                                 "clip_index": c_idx,
                                 "start_time": clip.start_time,
                                 "length": clip.length,
@@ -2455,7 +2458,7 @@ class AbletonMPCX(ControlSurface):
         for i, p in enumerate(device.parameters):
             result.append({
                 "index": i,
-                "name": p.name,
+                "name": (p.original_name if getattr(p, "original_name", None) else p.name),
                 "value": p.value,
                 "min": p.min,
                 "max": p.max,
@@ -2654,16 +2657,20 @@ class AbletonMPCX(ControlSurface):
                 })
 
             if move_plans:
-                self._schedule_move_tick(move_plans, step_ms)
+                token = str(uuid.uuid4())
+                self._active_gesture_tokens.add(token)
+                self._schedule_move_tick(move_plans, step_ms, token)
 
             return len(move_plans)
 
         moves_scheduled = self._run_on_main_thread(fn)
         return {"moves_scheduled": moves_scheduled}
 
-    def _schedule_move_tick(self, move_plans, step_ms):
+    def _schedule_move_tick(self, move_plans, step_ms, token):
         """Schedule the next animation tick for all active moves."""
         def tick():
+            if token not in self._active_gesture_tokens:
+                return  # cancelled — end gestures cleanly
             still_active = []
             for plan in move_plans:
                 plan["current_step"] += 1
@@ -2711,9 +2718,17 @@ class AbletonMPCX(ControlSurface):
 
             if still_active:
                 # schedule_message delay is in milliseconds
-                self.schedule_message(step_ms, lambda sa=still_active, sm=step_ms: self._schedule_move_tick(sa, sm))
+                self.schedule_message(step_ms, lambda sa=still_active, sm=step_ms, tk=token: self._schedule_move_tick(sa, sm, tk))
+            else:
+                # All moves complete — remove token
+                self._active_gesture_tokens.discard(token)
 
         tick()
+
+    def _cmd_cancel_gestures(self, params):
+        """Cancel all in-progress gesture animations immediately."""
+        self._active_gesture_tokens.clear()
+        return {"cancelled": True}
 
     def _cmd_set_device_parameter_human(self, params):
         """

@@ -69,7 +69,9 @@ TOOL_GROUPS: dict[str, list[str]] = {
         "write_arrangement_volume_automation",
     ],
     "performance": [
-        "perform_macro", "perform_macro_live", "setup_sidechain",
+        "perform_macro", "perform_macro_live", "perform_macro_to_arrangement",
+        "get_rack_macros", "set_macro_intensity", "setup_performance_rack",
+        "setup_sidechain",
         "teardown_sidechain", "setup_resampling", "teardown_resampling",
         "get_observer", "set_observer", "subscribe_", "unsubscribe_",
         "fire_scene", "stop_all_clips", "jump_to_", "set_follow_action",
@@ -78,7 +80,7 @@ TOOL_GROUPS: dict[str, list[str]] = {
         "get_log", "get_operation_log", "get_audit", "run_diagnostic",
         "check_", "validate_", "inspect_", "get_health",
         "export_audit", "clear_log",
-        "get_latency_report",
+        "get_latency_report", "analyze_mix_balance",
     ],
     "templates": [
         "classify_tracks", "apply_mix_template", "preview_mix_template",
