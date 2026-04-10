@@ -5,29 +5,29 @@ import helpers
 from helpers import mcp, _send
 from helpers.vocabulary import resolve_intensity, resolve_device_name, DEVICE_ALIASES
 
-from tools.scene_management import (  # noqa: F401
-    get_scenes,
-    get_scene_info,
-    set_scene_name,
-    set_scene_tempo,
-    set_scene_color,
-)
-from tools.browser import (  # noqa: F401
-    get_browser_tree,
-    get_browser_items_at_path,
-    load_browser_item,
-    load_plugin_device,
-)
-from tools.rack import (  # noqa: F401
-    get_rack_chains,
-    get_rack_drum_pads,
-    randomize_rack_macros,
-    store_rack_variation,
-)
-
 # ---------------------------------------------------------------------------
 # Scene
 # ---------------------------------------------------------------------------
+
+def get_scenes() -> list:
+    """Return all scenes with name, tempo, color, and state."""
+    return _send("get_scenes")
+
+def get_scene_info(scene_index: int) -> dict:
+    """Return full details for the scene at scene_index."""
+    return _send("get_scene_info", {"scene_index": scene_index})
+
+def set_scene_name(scene_index: int, name: str) -> dict:
+    """Rename the scene at scene_index."""
+    return _send("set_scene_name", {"scene_index": scene_index, "name": name})
+
+def set_scene_tempo(scene_index: int, tempo: float) -> dict:
+    """Set the scene tempo at scene_index."""
+    return _send("set_scene_tempo", {"scene_index": scene_index, "tempo": tempo})
+
+def set_scene_color(scene_index: int, color: int) -> dict:
+    """Set the scene color as an RGB integer (0x00rrggbb)."""
+    return _send("set_scene_color", {"scene_index": scene_index, "color": color})
 
 def fire_scene(scene_index: int) -> dict:
     """Launch the scene at scene_index."""
@@ -48,6 +48,22 @@ def set_crossfade_assign(track_index: int, value: int) -> dict:
 # ---------------------------------------------------------------------------
 # RackDevice
 # ---------------------------------------------------------------------------
+
+def get_rack_chains(track_index: int, device_index: int, is_return_track: bool = False) -> list:
+    """Return the chains of a Rack device at (track_index, device_index). Set is_return_track=True to target a return track."""
+    return _send("get_rack_chains", {"track_index": track_index, "device_index": device_index, "is_return_track": is_return_track})
+
+def get_rack_drum_pads(track_index: int, device_index: int, is_return_track: bool = False) -> list:
+    """Return the drum pads of a Drum Rack device (use is_return_track=True for return tracks)."""
+    return _send("get_rack_drum_pads", {"track_index": track_index, "device_index": device_index, "is_return_track": is_return_track})
+
+def randomize_rack_macros(track_index: int, device_index: int, is_return_track: bool = False) -> dict:
+    """Randomize the macro controls of a Rack device. Set is_return_track=True to target a return track."""
+    return _send("randomize_rack_macros", {"track_index": track_index, "device_index": device_index, "is_return_track": is_return_track})
+
+def store_rack_variation(track_index: int, device_index: int, is_return_track: bool = False) -> dict:
+    """Store the current macro state as a new variation in a Rack device. Set is_return_track=True to target a return track."""
+    return _send("store_rack_variation", {"track_index": track_index, "device_index": device_index, "is_return_track": is_return_track})
 
 # ---------------------------------------------------------------------------
 # GroovePool
@@ -72,6 +88,31 @@ def extract_groove_from_clip(
 # ---------------------------------------------------------------------------
 # Browser
 # ---------------------------------------------------------------------------
+
+def get_browser_tree(category_type: str = "all") -> dict:
+    """Return the Ableton browser tree up to 2 levels deep for the given category type."""
+    return _send("get_browser_tree", {"category_type": category_type})
+
+def get_browser_items_at_path(path: str) -> dict:
+    """Return browser items at the given path (e.g. 'instruments/Drum Rack')."""
+    return _send("get_browser_items_at_path", {"path": path})
+
+def load_browser_item(uri: str, track_index: int = 0, is_return_track: bool = False) -> dict:
+    """Load a browser item by URI onto a track; use get_browser_items_at_path to discover valid URIs."""
+    return _send("load_browser_item", {"uri": uri, "track_index": track_index, "is_return_track": is_return_track})
+
+def load_plugin_device(
+    track_index: int,
+    plugin_name: str,
+    plugin_format: str = "au",
+) -> dict:
+    """Load a third-party AU or VST plugin onto a track by name."""
+    return _send("load_plugin_device", {
+        "track_index": track_index,
+        "plugin_name": plugin_name,
+        "plugin_format": plugin_format,
+    })
+
 
 def add_native_device(track_index: int, device_name: str, is_return_track: bool = False) -> dict:
     """Add a native Ableton device to a track by name."""

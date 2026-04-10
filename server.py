@@ -50,21 +50,6 @@ _IMPL_MODULES = [
     "tools.theory",
     "tools.spectrum",
     "tools.analysis",
-    # Split modules — focused sub-modules extracted from the large implementation files above.
-    # Must be listed after their parent modules to ensure re-exports resolve correctly.
-    "tools.transport",
-    "tools.song_settings",
-    "tools.track_management",
-    "tools.humanization",
-    "tools.audio_analysis",
-    "tools.reference_profiles",
-    "tools.project_health",
-    "tools.sound_library",
-    "tools.screenshot",
-    "tools.mix_analysis",
-    "tools.scene_management",
-    "tools.browser",
-    "tools.rack",
 ]
 
 # Dispatcher modules — thin routing layer loaded after implementation modules.
