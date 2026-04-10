@@ -76,7 +76,6 @@ def _std_dev(values: list) -> float:
     return math.sqrt(variance)
 
 
-@mcp.tool()
 def humanize_notes(
     track_index: int,
     slot_index: int,
@@ -123,7 +122,6 @@ def humanize_notes(
     }
 
 
-@mcp.tool()
 def humanize_dilla(
     track_index: int,
     slot_index: int,
@@ -196,7 +194,6 @@ def humanize_dilla(
     }
 
 
-@mcp.tool()
 def analyze_clip_feel(track_index: int, slot_index: int, grid: float = 0.25) -> dict:
     """Analyse the timing and velocity feel of a MIDI clip."""
     result = _send("get_notes", {"track_index": track_index, "slot_index": slot_index})
@@ -286,7 +283,6 @@ def analyze_clip_feel(track_index: int, slot_index: int, grid: float = 0.25) -> 
     }
 
 
-@mcp.tool()
 def duplicate_clip_to_new_scene(track_index: int, slot_index: int) -> dict:
     """Duplicate the clip at (track_index, slot_index) into a new scene."""
     # Get current scene count to know the index of the new scene
@@ -324,7 +320,6 @@ def duplicate_clip_to_new_scene(track_index: int, slot_index: int) -> dict:
     }
 
 
-@mcp.tool()
 def create_midi_track_with_drum_rack(index: int = -1, track_name: str | None = None) -> dict:
     """Create a new MIDI track and immediately load a Drum Rack onto it."""
     # Create the MIDI track
@@ -349,7 +344,6 @@ def create_midi_track_with_drum_rack(index: int = -1, track_name: str | None = N
     }
 
 
-@mcp.tool()
 def capture_device_macro_snapshot(track_index: int, device_index: int, label: str | None = None) -> dict:
     """Capture the current parameter values of a device as a named snapshot."""
     result = _send("get_device_parameters", {
@@ -378,7 +372,6 @@ def capture_device_macro_snapshot(track_index: int, device_index: int, label: st
     }
 
 
-@mcp.tool()
 def apply_device_macro_snapshot(label: str, track_index: int | None = None, device_index: int | None = None) -> dict:
     """Restore device parameter values from a previously captured snapshot."""
     key = "__device__{}".format(label)
@@ -414,7 +407,6 @@ def apply_device_macro_snapshot(label: str, track_index: int | None = None, devi
     }
 
 
-@mcp.tool()
 def prep_track_for_resampling(track_index: int, resample_track_name: str = "Resample") -> dict:
     """Prepare a track for resampling by creating a new audio track routed to record it."""
     # Create the audio track
@@ -441,7 +433,6 @@ def prep_track_for_resampling(track_index: int, resample_track_name: str = "Resa
     }
 
 
-@mcp.tool()
 def create_arrangement_scaffold(
     sections: list[dict],
 ) -> dict:
@@ -483,7 +474,6 @@ def create_arrangement_scaffold(
 # Phase 8: Reference profiles
 # ---------------------------------------------------------------------------
 
-@mcp.tool()
 def designate_reference_clip(
     track_index: int,
     slot_index: int,
@@ -554,7 +544,6 @@ def designate_reference_clip(
     }
 
 
-@mcp.tool()
 def compare_clip_feel(
     track_index: int,
     slot_index: int,
@@ -684,7 +673,6 @@ def compare_clip_feel(
     }
 
 
-@mcp.tool()
 def designate_reference_mix_state(
     label: str = "default",
     scene_index: int | None = None,
@@ -745,7 +733,6 @@ def designate_reference_mix_state(
     }
 
 
-@mcp.tool()
 def compare_mix_state(
     reference_label: str = "default",
     scene_index: int | None = None,
@@ -874,7 +861,6 @@ def compare_mix_state(
     }
 
 
-@mcp.tool()
 def list_reference_profiles() -> dict:
     """List all stored reference profiles (both in-process and persisted)."""
     _load_reference_profiles_from_project()
@@ -897,7 +883,6 @@ def list_reference_profiles() -> dict:
     return {"profiles": profiles, "count": len(profiles)}
 
 
-@mcp.tool()
 def delete_reference_profile(label: str) -> dict:
     """Delete a reference profile by label (in-process and from project memory)."""
     removed_memory = False
@@ -1011,7 +996,6 @@ def _analyse_audio_file(file_path: str, duration_limit: float = 300.0) -> dict:
     }
 
 
-@mcp.tool()
 def designate_reference_audio(
     file_path: str,
     label: str = "default_audio",
@@ -1032,7 +1016,6 @@ def designate_reference_audio(
     return {k: v for k, v in profile.items() if k != "type"}
 
 
-@mcp.tool()
 def analyse_audio(
     file_path: str,
     duration_limit: float = 300.0,
@@ -1041,7 +1024,6 @@ def analyse_audio(
     return _analyse_audio_file(file_path, duration_limit=duration_limit)
 
 
-@mcp.tool()
 def compare_audio(
     file_path: str,
     reference_label: str = "default_audio",
@@ -1139,7 +1121,6 @@ def compare_audio(
     }
 
 
-@mcp.tool()
 def compare_audio_sections(
     file_path: str,
     reference_label: str = "default_audio",
@@ -1477,7 +1458,6 @@ def _stop_observer():
     _observer_running = False
 
 
-@mcp.tool()
 def get_pending_suggestions(max_items: int = 10) -> dict:
     """Return and clear pending suggestions from the background observer."""
     with _observer_lock:
@@ -1492,7 +1472,6 @@ def get_pending_suggestions(max_items: int = 10) -> dict:
     }
 
 
-@mcp.tool()
 def observer_status() -> dict:
     """Return the current status of the background observer thread."""
     with _observer_lock:
@@ -1511,7 +1490,6 @@ def observer_status() -> dict:
 # Workflow loop — detect → correct
 # ---------------------------------------------------------------------------
 
-@mcp.tool()
 def auto_humanize_if_robotic(
     track_index: int,
     slot_index: int,
@@ -1573,7 +1551,6 @@ def auto_humanize_if_robotic(
     }
 
 
-@mcp.tool()
 def fix_groove_from_reference(
     track_index: int,
     slot_index: int,
@@ -1665,7 +1642,6 @@ def fix_groove_from_reference(
     }
 
 
-@mcp.tool()
 def batch_auto_humanize(
     track_indices: list,
     slot_index: int,
@@ -1724,7 +1700,6 @@ def batch_auto_humanize(
 _MISSING_PLUGIN_INDICATORS = ["missing", "disabled", "unknown plugin", "vst not found", "au not found"]
 
 
-@mcp.tool()
 def find_missing_plugins(dry_run: bool = True) -> dict:
     """Scan all tracks for missing or disabled plugin placeholders. dry_run=True by default — reports without making changes."""
     tracks = _send("get_tracks", {})
@@ -1779,7 +1754,6 @@ def find_missing_plugins(dry_run: bool = True) -> dict:
     }
 
 
-@mcp.tool()
 def get_missing_media_status() -> dict:
     """Report all missing audio files in the current Live set."""
     result = _send("get_missing_media", {})
@@ -1793,7 +1767,6 @@ def get_missing_media_status() -> dict:
     }
 
 
-@mcp.tool()
 def search_missing_media(search_folders: list) -> dict:
     """Attempt to relink missing audio samples by searching the given folders."""
     _send("begin_undo_step", {"name": "search_missing_media"})
@@ -1804,7 +1777,6 @@ def search_missing_media(search_folders: list) -> dict:
     return result
 
 
-@mcp.tool()
 def project_health_report() -> dict:
     """Run a full health audit of the current Live set."""
     # Gather data
@@ -1911,7 +1883,6 @@ def project_health_report() -> dict:
 # Cleanup tools
 # ---------------------------------------------------------------------------
 
-@mcp.tool()
 def find_empty_tracks() -> dict:
     """Find all tracks with no clips and no devices."""
     tracks = _send("get_tracks", {})
@@ -1938,7 +1909,6 @@ def find_empty_tracks() -> dict:
     }
 
 
-@mcp.tool()
 def find_unused_returns() -> dict:
     """Find return tracks that no track is sending to (all sends at zero or minimum)."""
     try:
@@ -1982,7 +1952,6 @@ def find_unused_returns() -> dict:
     }
 
 
-@mcp.tool()
 def cleanup_session(dry_run: bool = True) -> dict:
     """Remove empty tracks and unused return tracks. dry_run=True by default — reports without making changes."""
     empty_result = find_empty_tracks()
@@ -2042,7 +2011,6 @@ def cleanup_session(dry_run: bool = True) -> dict:
 
 _PROJECT_LOAD_DELAY_SECONDS: float = 2.0  # seconds to wait after opening a set before auditing
 
-@mcp.tool()
 def open_set(set_path: str) -> dict:
     """Open an Ableton Live set file (.als) on the currently running Live instance."""
     set_path = str(set_path)
@@ -2065,7 +2033,6 @@ def open_set(set_path: str) -> dict:
         }
 
 
-@mcp.tool()
 def batch_audit_projects(set_paths: list, save_reports: bool = True) -> dict:
     """Run project_health_report() on multiple Live sets in sequence."""
     results = []
@@ -2145,7 +2112,6 @@ def batch_audit_projects(set_paths: list, save_reports: bool = True) -> dict:
 # M — Per-project cached audit JSON files
 # ---------------------------------------------------------------------------
 
-@mcp.tool()
 def save_project_audit(save_path: str | None = None) -> dict:
     """Run project_health_report() and save the result as a JSON file."""
     report = project_health_report()
@@ -2172,7 +2138,6 @@ def save_project_audit(save_path: str | None = None) -> dict:
     }
 
 
-@mcp.tool()
 def load_project_audit(audit_path: str) -> dict:
     """Load a previously saved project audit JSON and return its contents."""
     if not os.path.exists(audit_path):
@@ -2184,7 +2149,6 @@ def load_project_audit(audit_path: str) -> dict:
         return {"error": "Failed to read audit file: {}".format(str(exc))}
 
 
-@mcp.tool()
 def compare_project_audits(audit_path_a: str, audit_path_b: str) -> dict:
     """Compare two saved project audits and return what changed."""
     a = load_project_audit(audit_path_a)

@@ -128,4 +128,33 @@ TOOL_GROUP_MODULES: dict[str, list[str]] = {
     "observer": [
         "tools.observer_bridge",
     ],
+    "dispatcher": [
+        # Implementation modules must be loaded first so dispatchers can import them.
+        "tools.session",
+        "tools.session_snapshots",
+        "tools.session_suggestions",
+        "tools.session_recording",
+        "tools.tracks",
+        "tools.clips",
+        "tools.devices",
+        "tools.staging",
+        "tools.morph",
+        "tools.reference",
+        "tools.audit",
+        "tools.performance",
+        "tools.diagnostics",
+        "tools.arrangement_bridge",
+        "tools.observer_bridge",
+        "tools.realtime_analyzer",
+        "tools.mix_templates",
+        "tools.theory",
+        "tools.spectrum",
+        "tools.analysis",
+        # Dispatcher modules — registered after all implementation modules.
+        "tools.dispatchers.arrangement_tool",
+        "tools.dispatchers.device_tool",
+        "tools.dispatchers.analysis_tool",
+        "tools.dispatchers.render_tool",
+        "tools.dispatchers.project_tool",
+    ],
 }

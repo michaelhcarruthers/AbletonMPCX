@@ -84,7 +84,6 @@ def _invert_chord(notes: list[int]) -> list[int]:
 # MCP Tools
 # ---------------------------------------------------------------------------
 
-@mcp.tool()
 def check_key(
     track_index: int,
     slot_index: int,
@@ -180,7 +179,6 @@ def check_key(
     }
 
 
-@mcp.tool()
 def check_key_batch(
     clips: list[dict],
     mode_hint: str | None = None,

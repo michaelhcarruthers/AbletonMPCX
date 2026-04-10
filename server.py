@@ -7,7 +7,8 @@ Starts the FastMCP server and imports all domain tool modules so that every
 Set AMCPX_TOOL_GROUPS in .env to load only specific groups, e.g.:
     AMCPX_TOOL_GROUPS=base,session,mixer,clips,arrangement,devices
 
-If AMCPX_TOOL_GROUPS is not set, all tool modules are loaded.
+If AMCPX_TOOL_GROUPS is not set, all dispatcher modules are loaded along
+with the implementation modules they depend on.
 """
 from __future__ import annotations
 
@@ -26,8 +27,9 @@ logger = logging.getLogger(__name__)
 # Selective tool module loading based on AMCPX_TOOL_GROUPS env var
 # ---------------------------------------------------------------------------
 
-# All modules in dependency/import order
-_ALL_MODULES = [
+# Implementation modules — must be loaded before dispatcher modules so that
+# internal functions are already defined when dispatchers import them.
+_IMPL_MODULES = [
     "tools.session",
     "tools.session_snapshots",
     "tools.session_suggestions",
@@ -47,12 +49,25 @@ _ALL_MODULES = [
     "tools.mix_templates",
     "tools.theory",
     "tools.spectrum",
+    "tools.analysis",
 ]
+
+# Dispatcher modules — thin routing layer loaded after implementation modules.
+_DISPATCHER_MODULES = [
+    "tools.dispatchers.arrangement_tool",
+    "tools.dispatchers.device_tool",
+    "tools.dispatchers.analysis_tool",
+    "tools.dispatchers.render_tool",
+    "tools.dispatchers.project_tool",
+]
+
+# Combined list for backward-compatible "load everything" mode
+_ALL_MODULES = _IMPL_MODULES + _DISPATCHER_MODULES
 
 _groups_env = os.environ.get("AMCPX_TOOL_GROUPS", "").strip()
 
 if not _groups_env:
-    # No filter — load everything
+    # No filter — load implementation modules then dispatcher modules
     _modules_to_load = _ALL_MODULES
 else:
     from tool_groups import TOOL_GROUP_MODULES

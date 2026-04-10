@@ -92,7 +92,6 @@ from tools.session_recording import (  # noqa: E402,F401
 # Application
 # ---------------------------------------------------------------------------
 
-@mcp.tool()
 def get_app_version() -> dict:
     """Return the running Ableton Live version."""
     return _send("get_app_version")
@@ -101,22 +100,18 @@ def get_app_version() -> dict:
 # Song
 # ---------------------------------------------------------------------------
 
-@mcp.tool()
 def get_song_info() -> dict:
     """Return the current song's tempo, transport state, loop settings, etc."""
     return _send("get_song_info")
 
-@mcp.tool()
 def get_song_info_minimal() -> dict:
     """Return only tempo, time signature, bar count, and playhead — no track or clip data. Use this instead of get_song_info when you only need timing context."""
     return _send("get_song_info_minimal", {})
 
-@mcp.tool()
 def set_tempo(tempo: float) -> dict:
     """Set the song tempo (20-999 BPM)."""
     return _send("set_tempo", {"tempo": tempo})
 
-@mcp.tool()
 def set_time_signature(numerator: int | None = None, denominator: int | None = None) -> dict:
     """Set the song time signature numerator and/or denominator."""
     params: dict[str, int] = {}
@@ -126,27 +121,22 @@ def set_time_signature(numerator: int | None = None, denominator: int | None = N
         params["denominator"] = denominator
     return _send("set_time_signature", params)
 
-@mcp.tool()
 def set_record_mode(record_mode: bool) -> dict:
     """Enable or disable Arrangement Record."""
     return _send("set_record_mode", {"record_mode": record_mode})
 
-@mcp.tool()
 def set_session_record(session_record: bool) -> dict:
     """Enable or disable Session Overdub."""
     return _send("set_session_record", {"session_record": session_record})
 
-@mcp.tool()
 def set_overdub(overdub: bool) -> dict:
     """Enable or disable MIDI Arrangement Overdub."""
     return _send("set_overdub", {"overdub": overdub})
 
-@mcp.tool()
 def set_metronome(metronome: bool) -> dict:
     """Enable or disable the metronome."""
     return _send("set_metronome", {"metronome": metronome})
 
-@mcp.tool()
 def set_loop(enabled: bool | None = None, loop_start: float | None = None, loop_length: float | None = None) -> dict:
     """Set Arrangement loop state, start position (beats) and/or length (beats)."""
     params: dict[str, Any] = {}
@@ -158,92 +148,76 @@ def set_loop(enabled: bool | None = None, loop_start: float | None = None, loop_
         params["loop_length"] = loop_length
     return _send("set_loop", params)
 
-@mcp.tool()
 def set_arrangement_position(position_beats: float) -> dict:
     """Set the arrangement playhead position in beats (absolute song time)."""
     return _send("set_arrangement_position", {"position": position_beats})
 
-@mcp.tool()
 def set_swing_amount(value: float) -> dict:
     """Set the global swing amount (0.0-1.0)."""
     if not 0.0 <= value <= 1.0:
         raise ValueError("swing_amount must be between 0.0 and 1.0")
     return _send("set_swing_amount", {"value": value})
 
-@mcp.tool()
 def set_groove_amount(value: float) -> dict:
     """Set the global groove amount (0.0-1.0)."""
     if not 0.0 <= value <= 1.0:
         raise ValueError("groove_amount must be between 0.0 and 1.0")
     return _send("set_groove_amount", {"value": value})
 
-@mcp.tool()
 def set_back_to_arranger(value: bool) -> dict:
     """Enable or disable Back to Arranger mode."""
     return _send("set_back_to_arranger", {"value": value})
 
-@mcp.tool()
 def set_clip_trigger_quantization(value: int) -> dict:
     """Set the global clip trigger quantization (0-13, matching Live's ClipTriggerQuantization enum)."""
     if not 0 <= value <= 13:
         raise ValueError("clip_trigger_quantization must be between 0 and 13")
     return _send("set_clip_trigger_quantization", {"value": value})
 
-@mcp.tool()
 def set_midi_recording_quantization(value: int) -> dict:
     """Set the MIDI recording quantization (0-8, matching Live's RecordingQuantization enum)."""
     if not 0 <= value <= 8:
         raise ValueError("midi_recording_quantization must be between 0 and 8")
     return _send("set_midi_recording_quantization", {"value": value})
 
-@mcp.tool()
 def set_scale_mode(scale_mode: bool) -> dict:
     """Enable or disable scale mode."""
     return _send("set_scale_mode", {"scale_mode": scale_mode})
 
-@mcp.tool()
 def set_scale_name(scale_name: str) -> dict:
     """Set the scale name (e.g. 'Major', 'Minor', 'Dorian')."""
     return _send("set_scale_name", {"scale_name": scale_name})
 
-@mcp.tool()
 def set_root_note(root_note: int) -> dict:
     """Set the root note for the scale (0=C, 1=C#, ..., 11=B)."""
     if not 0 <= root_note <= 11:
         raise ValueError("root_note must be between 0 and 11")
     return _send("set_root_note", {"root_note": root_note})
 
-@mcp.tool()
 def set_or_delete_cue() -> dict:
     """Toggle (create or delete) a cue point at the current playback position."""
     return _send("set_or_delete_cue")
 
-@mcp.tool()
 def re_enable_automation() -> dict:
     """Re-enable automation that has been overridden."""
     return _send("re_enable_automation")
 
-@mcp.tool()
 def play_selection() -> dict:
     """Play the current selection in the Arrangement."""
     return _send("play_selection")
 
-@mcp.tool()
 def start_playing() -> dict:
     """Start playback from the insert marker."""
     return _send("start_playing")
 
-@mcp.tool()
 def stop_playing() -> dict:
     """Stop playback."""
     return _send("stop_playing")
 
-@mcp.tool()
 def continue_playing() -> dict:
     """Continue playback from the current position."""
     return _send("continue_playing")
 
-@mcp.tool()
 def tap_tempo() -> dict:
     """Send a tap tempo pulse."""
     return _send("tap_tempo")
@@ -258,87 +232,70 @@ def redo() -> dict:
     """Redo the last undone operation."""
     return _send("redo")
 
-@mcp.tool()
 def capture_midi(destination: int = 0) -> dict:
     """Capture recently played MIDI. destination: 0=auto, 1=session, 2=arrangement."""
     return _send("capture_midi", {"destination": destination})
 
-@mcp.tool()
 def capture_and_insert_scene() -> dict:
     """Capture currently playing clips into a new scene."""
     return _send("capture_and_insert_scene")
 
-@mcp.tool()
 def create_audio_track(index: int = -1) -> dict:
     """Create a new audio track. index=-1 appends at end."""
     return _send("create_audio_track", {"index": index})
 
-@mcp.tool()
 def create_midi_track(index: int = -1) -> dict:
     """Create a new MIDI track. index=-1 appends at end."""
     return _send("create_midi_track", {"index": index})
 
-@mcp.tool()
 def create_return_track() -> dict:
     """Add a new return track."""
     return _send("create_return_track")
 
-@mcp.tool()
 def create_scene(index: int = -1) -> dict:
     """Create a new scene. index=-1 appends at end."""
     return _send("create_scene", {"index": index})
 
-@mcp.tool()
 def delete_scene(index: int) -> dict:
     """Delete the scene at index."""
     return _send("delete_scene", {"scene_index": index})
 
-@mcp.tool()
 def delete_track(track_index: int) -> dict:
     """Delete the track at track_index."""
     return _send("delete_track", {"track_index": track_index})
 
-@mcp.tool()
 def delete_return_track(index: int) -> dict:
     """Delete the return track at index."""
     return _send("delete_return_track", {"index": index})
 
-@mcp.tool()
 def duplicate_scene(index: int) -> dict:
     """Duplicate the scene at index."""
     return _send("duplicate_scene", {"scene_index": index})
 
-@mcp.tool()
 def duplicate_track(track_index: int) -> dict:
     """Duplicate the track at track_index."""
     return _send("duplicate_track", {"track_index": track_index})
 
-@mcp.tool()
 def jump_by(beats: float) -> dict:
     """Jump the playback position by the given number of beats (positive or negative)."""
     return _send("jump_by", {"beats": beats})
 
-@mcp.tool()
 def jump_to_next_cue() -> dict:
     """Jump to the next cue point."""
     return _send("jump_to_next_cue")
 
-@mcp.tool()
 def jump_to_prev_cue() -> dict:
     """Jump to the previous cue point."""
     return _send("jump_to_prev_cue")
 
-@mcp.tool()
 def stop_all_clips(quantized: int = 1) -> dict:
     """Stop all clips. quantized=0 stops immediately regardless of quantization."""
     return _send("stop_all_clips", {"quantized": quantized})
 
-@mcp.tool()
 def get_cue_points() -> list:
     """Return all cue points as a list of {name, time} dicts."""
     return _send("get_cue_points")
 
-@mcp.tool()
 def jump_to_cue_point(index: int) -> dict:
     """Jump to the cue point at index."""
     return _send("jump_to_cue_point", {"index": index})
@@ -347,97 +304,78 @@ def jump_to_cue_point(index: int) -> dict:
 # Song.View
 # ---------------------------------------------------------------------------
 
-@mcp.tool()
 def get_selected_track() -> dict:
     """Return the currently selected track index and name."""
     return _send("get_selected_track")
 
-@mcp.tool()
 def set_selected_track(track_index: int) -> dict:
     """Select the track at track_index."""
     return _send("set_selected_track", {"track_index": track_index})
 
-@mcp.tool()
 def get_selected_scene() -> dict:
     """Return the currently selected scene index and name."""
     return _send("get_selected_scene")
 
-@mcp.tool()
 def set_selected_scene(scene_index: int) -> dict:
     """Select the scene at scene_index."""
     return _send("set_selected_scene", {"scene_index": scene_index})
 
-@mcp.tool()
 def get_follow_song() -> dict:
     """Return whether Follow Song is enabled."""
     return _send("get_follow_song")
 
-@mcp.tool()
 def set_follow_song(follow_song: bool) -> dict:
     """Enable or disable Follow Song."""
     return _send("set_follow_song", {"follow_song": follow_song})
 
-@mcp.tool()
 def get_draw_mode() -> dict:
     """Return whether Draw Mode is enabled in the current view."""
     return _send("get_draw_mode")
 
-@mcp.tool()
 def set_draw_mode(draw_mode: bool) -> dict:
     """Enable or disable Draw Mode."""
     return _send("set_draw_mode", {"draw_mode": draw_mode})
 
-@mcp.tool()
 def focus_view(view_name: str) -> dict:
     """Focus a named view in Ableton Live (e.g. 'Session', 'Arranger', 'Detail', 'Detail/Clip')."""
     return _send("focus_view", {"view_name": view_name})
 
-@mcp.tool()
 def show_view(view_name: str) -> dict:
     """Show a named panel/view. See focus_view for common view names."""
     return _send("show_view", {"view_name": view_name})
 
-@mcp.tool()
 def hide_view(view_name: str) -> dict:
     """Hide a named panel/view. See focus_view for common view names."""
     return _send("hide_view", {"view_name": view_name})
 
-@mcp.tool()
 def is_view_visible(view_name: str) -> dict:
     """Return whether the named view/panel is currently visible."""
     return _send("is_view_visible", {"view_name": view_name})
 
-@mcp.tool()
 def available_main_views() -> dict:
     """Return the list of available main view names."""
     return _send("available_main_views")
 
-@mcp.tool()
 def set_exclusive_arm(value: bool) -> dict:
     """Enable or disable exclusive arm mode (arming one track disarms all others)."""
     return _send("set_exclusive_arm", {"value": value})
 
-@mcp.tool()
 def set_exclusive_solo(value: bool) -> dict:
     """Enable or disable exclusive solo mode (soloing one track un-solos all others)."""
     return _send("set_exclusive_solo", {"value": value})
 
-@mcp.tool()
 def set_select_on_launch(value: bool) -> dict:
     """Enable or disable Select on Launch (firing a scene/clip selects it)."""
     return _send("set_select_on_launch", {"value": value})
 
-@mcp.tool()
 def nudge_up() -> dict:
     """Send a tempo nudge up pulse (nudges the master tempo up momentarily)."""
     return _send("nudge_up")
 
-@mcp.tool()
 def nudge_down() -> dict:
     """Send a tempo nudge down pulse (nudges the master tempo down momentarily)."""
     return _send("nudge_down")
 
-@mcp.tool()
 def get_appointed_device() -> dict:
     """Return the currently appointed (focused) device in Live."""
     return _send("get_appointed_device")
@@ -446,19 +384,16 @@ def get_appointed_device() -> dict:
 # Protocol versioning and capability discovery
 # ---------------------------------------------------------------------------
 
-@mcp.tool()
 def get_protocol_version() -> dict:
     """Return the AbletonMPCX protocol version string."""
     return _send("get_protocol_version")
 
 
-@mcp.tool()
 def get_selected_context() -> dict:
     """Return everything currently selected/focused in Live: selected track, scene, and detail clip."""
     return _send("get_selected_context")
 
 
-@mcp.tool()
 def get_capabilities() -> dict:
     """Returns a structured summary of all registered MCP tools with their descriptions."""
     tools_map = {}
@@ -476,7 +411,6 @@ def get_capabilities() -> dict:
     }
 
 
-@mcp.tool()
 def get_session_snapshot() -> dict:
     """Return a full normalised snapshot of the current session in a single call."""
     return _send("get_session_snapshot")
@@ -499,7 +433,6 @@ def get_session_snapshot() -> dict:
 # Phase 5: Persistent project memory
 # ---------------------------------------------------------------------------
 
-@mcp.tool()
 def set_project_id(project_id: str) -> dict:
     """Set the current project identity for persistent memory."""
     helpers._current_project_id = project_id
@@ -515,7 +448,6 @@ def set_project_id(project_id: str) -> dict:
     }
 
 
-@mcp.tool()
 def get_project_memory() -> dict:
     """Return the full persistent memory for the current project."""
     mem = _get_memory()
@@ -532,7 +464,6 @@ def get_project_memory() -> dict:
     }
 
 
-@mcp.tool()
 def add_project_note(note: str, category: str = "general") -> dict:
     """Add a free-form note to the current project memory."""
     mem = _get_memory()
@@ -577,7 +508,6 @@ def _get_track_roles() -> dict:
     return {"track_roles": mem.get("track_roles", {})}
 
 
-@mcp.tool()
 def set_preference(key: str, value: Any) -> dict:
     """Store a user preference in the current project memory."""
     mem = _get_memory()
@@ -586,7 +516,6 @@ def set_preference(key: str, value: Any) -> dict:
     return {"key": key, "value": value}
 
 
-@mcp.tool()
 def get_preferences() -> dict:
     """Return all stored preferences for the current project."""
     mem = _get_memory()
@@ -601,7 +530,6 @@ def get_preferences() -> dict:
 # Phase 6: Operation log
 # ---------------------------------------------------------------------------
 
-@mcp.tool()
 def get_operation_log(limit: int = 50) -> dict:
     """Return the most recent operations from the in-process operation log."""
     entries = list(reversed(_operation_log[-limit:]))
@@ -611,7 +539,6 @@ def get_operation_log(limit: int = 50) -> dict:
     }
 
 
-@mcp.tool()
 def flush_operation_log() -> dict:
     """Persist the current in-process operation log to project memory on disk."""
     mem = _get_memory()
@@ -628,7 +555,6 @@ def flush_operation_log() -> dict:
     }
 
 
-@mcp.tool()
 def get_stored_operation_log(limit: int = 100) -> dict:
     """Return the persisted operation log from project memory (across sessions)."""
     mem = _get_memory()
@@ -639,7 +565,6 @@ def get_stored_operation_log(limit: int = 100) -> dict:
     }
 
 
-@mcp.tool()
 def summarise_session() -> dict:
     """Summarise what happened in the current session based on the operation log."""
     from collections import Counter
@@ -668,7 +593,6 @@ def summarise_session() -> dict:
 
 
 
-@mcp.tool()
 def analyse_mix_state() -> dict:
     """Analyse the current mix state and surface observations."""
     observations = []
@@ -782,7 +706,6 @@ _STYLE_PRESETS: dict[str, dict] = {
 _STYLE_FREE: dict = {"bpm": 120, "tracks": [("MIDI 1", "midi"), ("MIDI 2", "midi"), ("MIDI 3", "midi"), ("Audio 1", "audio")]}
 
 
-@mcp.tool()
 def create_song_from_brief(
     style: str,
     key: str | None = None,
@@ -915,7 +838,6 @@ def _infer_role_from_devices(track_index: int, devices: list | None = None) -> t
 
 # --- Feature 1: Auto-naming and color ---
 
-@mcp.tool()
 def auto_name_track(track_index: int, dry_run: bool = False) -> dict:
     """Automatically name a track based on its device chain content."""
     role, method = _infer_role_from_devices(track_index)
@@ -949,7 +871,6 @@ def auto_name_track(track_index: int, dry_run: bool = False) -> dict:
     }
 
 
-@mcp.tool()
 def auto_color_track(track_index: int, role: str | None = None, dry_run: bool = False) -> dict:
     """Set a track's color based on its inferred or specified role."""
     if role is None:
@@ -979,7 +900,6 @@ def auto_color_track(track_index: int, role: str | None = None, dry_run: bool = 
     }
 
 
-@mcp.tool()
 def auto_name_all_tracks(dry_run: bool = False, skip_named: bool = True) -> dict:
     """Auto-name and color all tracks in the session at once."""
     try:
@@ -1046,7 +966,6 @@ def auto_name_all_tracks(dry_run: bool = False, skip_named: bool = True) -> dict
     }
 
 
-@mcp.tool()
 def auto_name_clip(track_index: int, clip_index: int, dry_run: bool = False) -> dict:
     """Auto-name a clip based on its MIDI content or audio file name."""
     try:
@@ -1119,7 +1038,6 @@ def auto_name_clip(track_index: int, clip_index: int, dry_run: bool = False) -> 
     }
 
 
-@mcp.tool()
 def auto_name_scene(scene_index: int, dry_run: bool = False) -> dict:
     """Auto-name a scene based on the clip names in that scene row."""
     try:
@@ -1220,7 +1138,6 @@ _SCAFFOLD_TEMPLATES = {
 }
 
 
-@mcp.tool()
 def build_scene_scaffold(
     structure: list[str] | None = None,
     bars_each: dict[str, int] | None = None,
@@ -1308,7 +1225,6 @@ def build_scene_scaffold(
     }
 
 
-@mcp.tool()
 def list_scaffold_templates() -> dict:
     """List all available scene scaffold templates with their structures."""
     results = []
@@ -1343,7 +1259,6 @@ def _bars_beats_to_song_time(start_bar: int, start_beat: float, time_sig_numerat
     return (start_bar - 1) * time_sig_numerator + (start_beat - 1)
 
 
-@mcp.tool()
 def place_clip_in_arrangement(
     track_index: int,
     clip_index: int,
@@ -1394,7 +1309,6 @@ def place_clip_in_arrangement(
     }
 
 
-@mcp.tool()
 def duplicate_clip_to_scenes(
     operations: list[dict],
 ) -> dict:
@@ -1505,7 +1419,6 @@ def duplicate_clip_to_scenes(
     }
 
 
-@mcp.tool()
 def arrange_from_scene_scaffold(
     track_indices: list[int] | None = None,
     layout: dict[str, int] | None = None,
@@ -1598,7 +1511,6 @@ def arrange_from_scene_scaffold(
     }
 
 
-@mcp.tool()
 def insert_tempo_section(
     position_bar: int,
     tempo: float,
@@ -1685,7 +1597,6 @@ def insert_tempo_section(
 
 
 
-@mcp.tool()
 def session_audit(fix: bool = False) -> dict:
     """Analyze the current session state and return a list of issues with suggestions."""
     issues = []
@@ -1809,7 +1720,6 @@ def session_audit(fix: bool = False) -> dict:
     }
 
 
-@mcp.tool()
 def mix_correction_loop(
     track_index: int,
     target_band: str,
@@ -2089,7 +1999,6 @@ def auto_orient() -> dict:
 # H — State diff cache
 # ---------------------------------------------------------------------------
 
-@mcp.tool()
 def get_session_diff() -> dict:
     """Return only what has changed in the session since the last call."""
     snapshot = _send("get_session_snapshot")
@@ -2168,7 +2077,6 @@ def get_session_diff() -> dict:
 # L — Tool call bundling
 # ---------------------------------------------------------------------------
 
-@mcp.tool()
 def get_session_state(compact: bool = False) -> dict:
     """Return session state. compact=False returns full structured state; compact=True returns a token-efficient human-readable summary."""
     if compact:
@@ -2231,7 +2139,6 @@ def _db_from_linear(linear: float) -> float:
     return 20.0 * math.log10(max(linear, 1e-10))
 
 
-@mcp.tool()
 def get_session_health() -> dict:
     """Return a single structured health summary of the current session."""
     snapshot = _send("get_session_snapshot")
