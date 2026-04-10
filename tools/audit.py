@@ -2526,6 +2526,7 @@ def session_audit(fix: bool = False) -> dict:
                         break
                 except RuntimeError as e:
                     logger.debug("Could not get clip info for track %s scene %s during audit: %s", ti, scene_idx, e)
+            if not has_clip:
                 issues.append({
                     "type": "empty_scene",
                     "severity": "info",

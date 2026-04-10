@@ -1002,8 +1002,8 @@ def create_song_from_brief(
     # 3. Warn if key was provided (no set_song_key command available)
     if key is not None:
         warnings.append(
-            f"Key '{key}' noted but no set_song_key command is available; "
-            "set the key manually in Ableton."
+            "Key '{}' noted but no set_song_key command is available; "
+            "set the key manually in Ableton.".format(key)
         )
 
     return {
