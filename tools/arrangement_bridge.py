@@ -227,7 +227,7 @@ def write_dynamic_automation(
 
     # --- write volume automation ---
     try:
-        vol_result = _send_m4l("set_arrangement_automation", {
+        vol_result = _send("write_arrangement_automation", {
             "track_index": track_index,
             "parameter_type": "volume",
             "points": make_envelope(volume_start, volume_end),
@@ -250,11 +250,11 @@ def write_dynamic_automation(
 
     if filter_device_index is not None:
         try:
-            filter_result = _send_m4l("set_arrangement_automation", {
+            filter_result = _send("write_arrangement_automation", {
                 "track_index": track_index,
                 "parameter_type": "device_parameter",
                 "device_index": filter_device_index,
-                "parameter_name": "Frequency",
+                "parameter_index": 0,
                 "points": make_envelope(filter_start, filter_end),
             })
             applied_automations.append("filter_cutoff")
