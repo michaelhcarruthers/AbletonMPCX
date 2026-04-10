@@ -72,6 +72,7 @@ def _find_device_parameter_by_name(
 # Performance FX MCP tools
 # ---------------------------------------------------------------------------
 
+@mcp.tool()
 def reverb_throw(
     track_index: int,
     start_bar: int,
@@ -130,6 +131,7 @@ def reverb_throw(
     }
 
 
+@mcp.tool()
 def filter_sweep(
     track_index: int,
     start_bar: int,
@@ -180,6 +182,7 @@ def filter_sweep(
     }
 
 
+@mcp.tool()
 def delay_echo_out(
     track_index: int,
     start_bar: int,
@@ -272,6 +275,7 @@ def delay_echo_out(
     }
 
 
+@mcp.tool()
 def stutter_clip(
     track_index: int,
     start_bar: int,
@@ -317,6 +321,7 @@ def stutter_clip(
     }
 
 
+@mcp.tool()
 def add_performance_fx(
     track_index: int,
     fx_type: str,
@@ -448,6 +453,7 @@ _SETUP_CHAINS: dict[str, list[tuple[str, dict]]] = {
 
 
 
+@mcp.tool()
 def list_macro_definitions() -> dict:
     """List all available performance macro names and the devices/parameters each requires."""
     macros = {}
@@ -470,6 +476,7 @@ def list_macro_definitions() -> dict:
     }
 
 
+@mcp.tool()
 def check_macro_readiness(track_index: int, macro_name: str) -> dict:
     """Check whether all required devices for a macro are present on the track."""
     if macro_name not in _MACRO_DEFINITIONS:
@@ -582,6 +589,7 @@ def check_macro_readiness(track_index: int, macro_name: str) -> dict:
     }
 
 
+@mcp.tool()
 def perform_macro(
     track_index: int,
     macro_name: str,
@@ -712,6 +720,7 @@ def perform_macro(
     }
 
 
+@mcp.tool()
 def setup_fx_chain(
     track_index: int,
     chain_type: str,
@@ -758,6 +767,7 @@ def setup_fx_chain(
     }
 
 
+@mcp.tool()
 def set_macro_intensity(
     track_index: int,
     macro_name: str,
@@ -850,6 +860,7 @@ def set_macro_intensity(
     }
 
 
+@mcp.tool()
 def perform_macro_live(
     track_index: int,
     macro_name: str,
