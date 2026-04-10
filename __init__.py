@@ -2479,7 +2479,17 @@ class AbletonMPCX(ControlSurface):
         param = parameters[param_index]
         val = float(params["value"])
         def fn():
-            param.value = val
+            try:
+                param.begin_gesture()
+            except AttributeError:
+                pass
+            try:
+                param.value = val
+            finally:
+                try:
+                    param.end_gesture()
+                except AttributeError:
+                    pass
         self._run_on_main_thread(fn)
         return {}
 
@@ -2509,7 +2519,17 @@ class AbletonMPCX(ControlSurface):
             self._song.appointed_device = device
             self.application().view.show_view("Detail/DeviceChain")
             # Set value after appointing the device so the plugin UI is focused first
-            param.value = value
+            try:
+                param.begin_gesture()
+            except AttributeError:
+                pass
+            try:
+                param.value = value
+            finally:
+                try:
+                    param.end_gesture()
+                except AttributeError:
+                    pass
 
         self._run_on_main_thread(fn)
         return {}
@@ -2557,7 +2577,17 @@ class AbletonMPCX(ControlSurface):
                         value = max(param.min, min(param.max, value))
                     if skip_unchanged and param.value == value:
                         continue
-                    param.value = value
+                    try:
+                        param.begin_gesture()
+                    except AttributeError:
+                        pass
+                    try:
+                        param.value = value
+                    finally:
+                        try:
+                            param.end_gesture()
+                        except AttributeError:
+                            pass
                     changed.append({
                         "parameter_index": idx,
                         "name": param.name,
@@ -2657,6 +2687,14 @@ class AbletonMPCX(ControlSurface):
                 val = plan["start_val"] + (plan["target_val"] - plan["start_val"]) * t
                 param = plan["param"]
                 val = max(param.min, min(param.max, val))
+
+                # Begin gesture on first step
+                if i == 1:
+                    try:
+                        param.begin_gesture()
+                    except AttributeError:
+                        pass
+
                 try:
                     param.value = val
                 except Exception:
@@ -2664,6 +2702,12 @@ class AbletonMPCX(ControlSurface):
 
                 if i < steps:
                     still_active.append(plan)
+                else:
+                    # End gesture on last step
+                    try:
+                        param.end_gesture()
+                    except AttributeError:
+                        pass
 
             if still_active:
                 # schedule_message delay is in milliseconds
