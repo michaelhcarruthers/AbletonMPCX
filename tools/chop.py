@@ -84,7 +84,6 @@ def chop_clip_to_slots(
 # Transient-based chopping
 # ---------------------------------------------------------------------------
 
-@mcp.tool()
 def chop_clip_on_transients(
     track_index: int,
     slot_index: int,
@@ -163,7 +162,6 @@ def chop_clip_on_transients(
 # Drum rack distribution
 # ---------------------------------------------------------------------------
 
-@mcp.tool()
 def distribute_chops_to_drum_rack(
     track_index: int,
     slot_indices: list[int],

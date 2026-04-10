@@ -273,7 +273,6 @@ def _apply_device_params(
 # Track role tools (public MCP tools)
 # ---------------------------------------------------------------------------
 
-@mcp.tool()
 def set_track_role(track_index: int, role: str) -> dict:
     """Assign a semantic role to a track in project memory."""
     mem = _get_memory()
@@ -282,14 +281,12 @@ def set_track_role(track_index: int, role: str) -> dict:
     return {"track_index": track_index, "role": role}
 
 
-@mcp.tool()
 def get_track_roles() -> dict:
     """Return all stored track role assignments for the current project."""
     mem = _get_memory()
     return {"track_roles": mem.get("track_roles", {})}
 
 
-@mcp.tool()
 def validate_track_roles() -> dict:
     """Validate stored track roles against the current session."""
     mem = _get_memory()
@@ -319,7 +316,6 @@ def validate_track_roles() -> dict:
     }
 
 
-@mcp.tool()
 def clear_track_role(track_index: int) -> dict:
     """Remove the stored role for a specific track."""
     mem = _get_memory()
@@ -398,7 +394,6 @@ def list_mix_templates() -> dict:
 # preview_mix_template
 # ---------------------------------------------------------------------------
 
-@mcp.tool()
 def preview_mix_template(template_name: str) -> dict:
     """Show what apply_mix_template would do without touching anything."""
     return apply_mix_template(template_name, dry_run=True)
