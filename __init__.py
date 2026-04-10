@@ -2424,6 +2424,70 @@ class AbletonMPCX(ControlSurface):
             result["device_index"] = device_index
         return result
 
+    def _cmd_write_arrangement_automation_batch(self, params):
+        """Write automation to multiple tracks/parameters in a single call.
+
+        writes: list of dicts, each with the same fields as write_arrangement_automation:
+          - track_index (int)
+          - parameter_type: "volume" | "panning" | "device_parameter"
+          - points: list of {time, value}  (time in beats)
+          - device_index (int, required if parameter_type == "device_parameter")
+          - parameter_index (int, required if parameter_type == "device_parameter")
+          - clear_range (bool, optional, default False)
+
+        Returns {"writes_applied": N, "errors": [...]}
+        """
+        writes = params.get("writes", [])
+        applied = 0
+        errors = []
+
+        for i, write in enumerate(writes):
+            try:
+                self._cmd_write_arrangement_automation(write)
+                applied += 1
+            except Exception as e:
+                errors.append({"write_index": i, "track_index": write.get("track_index"), "error": str(e)})
+
+        return {"writes_applied": applied, "errors": errors}
+
+    def _cmd_get_automation_value_at(self, params):
+        """Return the automation value for a parameter at a specific beat position.
+        Falls back to current fader/parameter value if no automation exists at that position.
+        """
+        track_index = int(params["track_index"])
+        parameter_type = params.get("parameter_type", "volume")
+        beat_position = float(params.get("beat_position", 0.0))
+
+        track = self._get_track(track_index)
+
+        if parameter_type == "volume":
+            target_param = track.mixer_device.volume
+        elif parameter_type == "panning":
+            target_param = track.mixer_device.panning
+        else:
+            return {"value": None, "source": "unsupported"}
+
+        # Try to read from arrangement envelope at the beat position
+        try:
+            env = None
+            if hasattr(track, "arrangement_envelopes"):
+                for ae in track.arrangement_envelopes:
+                    if hasattr(ae, "parameter") and ae.parameter == target_param:
+                        env = ae
+                        break
+            if env is not None and hasattr(env, "value_at_time"):
+                val = float(env.value_at_time(beat_position))
+                return {"value": val, "source": "automation", "beat_position": beat_position}
+        except Exception:
+            pass
+
+        # Fall back to current parameter value
+        return {
+            "value": float(target_param.value),
+            "source": "fader",
+            "beat_position": beat_position,
+        }
+
     # -------------------------------------------------------------------------
     # Device (read)
     # -------------------------------------------------------------------------
