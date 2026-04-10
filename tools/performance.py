@@ -598,13 +598,156 @@ def check_macro_readiness(track_index: int, macro_name: str) -> dict:
 def perform_macro(
     track_index: int,
     macro_name: str,
+    duration_ms: float = 2000.0,
+    intensity: float = 1.0,
+    curve: str = "linear",
+) -> dict:
+    """Animate a named performance macro on a track using gesture-wrapped parameter moves.
+
+    This uses the same real-time gesture path as perform_macro_live but is the
+    primary macro execution tool. Automation recording will capture it as a smooth
+    curve if the track is armed and Live's automation arm is on.
+
+    Works for both native Ableton devices AND third-party VST/AU plugins.
+    """
+    if macro_name not in _MACRO_DEFINITIONS:
+        raise ValueError(
+            "Unknown macro '{}'. Available: {}".format(macro_name, sorted(_MACRO_DEFINITIONS.keys()))
+        )
+
+    valid_curves = {"linear", "ease_in", "ease_out", "ease_in_out"}
+    if curve not in valid_curves:
+        raise ValueError("Invalid curve '{}'. Valid options: {}".format(curve, sorted(valid_curves)))
+
+    intensity = max(0.0, min(1.0, intensity))
+    steps = _MACRO_DEFINITIONS[macro_name]
+
+    try:
+        devices_result = _send("get_devices", {"track_index": track_index, "is_return_track": False})
+    except Exception as e:
+        raise RuntimeError("Could not get devices for track {}: {}".format(track_index, e))
+
+    # Group moves by device so we can call perform_device_parameter_moves once per device
+    moves_by_device: dict[int, list[dict]] = {}
+    device_map: dict[int, dict] = {}
+    skipped = []
+
+    for step in steps:
+        device_name_pattern = step["device"].lower()
+        param_name_pattern = step["param"].lower()
+
+        matched_device = None
+        for d in devices_result:
+            if device_name_pattern in d["name"].lower():
+                matched_device = d
+                break
+
+        if matched_device is None:
+            skipped.append({
+                "device": step["device"],
+                "param": step["param"],
+                "reason": "No device matching '{}' found on track {}".format(
+                    step["device"], track_index),
+            })
+            continue
+
+        try:
+            params_result = _send("get_device_parameters", {
+                "track_index": track_index,
+                "device_index": matched_device["index"],
+                "is_return_track": False,
+            })
+        except Exception as e:
+            skipped.append({
+                "device": step["device"],
+                "param": step["param"],
+                "reason": "Could not read parameters: {}".format(str(e)),
+            })
+            continue
+
+        matched_param = None
+        for p in params_result.get("parameters", []):
+            if param_name_pattern in p["name"].lower():
+                matched_param = p
+                break
+
+        if matched_param is None:
+            skipped.append({
+                "device": step["device"],
+                "param": step["param"],
+                "reason": "Parameter '{}' not found on '{}'".format(
+                    step["param"], matched_device["name"]),
+            })
+            continue
+
+        # Use the end value from the curve, scaled by intensity
+        curve_points = step["curve"]
+        end_val = curve_points[-1][1]
+        target = max(0.0, min(1.0, end_val * intensity))
+
+        dev_idx = matched_device["index"]
+        device_map[dev_idx] = matched_device
+        moves_by_device.setdefault(dev_idx, []).append({
+            "parameter_index": matched_param["index"],
+            "target": target,
+            "duration_ms": duration_ms,
+            "curve": curve,
+        })
+
+    moves_scheduled = 0
+    for dev_idx, moves in moves_by_device.items():
+        result = _send("perform_device_parameter_moves", {
+            "track_index": track_index,
+            "device_index": dev_idx,
+            "moves": moves,
+            "is_return_track": False,
+        })
+        moves_scheduled += result.get("moves_scheduled", len(moves))
+
+    missing_devices = sorted({s["device"] for s in skipped})
+
+    if moves_scheduled == 0:
+        raise RuntimeError(
+            "perform_macro: macro '{}' applied 0 moves on track {}. "
+            "Missing devices: {}. "
+            "Run setup_fx_chain_basic({}) to add required devices.".format(
+                macro_name, track_index, missing_devices, track_index
+            )
+        )
+
+    return {
+        "status": "ok",
+        "macro_name": macro_name,
+        "track_index": track_index,
+        "duration_ms": duration_ms,
+        "intensity": intensity,
+        "curve": curve,
+        "moves_scheduled": moves_scheduled,
+        "missing_devices": missing_devices,
+    }
+
+
+@mcp.tool()
+def perform_macro_to_arrangement(
+    track_index: int,
+    macro_name: str,
     start_bar: int,
     start_beat: float,
     length_beats: float,
     intensity: float = 1.0,
     time_signature_numerator: int | None = None,
 ) -> dict:
-    """Trigger a named performance macro on a track at a musical position."""
+    """Write a named performance macro as arrangement automation curves.
+
+    This is the explicit "write to Arrangement View" variant of perform_macro.
+
+    Prerequisites — this will fail if any are not met:
+      - An arrangement clip must already exist on the track covering the target time range
+      - Live's automation arm must be enabled
+      - The track must contain the devices required by the macro
+
+    For real-time gesture-based execution (always works, no prereqs), use perform_macro instead.
+    """
     tsn = _get_time_sig_numerator(time_signature_numerator)
     if macro_name not in _MACRO_DEFINITIONS:
         raise ValueError(
@@ -626,7 +769,7 @@ def perform_macro(
     applied = []
     skipped = []
 
-    _send("begin_undo_step", {"name": "perform_macro: {}".format(macro_name)})
+    _send("begin_undo_step", {"name": "perform_macro_to_arrangement: {}".format(macro_name)})
     try:
         for step in steps:
             device_name_pattern = step["device"].lower()
@@ -706,7 +849,10 @@ def perform_macro(
                 skipped.append({
                     "device": step["device"],
                     "param": step["param"],
-                    "reason": "Automation write failed: {}".format(str(e)),
+                    "reason": "Automation write failed: {}. "
+                              "Ensure an arrangement clip exists on track {} covering beats {:.1f}–{:.1f} "
+                              "and that Live's automation arm is enabled.".format(
+                                  str(e), track_index, start_time, end_time),
                 })
 
     finally:

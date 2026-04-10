@@ -24,6 +24,7 @@ from tools.audit import (
 )
 from tools.session import analyse_mix_state
 from tools.theory import check_key, check_key_batch
+from tools.diagnostics import analyze_mix_balance
 from tools.analysis import (
     get_loudness,
     get_onsets,
@@ -181,6 +182,10 @@ def _action_m4l_measure(**kwargs):
     return m4l_measure_for_seconds(**kwargs)
 
 
+def _action_mix_balance(**kwargs):
+    return analyze_mix_balance(**kwargs)
+
+
 # ---------------------------------------------------------------------------
 # Dispatcher
 # ---------------------------------------------------------------------------
@@ -219,12 +224,13 @@ _ACTIONS = {
     "m4l_crest": _action_m4l_crest,
     "m4l_reset": _action_m4l_reset,
     "m4l_measure": _action_m4l_measure,
+    "mix_balance": _action_mix_balance,
 }
 
 
 @mcp.tool()
 def analysis_tool(action: str, **kwargs) -> dict:
-    """Analysis, feel, reference, and theory workflows. Actions: feel, humanize, humanize_auto, humanize_batch, humanize_from_ref, reference_clip_save, reference_clip_compare, reference_mix_save, reference_mix_compare, reference_audio_save, reference_audio_compare, reference_audio_sections, reference_list, reference_delete, audio_analyse, mix_state, suggestions, key_check, key_check_batch, loudness, onsets, spectral, beat_track, envelope, spectrum_bands, spectrum_overview, m4l_ping, m4l_levels, m4l_lufs, m4l_peak, m4l_crest, m4l_reset, m4l_measure."""
+    """Analysis, feel, reference, and theory workflows. Actions: feel, humanize, humanize_auto, humanize_batch, humanize_from_ref, reference_clip_save, reference_clip_compare, reference_mix_save, reference_mix_compare, reference_audio_save, reference_audio_compare, reference_audio_sections, reference_list, reference_delete, audio_analyse, mix_state, suggestions, key_check, key_check_batch, loudness, onsets, spectral, beat_track, envelope, spectrum_bands, spectrum_overview, m4l_ping, m4l_levels, m4l_lufs, m4l_peak, m4l_crest, m4l_reset, m4l_measure, mix_balance."""
     if action not in _ACTIONS:
         return {
             "status": "error",
