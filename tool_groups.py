@@ -91,6 +91,20 @@ TOOL_GROUPS: dict[str, list[str]] = {
         "list_mix_templates", "set_track_role", "get_track_roles",
         "validate_track_roles", "clear_track_role",
     ],
+    "audit": [
+        "session_audit", "auto_name_track", "auto_name_all_tracks", "auto_color_track",
+        "auto_name_clip", "auto_name_scene", "find_missing_plugins", "get_missing_media_status",
+        "search_missing_media", "project_health_report", "find_empty_tracks",
+        "find_unused_returns", "cleanup_session", "diagnose_track", "diagnose_mix",
+        "analyze_mix_balance", "get_latency_report",
+    ],
+    "analysis": [
+        "check_key", "check_key_batch", "get_loudness", "get_onsets",
+        "get_spectral_descriptors", "get_beat_tracking", "get_envelope",
+        "analysis_tool", "analyze_clip_feel", "compare_clip_feel",
+        "scan_au_presets", "scan_splice_library", "recommend_presets",
+        "audit_preset", "get_sound_library_stats",
+    ],
 }
 
 TOOL_GROUP_MODULES: dict[str, list[str]] = {
@@ -133,6 +147,15 @@ TOOL_GROUP_MODULES: dict[str, list[str]] = {
     "templates": [
         "tools.mix_templates",
         "tools.theory",
+    ],
+    "audit": [
+        "tools.audit",
+        "tools.diagnostics",
+    ],
+    "analysis": [
+        "tools.theory",
+        "tools.analysis",
+        "tools.dispatchers.analysis_tool",
     ],
     "observer": [
         "tools.observer_bridge",
