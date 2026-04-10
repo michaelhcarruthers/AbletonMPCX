@@ -43,7 +43,6 @@ def fire_scene(scene_index: int) -> dict:
 # MixerDevice
 # ---------------------------------------------------------------------------
 
-@mcp.tool()
 def get_mixer_device(track_index: int) -> dict:
     """Return the mixer device state (volume, pan, sends) for the track. Use track_index=-1 to target the master track."""
     return _send("get_mixer_device", {"track_index": track_index})
