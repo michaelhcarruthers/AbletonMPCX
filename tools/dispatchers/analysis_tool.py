@@ -228,7 +228,7 @@ def analysis_tool(action: str, **kwargs) -> dict:
     if action not in _ACTIONS:
         return {
             "status": "error",
-            "error": "Unknown action '{}'".format(action),
+            "error": f"Unknown action '{action}'",
             "valid_actions": sorted(_ACTIONS.keys()),
         }
     try:
