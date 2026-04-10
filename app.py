@@ -35,19 +35,26 @@ load_dotenv()
 # ---------------------------------------------------------------------------
 from helpers import mcp  # noqa: F401 — creates the FastMCP instance
 
-import tools.session             # noqa: F401
-import tools.tracks              # noqa: F401
-import tools.clips               # noqa: F401
-import tools.devices             # noqa: F401
-import tools.performance         # noqa: F401
-import tools.diagnostics         # noqa: F401
-# import tools.analysis            # noqa: F401  # disabled: requires exported audio files
-import tools.realtime_analyzer   # noqa: F401
-import tools.arrangement_bridge  # noqa: F401
-import tools.observer_bridge     # noqa: F401
-import tools.audit               # noqa: F401
-import tools.mix_templates       # noqa: F401
-import tools.theory              # noqa: F401
+import tools.session              # noqa: F401
+import tools.session_snapshots    # noqa: F401
+import tools.session_suggestions  # noqa: F401
+import tools.session_recording    # noqa: F401
+import tools.tracks               # noqa: F401
+import tools.clips                # noqa: F401
+import tools.devices              # noqa: F401
+import tools.staging              # noqa: F401
+import tools.morph                # noqa: F401
+import tools.reference            # noqa: F401
+import tools.audit                # noqa: F401
+import tools.performance          # noqa: F401
+import tools.diagnostics          # noqa: F401
+import tools.arrangement_bridge   # noqa: F401
+import tools.observer_bridge      # noqa: F401
+import tools.realtime_analyzer    # noqa: F401
+import tools.mix_templates        # noqa: F401
+import tools.theory               # noqa: F401
+import tools.spectrum             # noqa: F401
+# import tools.analysis           # noqa: F401  # disabled: requires exported audio files
 
 # Start the background observer thread (defined in tools.audit)
 from tools.audit import _start_observer
