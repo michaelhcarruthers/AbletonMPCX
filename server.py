@@ -30,6 +30,7 @@ logger = logging.getLogger(__name__)
 # Implementation modules — must be loaded before dispatcher modules so that
 # internal functions are already defined when dispatchers import them.
 _IMPL_MODULES = [
+    "tools.theory",
     "tools.session",
     "tools.session_snapshots",
     "tools.session_suggestions",
@@ -47,7 +48,6 @@ _IMPL_MODULES = [
     "tools.observer_bridge",
     "tools.realtime_analyzer",
     "tools.mix_templates",
-    "tools.theory",
     "tools.spectrum",
     "tools.analysis",
 ]
