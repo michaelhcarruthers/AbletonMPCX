@@ -253,7 +253,6 @@ def get_mix_snapshot(slim: bool = True) -> dict:
     return _send("get_mix_snapshot", {"slim": slim})
 
 
-@mcp.tool()
 def get_track_levels_all(include_returns: bool = True, include_master: bool = True) -> dict:
     """Return volume and pan for all tracks in a single call."""
     return _send("get_track_levels_all", {
