@@ -120,6 +120,9 @@ TOOL_GROUP_MODULES: dict[str, list[str]] = {
         "tools.audit",
         "tools.realtime_analyzer",
         "tools.spectrum",
+        "tools.theory",
+        "tools.analysis",
+        "tools.dispatchers.analysis_tool",
     ],
     "templates": [
         "tools.mix_templates",
