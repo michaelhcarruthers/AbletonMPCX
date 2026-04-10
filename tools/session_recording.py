@@ -22,7 +22,6 @@ _RECORDING_STOP_BUFFER_SECONDS = 0.5
 # Resampling routing
 # ---------------------------------------------------------------------------
 
-@mcp.tool()
 def setup_resampling_route(
     source_track_index: int | None = None,
     resample_track_index: int | None = None,
@@ -93,7 +92,6 @@ def setup_resampling_route(
     }
 
 
-@mcp.tool()
 def teardown_resampling_route(resample_track_index: int) -> dict:
     """Reset a resampling track's routing back to defaults and disarm it."""
     disarmed = False
@@ -122,7 +120,6 @@ def teardown_resampling_route(resample_track_index: int) -> dict:
     }
 
 
-@mcp.tool()
 def get_resampling_status(resample_track_index: int) -> dict:
     """Return the current routing and arm status of a track, to verify resampling is set up correctly."""
     try:
@@ -158,7 +155,6 @@ def get_resampling_status(resample_track_index: int) -> dict:
 # Arrangement recording / render to audio
 # ---------------------------------------------------------------------------
 
-@mcp.tool()
 def render_track_to_audio(
     source_track_index: int,
     start_bar: int = 1,
@@ -410,7 +406,6 @@ def render_track_to_audio(
 # Sidechain routing (Kickstart 2 / any sidechain-capable plugin)
 # ---------------------------------------------------------------------------
 
-@mcp.tool()
 def setup_sidechain_route(
     source_track_index: int,
     dest_track_index: int,
@@ -476,7 +471,6 @@ def setup_sidechain_route(
     return result
 
 
-@mcp.tool()
 def teardown_sidechain_route(dest_track_index: int) -> dict:
     """Reset arm and monitoring state on the sidechain destination track."""
     try:
@@ -496,7 +490,6 @@ def teardown_sidechain_route(dest_track_index: int) -> dict:
 # Session → Arrangement dump
 # ---------------------------------------------------------------------------
 
-@mcp.tool()
 def dump_session_to_arrangement(
     slot_index: int = 0,
     track_indices: list[int] | None = None,

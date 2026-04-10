@@ -20,7 +20,6 @@ def _find_spectrum_device(track_index: int) -> dict | None:
     return None
 
 
-@mcp.tool()
 def get_spectrum_bands(track_index: int) -> dict:
     """Read the current 8-band spectrum energy from the MCPSpectrumTelemetry plugin on a track."""
     device = _find_spectrum_device(track_index)
@@ -56,7 +55,6 @@ def get_spectrum_bands(track_index: int) -> dict:
     }
 
 
-@mcp.tool()
 def get_spectrum_overview() -> dict:
     """Read spectrum band energy from all tracks that have a MCPSpectrumTelemetry plugin."""
     tracks_data = _send("get_tracks")

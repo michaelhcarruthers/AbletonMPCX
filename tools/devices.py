@@ -9,32 +9,26 @@ from helpers.vocabulary import resolve_intensity, resolve_device_name, DEVICE_AL
 # Scene
 # ---------------------------------------------------------------------------
 
-@mcp.tool()
 def get_scenes() -> list:
     """Return all scenes with name, tempo, color, and state."""
     return _send("get_scenes")
 
-@mcp.tool()
 def get_scene_info(scene_index: int) -> dict:
     """Return full details for the scene at scene_index."""
     return _send("get_scene_info", {"scene_index": scene_index})
 
-@mcp.tool()
 def set_scene_name(scene_index: int, name: str) -> dict:
     """Rename the scene at scene_index."""
     return _send("set_scene_name", {"scene_index": scene_index, "name": name})
 
-@mcp.tool()
 def set_scene_tempo(scene_index: int, tempo: float) -> dict:
     """Set the scene tempo at scene_index."""
     return _send("set_scene_tempo", {"scene_index": scene_index, "tempo": tempo})
 
-@mcp.tool()
 def set_scene_color(scene_index: int, color: int) -> dict:
     """Set the scene color as an RGB integer (0x00rrggbb)."""
     return _send("set_scene_color", {"scene_index": scene_index, "color": color})
 
-@mcp.tool()
 def fire_scene(scene_index: int) -> dict:
     """Launch the scene at scene_index."""
     return _send("fire_scene", {"scene_index": scene_index})
@@ -43,12 +37,10 @@ def fire_scene(scene_index: int) -> dict:
 # MixerDevice
 # ---------------------------------------------------------------------------
 
-@mcp.tool()
 def get_mixer_device(track_index: int) -> dict:
     """Return the mixer device state (volume, pan, sends) for the track. Use track_index=-1 to target the master track."""
     return _send("get_mixer_device", {"track_index": track_index})
 
-@mcp.tool()
 def set_crossfade_assign(track_index: int, value: int) -> dict:
     """Set crossfade assignment: 0=A, 1=none, 2=B."""
     return _send("set_crossfade_assign", {"track_index": track_index, "value": value})
@@ -57,22 +49,18 @@ def set_crossfade_assign(track_index: int, value: int) -> dict:
 # RackDevice
 # ---------------------------------------------------------------------------
 
-@mcp.tool()
 def get_rack_chains(track_index: int, device_index: int, is_return_track: bool = False) -> list:
     """Return the chains of a Rack device at (track_index, device_index). Set is_return_track=True to target a return track."""
     return _send("get_rack_chains", {"track_index": track_index, "device_index": device_index, "is_return_track": is_return_track})
 
-@mcp.tool()
 def get_rack_drum_pads(track_index: int, device_index: int, is_return_track: bool = False) -> list:
     """Return the drum pads of a Drum Rack device (use is_return_track=True for return tracks)."""
     return _send("get_rack_drum_pads", {"track_index": track_index, "device_index": device_index, "is_return_track": is_return_track})
 
-@mcp.tool()
 def randomize_rack_macros(track_index: int, device_index: int, is_return_track: bool = False) -> dict:
     """Randomize the macro controls of a Rack device. Set is_return_track=True to target a return track."""
     return _send("randomize_rack_macros", {"track_index": track_index, "device_index": device_index, "is_return_track": is_return_track})
 
-@mcp.tool()
 def store_rack_variation(track_index: int, device_index: int, is_return_track: bool = False) -> dict:
     """Store the current macro state as a new variation in a Rack device. Set is_return_track=True to target a return track."""
     return _send("store_rack_variation", {"track_index": track_index, "device_index": device_index, "is_return_track": is_return_track})
@@ -81,12 +69,10 @@ def store_rack_variation(track_index: int, device_index: int, is_return_track: b
 # GroovePool
 # ---------------------------------------------------------------------------
 
-@mcp.tool()
 def get_grooves() -> list:
     """Return all grooves in the groove pool."""
     return _send("get_grooves")
 
-@mcp.tool()
 def extract_groove_from_clip(
     track_index: int,
     slot_index: int,
@@ -103,22 +89,18 @@ def extract_groove_from_clip(
 # Browser
 # ---------------------------------------------------------------------------
 
-@mcp.tool()
 def get_browser_tree(category_type: str = "all") -> dict:
     """Return the Ableton browser tree up to 2 levels deep for the given category type."""
     return _send("get_browser_tree", {"category_type": category_type})
 
-@mcp.tool()
 def get_browser_items_at_path(path: str) -> dict:
     """Return browser items at the given path (e.g. 'instruments/Drum Rack')."""
     return _send("get_browser_items_at_path", {"path": path})
 
-@mcp.tool()
 def load_browser_item(uri: str, track_index: int = 0, is_return_track: bool = False) -> dict:
     """Load a browser item by URI onto a track; use get_browser_items_at_path to discover valid URIs."""
     return _send("load_browser_item", {"uri": uri, "track_index": track_index, "is_return_track": is_return_track})
 
-@mcp.tool()
 def load_plugin_device(
     track_index: int,
     plugin_name: str,
@@ -132,7 +114,6 @@ def load_plugin_device(
     })
 
 
-@mcp.tool()
 def add_native_device(track_index: int, device_name: str, is_return_track: bool = False) -> dict:
     """Add a native Ableton device to a track by name."""
     return _send("add_native_device", {
@@ -141,37 +122,30 @@ def add_native_device(track_index: int, device_name: str, is_return_track: bool 
         "is_return_track": is_return_track,
     })
 
-@mcp.tool()
 def set_mixer_snapshot(states: list[dict]) -> dict:
     """Set volume, pan, sends, mute, and/or arm on multiple tracks in a single call."""
     return _send("set_mixer_snapshot", {"states": states})
 
-@mcp.tool()
 def set_return_track_volume(index: int, value: float) -> dict:
     """Set the volume of the return track at index (0.0-1.0)."""
     return _send("set_return_track_volume", {"index": index, "value": value})
 
-@mcp.tool()
 def set_return_track_pan(index: int, value: float) -> dict:
     """Set the panning of the return track at index (-1.0 to 1.0)."""
     return _send("set_return_track_pan", {"index": index, "value": value})
 
-@mcp.tool()
 def set_return_track_name(index: int, name: str) -> dict:
     """Rename the return track at index."""
     return _send("set_return_track_name", {"index": index, "name": name})
 
-@mcp.tool()
 def set_return_track_mute(index: int, mute: bool) -> dict:
     """Mute or unmute the return track at index."""
     return _send("set_return_track_mute", {"index": index, "mute": mute})
 
-@mcp.tool()
 def begin_undo_step(name: str = "MCP Operation") -> dict:
     """Begin a named undo step. All changes made until end_undo_step() will be grouped into a single Cmd+Z undo action in Live."""
     return _send("begin_undo_step", {"name": name})
 
-@mcp.tool()
 def end_undo_step() -> dict:
     """Close the current undo step opened by begin_undo_step()."""
     return _send("end_undo_step", {})
@@ -195,7 +169,6 @@ _DIRECTION_ALIASES: dict[str, int] = {
 }
 
 
-@mcp.tool()
 def adjust_device_parameter(
     track_index: int,
     device_index: int,
@@ -266,7 +239,6 @@ def adjust_device_parameter(
 # N — Device/parameter alias registry
 # ---------------------------------------------------------------------------
 
-@mcp.tool()
 def find_device_by_name(track_index: int, device_name: str) -> dict:
     """Find a device on a track by name, supporting natural language aliases."""
     resolved = resolve_device_name(device_name)
@@ -312,7 +284,6 @@ def find_device_by_name(track_index: int, device_name: str) -> dict:
     }
 
 
-@mcp.tool()
 def set_device_parameters_batch(
     track_index: int,
     device_index: int,
@@ -334,7 +305,6 @@ def set_device_parameters_batch(
     })
 
 
-@mcp.tool()
 def perform_device_parameter_moves(
     track_index: int,
     device_index: int,
@@ -354,7 +324,6 @@ def perform_device_parameter_moves(
     })
 
 
-@mcp.tool()
 def randomize_device_parameters(
     track_index: int,
     device_index: int,

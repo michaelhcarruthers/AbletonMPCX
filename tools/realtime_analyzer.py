@@ -68,7 +68,6 @@ def _send_analyzer(command: str, params: dict[str, Any] | None = None) -> Any:
 # Tools
 # ---------------------------------------------------------------------------
 
-@mcp.tool()
 def m4l_analyzer_ping() -> dict:
     """Check if the AMCPX_Analyzer Max for Live device is running and reachable."""
     try:
@@ -87,37 +86,31 @@ def m4l_analyzer_ping() -> dict:
         }
 
 
-@mcp.tool()
 def m4l_get_levels() -> dict:
     """Get full real-time measurements from the AMCPX_Analyzer M4L device."""
     return _send_analyzer("get_levels")
 
 
-@mcp.tool()
 def m4l_get_lufs() -> dict:
     """Get LUFS measurements from the AMCPX_Analyzer M4L device."""
     return _send_analyzer("get_lufs")
 
 
-@mcp.tool()
 def m4l_get_peak_level() -> dict:
     """Get the peak dBFS level and clip count from the AMCPX_Analyzer M4L device."""
     return _send_analyzer("get_peak")
 
 
-@mcp.tool()
 def m4l_get_crest_factor() -> dict:
     """Get the crest factor from the AMCPX_Analyzer M4L device."""
     return _send_analyzer("get_crest_factor")
 
 
-@mcp.tool()
 def m4l_reset_analyzer() -> dict:
     """Reset all measurements and clip counter in the AMCPX_Analyzer M4L device."""
     return _send_analyzer("reset")
 
 
-@mcp.tool()
 def m4l_measure_for_seconds(duration: float = 5.0) -> dict:
     """Measure audio levels for a given duration and return the final results."""
     duration = max(0.1, min(float(duration), 60.0))
