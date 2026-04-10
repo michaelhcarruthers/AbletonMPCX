@@ -122,7 +122,10 @@ SYSTEM_PROMPT = (
     "Use slim=True (default) on get_tracks, get_arrangement_clips, get_session_clips, "
     "get_notes, get_devices, get_mix_snapshot, get_automation_data unless full data is specifically needed.\n"
     "Never call get_song_info — use get_song_info_minimal for tempo/time sig/bars, "
-    "then call get_tracks or get_session_clips separately only if track/clip data is needed."
+    "then call get_tracks or get_session_clips separately only if track/clip data is needed.\n"
+    "For multi-track automation writes, prefer mix_section (writes all tracks in one call) over multiple "
+    "write_arrangement_volume_automation calls. Call analyze_section_levels first to read current levels "
+    "before reshaping a section."
 )
 
 # ---------------------------------------------------------------------------
