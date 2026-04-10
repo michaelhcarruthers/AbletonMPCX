@@ -942,6 +942,7 @@ def _analyse_audio_file(file_path: str, duration_limit: float = 300.0) -> dict:
             stereo_width = round(side_rms / mid_rms, 4)
     except Exception as e:
         logger.debug("Could not compute stereo width for '%s': %s", file_path, e)
+    S = np.abs(librosa.stft(y))
     freqs = librosa.fft_frequencies(sr=sr)
 
     def band_energy(f_low, f_high):

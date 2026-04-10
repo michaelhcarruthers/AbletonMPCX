@@ -846,7 +846,7 @@ def get_sound_library_stats() -> dict:
 # ---------------------------------------------------------------------------
 
 @mcp.tool()
-def take_screenshot(region: str = "full", save_path: str = None) -> dict:
+def take_screenshot(region: str = "full", save_path: str | None = None) -> dict:
     """Take a screenshot of the Ableton Live window for visual analysis."""
     import sys
 
