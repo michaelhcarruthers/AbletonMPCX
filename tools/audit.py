@@ -38,6 +38,8 @@ from helpers import (
 )
 from helpers.summarizer import summarize_health_report
 
+from tools.session_snapshots import _DEVICE_SNAPSHOTS_PATH, _load_json_cache  # noqa: E402
+
 # Number of distinct issue categories checked by project_health_report().
 # Used as a fixed denominator for the health score so that results are
 # comparable across projects of different sizes.
@@ -2223,3 +2225,332 @@ def compare_project_audits(audit_path_a: str, audit_path_b: str) -> dict:
         "summary": summary,
     }
 
+
+
+# ---------------------------------------------------------------------------
+# Auto-naming / auto-coloring (moved from tools.session)
+# ---------------------------------------------------------------------------
+
+_ROLE_COLORS = {
+    "kick":     5,    # red
+    "snare":    9,    # orange
+    "drums":    9,    # orange
+    "hi-hat":  12,    # yellow
+    "perc":    12,    # yellow
+    "bass":    14,    # yellow-green
+    "keys":    19,    # green
+    "piano":   19,
+    "guitar":  25,    # teal
+    "pad":     28,    # cyan
+    "synth":   28,
+    "lead":    41,    # blue
+    "fx":      49,    # purple
+    "vocal":   57,    # pink
+    "master":   1,    # white
+    "return":  70,    # grey
+    "default":  0,
+}
+
+_DEVICE_TO_ROLE = {
+    "kick":             "kick",
+    "snare":            "snare",
+    "drum":             "drums",
+    "superior":         "drums",
+    "addictive":        "drums",
+    "bass":             "bass",
+    "mariana":          "bass",
+    "session upright":  "bass",
+    "sub":              "bass",
+    "piano":            "piano",
+    "keyscape":         "piano",
+    "grand":            "piano",
+    "upright":          "piano",
+    "keys":             "keys",
+    "rhodes":           "keys",
+    "wurli":            "keys",
+    "clav":             "keys",
+    "organ":            "keys",
+    "pad":              "pad",
+    "omnisphere":       "pad",
+    "lead":             "lead",
+    "serum":            "synth",
+    "massive":          "synth",
+    "vocal":            "vocal",
+    "voice":            "vocal",
+    "choir":            "vocal",
+    "guitar":           "guitar",
+    "reverb":           "fx",
+    "delay":            "fx",
+}
+
+
+def _infer_role_from_devices(track_index: int, devices: list | None = None) -> tuple[str, str]:
+    """Return (role, method_used) by inspecting device names on the track."""
+    if devices is None:
+        try:
+            devices = _send("get_devices", {"track_index": track_index})
+        except RuntimeError:
+            devices = []
+    for device in devices:
+        name_lower = device.get("name", "").lower()
+        for key, role in _DEVICE_TO_ROLE.items():
+            if key in name_lower:
+                return role, "device_name"
+    return "default", "fallback"
+
+
+@mcp.tool()
+def auto_name_track(track_index: int, dry_run: bool = False) -> dict:
+    """Automatically name a track based on its device chain content."""
+    role, method = _infer_role_from_devices(track_index)
+    if role == "default":
+        suggested_name = "Track {}".format(track_index + 1)
+        method = "position"
+    else:
+        suggested_name = role.replace("-", " ").title()
+
+    applied = False
+    if not dry_run:
+        try:
+            _send("set_track_name", {"track_index": track_index, "name": suggested_name})
+            applied = True
+        except RuntimeError as e:
+            return {
+                "track_index": track_index,
+                "suggested_name": suggested_name,
+                "inferred_role": role,
+                "method_used": method,
+                "applied": False,
+                "error": str(e),
+            }
+
+    return {
+        "track_index": track_index,
+        "suggested_name": suggested_name,
+        "inferred_role": role,
+        "method_used": method,
+        "applied": applied,
+    }
+
+
+@mcp.tool()
+def auto_color_track(track_index: int, role: str | None = None, dry_run: bool = False) -> dict:
+    """Set a track's color based on its inferred or specified role."""
+    if role is None:
+        role, _ = _infer_role_from_devices(track_index)
+
+    color_value = _ROLE_COLORS.get(role, _ROLE_COLORS["default"])
+
+    applied = False
+    if not dry_run:
+        try:
+            _send("set_track_color", {"track_index": track_index, "color": color_value})
+            applied = True
+        except RuntimeError as e:
+            return {
+                "track_index": track_index,
+                "role": role,
+                "color_value": color_value,
+                "applied": False,
+                "error": str(e),
+            }
+
+    return {
+        "track_index": track_index,
+        "role": role,
+        "color_value": color_value,
+        "applied": applied,
+    }
+
+
+@mcp.tool()
+def auto_name_all_tracks(dry_run: bool = False, skip_named: bool = True) -> dict:
+    """Auto-name and color all tracks in the session at once."""
+    try:
+        tracks = _send("get_tracks")
+    except RuntimeError as e:
+        return {"error": "Could not get tracks: {}".format(e), "results": []}
+
+    results = []
+    applied_count = 0
+    skipped_count = 0
+
+    for track in tracks:
+        idx = track.get("index", track.get("track_index", 0))
+        current_name = track.get("name", "")
+
+        skipped_reason = None
+        if skip_named:
+            default_names = {"audio", "midi", "track"}
+            name_lower = current_name.lower()
+            is_default = (
+                not current_name
+                or any(name_lower.startswith(d) for d in default_names)
+                or re.match(r"^track\s*\d+$", name_lower)
+                or re.match(r"^\d+$", name_lower)
+            )
+            if not is_default:
+                skipped_reason = "already_named"
+
+        role, _ = _infer_role_from_devices(idx, devices=track.get("devices", None))
+
+        if role == "default":
+            suggested_name = "Track {}".format(idx + 1)
+        else:
+            suggested_name = role.replace("-", " ").title()
+
+        color = _ROLE_COLORS.get(role, _ROLE_COLORS["default"])
+
+        applied = False
+        if skipped_reason is None and not dry_run:
+            try:
+                _send("set_track_name", {"track_index": idx, "name": suggested_name})
+                _send("set_track_color", {"track_index": idx, "color": color})
+                applied = True
+                applied_count += 1
+            except RuntimeError as e:
+                logger.debug("Could not rename/recolor track %s: %s", idx, e)
+        elif skipped_reason is not None:
+            skipped_count += 1
+
+        results.append({
+            "track_index": idx,
+            "track_name": current_name,
+            "suggested_name": suggested_name,
+            "role": role,
+            "color": color,
+            "applied": applied,
+            "skipped_reason": skipped_reason,
+        })
+
+    return {
+        "results": results,
+        "applied_count": applied_count,
+        "skipped_count": skipped_count,
+    }
+
+
+@mcp.tool()
+def session_audit(fix: bool = False) -> dict:
+    """Analyze the current session state and return a list of issues with suggestions."""
+    issues = []
+    issues_fixed = 0
+
+    try:
+        tracks = _send("get_tracks")
+    except RuntimeError as e:
+        return {"error": "Could not get tracks: {}".format(e)}
+
+    default_name_pattern = re.compile(r"^(audio|midi|track)\s*\d*$", re.IGNORECASE)
+
+    for track in tracks:
+        idx = track.get("index", track.get("track_index", 0))
+        name = track.get("name", "")
+        armed = track.get("arm", track.get("armed", False))
+
+        # Check for default/unnamed tracks
+        if not name or default_name_pattern.match(name):
+            fixed = False
+            if fix:
+                try:
+                    auto_name_track(idx, dry_run=False)
+                    fixed = True
+                    issues_fixed += 1
+                except Exception as e:
+                    logger.debug("Could not auto-name track %s during audit fix: %s", idx, e)
+            issues.append({
+                "type": "unnamed_track",
+                "severity": "warning",
+                "description": "Track {} has default name '{}'".format(idx, name),
+                "suggestion": "Call auto_name_track({})".format(idx),
+                "auto_fixable": True,
+                "fixed": fixed,
+            })
+
+        # Check for armed tracks
+        if armed:
+            fixed = False
+            if fix:
+                try:
+                    _send("set_track_arm", {"track_index": idx, "arm": False})
+                    fixed = True
+                    issues_fixed += 1
+                except RuntimeError as e:
+                    logger.debug("Could not disarm track %s during audit fix: %s", idx, e)
+            issues.append({
+                "type": "track_armed",
+                "severity": "warning",
+                "description": "Track {} ('{}') is armed".format(idx, name),
+                "suggestion": "Disarm track {} or call teardown_resampling_route({})".format(idx, idx),
+                "auto_fixable": True,
+                "fixed": fixed,
+            })
+
+        # Check for tracks with no devices
+        try:
+            devices = _send("get_devices", {"track_index": idx})
+            if not devices:
+                issues.append({
+                    "type": "no_devices",
+                    "severity": "info",
+                    "description": "Track {} ('{}') has no devices".format(idx, name),
+                    "suggestion": "Add instruments or effects to this track",
+                    "auto_fixable": False,
+                    "fixed": False,
+                })
+        except RuntimeError as e:
+            logger.debug("Could not get devices for track %s during audit: %s", idx, e)
+
+    all_snapshots = _load_json_cache(_DEVICE_SNAPSHOTS_PATH, {})
+    if not all_snapshots:
+        issues.append({
+            "type": "no_snapshots",
+            "severity": "info",
+            "description": "No device snapshots have been saved",
+            "suggestion": "Call full_session_snapshot('initial') to create a baseline",
+            "auto_fixable": False,
+            "fixed": False,
+        })
+
+    # Check for empty scenes
+    try:
+        scenes = _send("get_scenes")
+        for scene_idx, scene in enumerate(scenes):
+            has_clip = False
+            for track in tracks:
+                ti = track.get("index", track.get("track_index", 0))
+                try:
+                    clip_info = _send("get_clip_info", {"track_index": ti, "slot_index": scene_idx})
+                    if clip_info:
+                        has_clip = True
+                        break
+                except RuntimeError as e:
+                    logger.debug("Could not get clip info for track %s scene %s during audit: %s", ti, scene_idx, e)
+                issues.append({
+                    "type": "empty_scene",
+                    "severity": "info",
+                    "description": "Scene {} ('{}') has no clips".format(
+                        scene_idx, scene.get("name", "")
+                    ),
+                    "suggestion": "Add clips to scene {} or remove it".format(scene_idx),
+                    "auto_fixable": False,
+                    "fixed": False,
+                })
+    except RuntimeError as e:
+        logger.debug("Could not check scenes during session audit: %s", e)
+
+    has_critical = any(i["severity"] in ("warning", "critical") for i in issues)
+    has_warning = any(i["severity"] == "warning" for i in issues)
+    if has_critical:
+        session_health = "issues"
+    elif has_warning:
+        session_health = "warnings"
+    else:
+        session_health = "good"
+
+    return {
+        "issues": issues,
+        "issues_found": len(issues),
+        "issues_fixed": issues_fixed,
+        "session_health": session_health,
+    }

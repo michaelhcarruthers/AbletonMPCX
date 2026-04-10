@@ -267,3 +267,43 @@ def teardown_resampling_route(dest_track_index: int) -> dict:
     """Disarm the destination track and reset its monitoring state after resampling."""
     return _send("teardown_resampling_route", {"dest_track_index": dest_track_index})
 
+
+# ---------------------------------------------------------------------------
+# Track creation / deletion / duplication (moved from tools.session)
+# ---------------------------------------------------------------------------
+
+@mcp.tool()
+def create_audio_track(index: int = -1) -> dict:
+    """Create a new audio track. index=-1 appends at end."""
+    return _send("create_audio_track", {"index": index})
+
+
+@mcp.tool()
+def create_midi_track(index: int = -1) -> dict:
+    """Create a new MIDI track. index=-1 appends at end."""
+    return _send("create_midi_track", {"index": index})
+
+
+@mcp.tool()
+def create_return_track() -> dict:
+    """Add a new return track."""
+    return _send("create_return_track")
+
+
+@mcp.tool()
+def delete_track(track_index: int) -> dict:
+    """Delete the track at track_index."""
+    return _send("delete_track", {"track_index": track_index})
+
+
+@mcp.tool()
+def delete_return_track(index: int) -> dict:
+    """Delete the return track at index."""
+    return _send("delete_return_track", {"index": index})
+
+
+@mcp.tool()
+def duplicate_track(track_index: int) -> dict:
+    """Duplicate the track at track_index."""
+    return _send("duplicate_track", {"track_index": track_index})
+
