@@ -2068,7 +2068,6 @@ def open_set(set_path: str) -> dict:
         }
 
 
-@mcp.tool()
 def batch_audit_projects(set_paths: list, save_reports: bool = True) -> dict:
     """Run project_health_report() on multiple Live sets in sequence."""
     results = []

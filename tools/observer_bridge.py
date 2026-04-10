@@ -67,7 +67,6 @@ def _send_observer(command: str, params: dict[str, Any] | None = None) -> Any:
 # Tools
 # ---------------------------------------------------------------------------
 
-@mcp.tool()
 def m4l_observer_ping() -> dict:
     """Check if the AMCPX_Observer Max for Live device is running and reachable."""
     try:
@@ -86,31 +85,26 @@ def m4l_observer_ping() -> dict:
         }
 
 
-@mcp.tool()
 def m4l_get_observer_state() -> dict:
     """Return the full current observer state snapshot: selected track, device, parameter, and playhead position."""
     return _send_observer("get_state")
 
 
-@mcp.tool()
 def m4l_get_selected_track() -> dict:
     """Return the currently selected track index and name."""
     return _send_observer("get_selected_track")
 
 
-@mcp.tool()
 def m4l_get_selected_device() -> dict:
     """Return the name of the currently selected device."""
     return _send_observer("get_selected_device")
 
 
-@mcp.tool()
 def m4l_get_selected_parameter() -> dict:
     """Return the name and current value of the currently selected device parameter."""
     return _send_observer("get_selected_parameter")
 
 
-@mcp.tool()
 def m4l_get_playhead() -> dict:
     """Return the current song playhead position in beats and bars."""
     return _send_observer("get_playhead")
