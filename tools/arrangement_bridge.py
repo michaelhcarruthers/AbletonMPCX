@@ -279,7 +279,7 @@ def write_arrangement_volume_automation(
 ) -> dict:
     """Write volume automation to a track in arrangement view.
 
-    Requires the M4L bridge device to be active in the Live set.
+    Uses the Remote Script (port 9877) — does NOT require the M4L bridge device.
 
     track_index: zero-based track index
     start_beat: song position in beats where ramp starts (beat 0 = bar 1)
@@ -319,7 +319,7 @@ def write_arrangement_volume_automation(
         ]
 
     try:
-        result = _send_m4l("set_arrangement_automation", {
+        result = _send("write_arrangement_automation", {
             "track_index": track_index,
             "parameter_type": "volume",
             "points": points,
