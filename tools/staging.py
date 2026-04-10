@@ -149,11 +149,16 @@ def apply_gain_staging(
         if selected is not None and ti not in selected:
             continue
         old_vol = float(t.get("volume", _UNITY_VOLUME))
+        current_db = round(_vol_to_db(old_vol), 2)
+        delta = round(target_db - current_db, 2)
         changes.append({
             "track_index": ti,
             "track_name": t.get("name", ""),
             "old_volume": old_vol,
             "new_volume": round(target_scalar, 6),
+            "current_db": current_db,
+            "target_db": round(target_db, 2),
+            "delta": delta,
         })
 
     if not dry_run:
