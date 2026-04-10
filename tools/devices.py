@@ -318,7 +318,11 @@ def find_device_by_name(track_index: int, device_name: str) -> dict:
     for i, d in enumerate(devices):
         dname = d.get("name", "")
         if dname.lower() == resolved.lower() or resolved.lower() in dname.lower():
-            params = d.get("parameters", [])
+            params_result = _send("get_device_parameters", {
+                "track_index": track_index,
+                "device_index": i,
+            })
+            params = params_result.get("parameters", []) if isinstance(params_result, dict) else []
             return {
                 "found": True,
                 "device_index": i,
@@ -326,12 +330,13 @@ def find_device_by_name(track_index: int, device_name: str) -> dict:
                 "alias_used": alias_used,
                 "parameters": [
                     {
+                        "index": p.get("index", pi),
                         "name": p.get("name"),
                         "value": p.get("value"),
                         "min": p.get("min"),
                         "max": p.get("max"),
                     }
-                    for p in params
+                    for pi, p in enumerate(params)
                 ],
             }
 

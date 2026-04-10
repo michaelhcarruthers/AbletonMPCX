@@ -2513,6 +2513,16 @@ class AbletonMPCX(ControlSurface):
                     "class_name": device.class_name,
                     "type": int(device.type),
                     "is_active": device.is_active,
+                    "parameters": [
+                        {
+                            "index": pi,
+                            "name": p.name,
+                            "value": p.value,
+                            "min": p.min,
+                            "max": p.max,
+                        }
+                        for pi, p in enumerate(device.parameters)
+                    ],
                 })
         return result
 
