@@ -141,6 +141,38 @@ def add_native_device(track_index: int, device_name: str, is_return_track: bool 
         "is_return_track": is_return_track,
     })
 
+
+@mcp.tool()
+def remove_device_by_name(
+    track_index: int,
+    device_name: str,
+    is_return_track: bool = False,
+) -> dict:
+    """Remove the first device whose name matches device_name (case-insensitive) from a track.
+
+    Returns the deleted device's name and index, or raises ValueError if no match is found.
+    """
+    result = _send("get_track_devices", {"track_index": track_index, "is_return_track": is_return_track})
+    devices = result.get("devices", []) if isinstance(result, dict) else []
+    name_lower = device_name.strip().lower()
+    matched = None
+    for d in devices:
+        if name_lower in d.get("name", "").lower():
+            matched = d
+            break
+    if matched is None:
+        raise ValueError(
+            "No device matching '{}' found on track {}. "
+            "Available: {}".format(device_name, track_index, [d.get("name") for d in devices])
+        )
+    _send("delete_device", {"track_index": track_index, "device_index": matched["index"], "is_return_track": is_return_track})
+    return {
+        "deleted": True,
+        "device_name": matched.get("name"),
+        "device_index": matched["index"],
+        "track_index": track_index,
+    }
+
 @mcp.tool()
 def set_mixer_snapshot(states: list[dict]) -> dict:
     """Set volume, pan, sends, mute, and/or arm on multiple tracks in a single call."""

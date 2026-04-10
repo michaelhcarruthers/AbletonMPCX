@@ -250,6 +250,24 @@ class AbletonMPCX(ControlSurface):
         except AttributeError:
             return default
 
+    @staticmethod
+    def _safe_name(obj) -> str:
+        """Return a clean string name from a Live routing/device object.
+
+        Tries ``display_name`` first (routing types/channels), then ``name``,
+        then falls back to ``str()`` to avoid raw ``<Live.Track.RoutingType
+        object at 0x...>`` strings in serialised responses.
+        """
+        try:
+            return obj.display_name
+        except AttributeError:
+            pass
+        try:
+            return obj.name
+        except AttributeError:
+            pass
+        return str(obj)
+
     # -------------------------------------------------------------------------
     # Application
     # -------------------------------------------------------------------------
@@ -847,8 +865,8 @@ class AbletonMPCX(ControlSurface):
             "devices": devices_summary,
         }
         try:
-            info["input_routing_type"] = str(track.input_routing_type)
-            info["output_routing_type"] = str(track.output_routing_type)
+            info["input_routing_type"] = self._safe_name(track.input_routing_type)
+            info["output_routing_type"] = self._safe_name(track.output_routing_type)
         except AttributeError:
             pass
         return info
@@ -936,8 +954,8 @@ class AbletonMPCX(ControlSurface):
                 except (AttributeError, RuntimeError):
                     arm_val = False
                 try:
-                    in_type = str(track.input_routing_type)
-                    out_type = str(track.output_routing_type)
+                    in_type = self._safe_name(track.input_routing_type)
+                    out_type = self._safe_name(track.output_routing_type)
                 except AttributeError:
                     in_type = None
                     out_type = None
@@ -3087,8 +3105,8 @@ class AbletonMPCX(ControlSurface):
         def fn():
             if not hasattr(self._song, "create_midi_clip_groove"):
                 raise RuntimeError(
-                    "extract_groove_from_clip requires Live 10+ with create_midi_clip_groove. "
-                    "Use analyze_clip_feel() to read groove characteristics instead."
+                    "extract_groove_from_clip is not supported on this version of Ableton Live. "
+                    "Live 10 or later with create_midi_clip_groove is required."
                 )
             try:
                 groove = self._song.create_midi_clip_groove(clip)

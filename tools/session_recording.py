@@ -22,13 +22,19 @@ _RECORDING_STOP_BUFFER_SECONDS = 0.5
 # Resampling routing
 # ---------------------------------------------------------------------------
 
+@mcp.tool()
 def setup_resampling_route(
     source_track_index: int | None = None,
     resample_track_index: int | None = None,
     track_name: str = "Resample",
     armed: bool = True,
 ) -> dict:
-    """Set up resampling routing between a source track (or master) and a target audio track."""
+    """Set up resampling routing between a source track (or master) and a target audio track.
+
+    Creates a new audio track if resample_track_index is not specified.
+    Sets input routing, monitoring mode (In), and arms the track for recording.
+    Call teardown_resampling_route() when done to reset the track.
+    """
     if resample_track_index is None:
         try:
             _send("create_audio_track", {"index": -1})

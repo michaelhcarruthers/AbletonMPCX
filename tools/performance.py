@@ -449,6 +449,11 @@ _SETUP_CHAINS: dict[str, list[tuple[str, dict]]] = {
         ("Compressor", {}),
         ("Auto Filter", {}),
     ],
+    "basic": [
+        ("Utility", {}),
+        ("Auto Filter", {}),
+        ("Saturator", {}),
+    ],
 }
 
 
@@ -768,6 +773,19 @@ def setup_fx_chain(
 
 
 @mcp.tool()
+def setup_fx_chain_basic(
+    track_index: int,
+    track_name: str | None = None,
+) -> dict:
+    """Add a minimal native device chain (Utility → Auto Filter → Saturator) to a track.
+
+    This is the prerequisite chain for most performance macros. Call this before
+    perform_macro_live() when no native devices are present on the track.
+    """
+    return setup_fx_chain(track_index=track_index, chain_type="basic", track_name=track_name)
+
+
+@mcp.tool()
 def set_macro_intensity(
     track_index: int,
     macro_name: str,
@@ -963,9 +981,22 @@ def perform_macro_live(
         })
         moves_scheduled += result.get("moves_scheduled", len(moves))
 
+    missing_devices = sorted({s["device"] for s in skipped})
+
+    if moves_scheduled == 0:
+        raise RuntimeError(
+            "perform_macro_live: macro '{}' applied 0 moves on track {}. "
+            "Missing devices: {}. "
+            "Run setup_fx_chain_basic({}) to add required devices.".format(
+                macro_name, track_index, missing_devices, track_index
+            )
+        )
+
     return {
         "status": "ok",
         "macros_set": moves_scheduled,
+        "target_track": track_index,
+        "missing_devices": missing_devices,
     }
 
 
