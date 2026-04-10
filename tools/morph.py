@@ -134,6 +134,7 @@ def morph_device_parameter(
     steps: int = 10,
     interval_ms: float = 100.0,
     dry_run: bool = True,
+    visual_refresh: bool = True,
 ) -> dict:
     """Animate a single device parameter from ``from_value`` to ``to_value``."""
     # Read parameter metadata to get min/max and name
@@ -177,6 +178,7 @@ def morph_device_parameter(
             "track_index": track_index,
             "device_index": device_index,
             "moves": moves,
+            "visual_refresh": visual_refresh,
         })
 
     return {

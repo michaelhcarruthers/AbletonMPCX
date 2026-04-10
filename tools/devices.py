@@ -350,6 +350,23 @@ def find_device_by_name(track_index: int, device_name: str) -> dict:
 
 
 @mcp.tool()
+def get_device_parameters(
+    track_index: int,
+    device_index: int,
+    is_return_track: bool = False,
+) -> dict:
+    """Return the full parameter list for a single device.
+
+    Returns: {name, class_name, parameters: [{index, name, value, min, max}]}
+    """
+    return _send("get_device_parameters", {
+        "track_index": track_index,
+        "device_index": device_index,
+        "is_return_track": is_return_track,
+    })
+
+
+@mcp.tool()
 def set_device_parameters_batch(
     track_index: int,
     device_index: int,
@@ -380,11 +397,64 @@ def perform_device_parameter_moves(
     visual_refresh: bool = True,
     step_ms: int = 30,
 ) -> dict:
-    """Animate one or more device parameters to target values over time."""
+    """Animate one or more device parameters to target values over time.
+
+    Each move entry requires either ``parameter_index`` (int) or
+    ``parameter_name`` (str). When ``parameter_name`` is provided and
+    ``parameter_index`` is absent the index is resolved automatically via a
+    case-insensitive substring match against the device's parameter list.
+    """
+    # Fetch device parameters once if any move uses name-based resolution.
+    cached_parameters: list | None = None
+    if any("parameter_index" not in m and "parameter_name" in m for m in moves):
+        params_result = _send("get_device_parameters", {
+            "track_index": track_index,
+            "device_index": device_index,
+            "is_return_track": is_return_track,
+        })
+        cached_parameters = (
+            params_result.get("parameters", [])
+            if isinstance(params_result, dict)
+            else (params_result if isinstance(params_result, list) else [])
+        )
+
+    resolved_moves = []
+    for move in moves:
+        if "parameter_index" not in move and "parameter_name" in move:
+            name_query = move["parameter_name"].strip().lower()
+            match = None
+            for p in (cached_parameters or []):
+                if name_query in p.get("name", "").lower():
+                    match = p
+                    break
+            if match is None:
+                return {
+                    "status": "error",
+                    "error": "No parameter matching '{}' found on device {} of track {}.".format(
+                        move["parameter_name"], device_index, track_index
+                    ),
+                }
+            param_index = match.get("index")
+            if param_index is None:
+                param_index = match.get("parameter_index")
+            if param_index is None:
+                return {
+                    "status": "error",
+                    "error": "Could not determine index for parameter '{}' on device {} of track {}.".format(
+                        move["parameter_name"], device_index, track_index
+                    ),
+                }
+            resolved_move = dict(move)
+            resolved_move["parameter_index"] = param_index
+            resolved_move.pop("parameter_name", None)
+            resolved_moves.append(resolved_move)
+        else:
+            resolved_moves.append(move)
+
     return _send("perform_device_parameter_moves", {
         "track_index": track_index,
         "device_index": device_index,
-        "moves": moves,
+        "moves": resolved_moves,
         "is_return_track": is_return_track,
         "visual_refresh": visual_refresh,
         "step_ms": step_ms,
