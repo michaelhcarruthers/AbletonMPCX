@@ -14,6 +14,9 @@ Run modes:
     # HTTP (ChatGPT Desktop) — default
     python server.py
     # Connect ChatGPT Desktop to: http://localhost:8081/mcp
+    # Via ngrok: set NGROK_HOST=your-subdomain.ngrok-free.dev in .env
+    #            then: ngrok http 8081
+    #            Point ChatGPT Desktop to: https://your-subdomain.ngrok-free.dev/mcp
 
     # stdio (Claude Desktop / CLI)
     python server.py --transport stdio
@@ -128,9 +131,20 @@ if __name__ == "__main__":
     if args.transport == "stdio":
         mcp.run()
     else:
+        # Build allowed_hosts list — always include localhost variants,
+        # plus the ngrok host if set in .env
+        _allowed_hosts = ["localhost", "127.0.0.1", f"localhost:{args.port}", f"127.0.0.1:{args.port}"]
+        _ngrok_host = os.environ.get("NGROK_HOST", "").strip()
+        if _ngrok_host:
+            _allowed_hosts.append(_ngrok_host)
+            # also add without port suffix if it has one
+            if ":" in _ngrok_host:
+                _allowed_hosts.append(_ngrok_host.split(":")[0])
+
         mcp.run(
             transport="streamable-http",
             host=args.host,
             port=args.port,
             path="/mcp",
+            allowed_hosts=_allowed_hosts,
         )
