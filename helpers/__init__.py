@@ -18,12 +18,24 @@ from typing import Any
 logger = logging.getLogger(__name__)
 
 from mcp.server.fastmcp import FastMCP
+try:
+    from mcp.server.transport_security import TransportSecuritySettings
+    _ngrok_host = os.environ.get("NGROK_HOST", "").strip()
+    _allowed_hosts = ["localhost", "127.0.0.1"]
+    if _ngrok_host:
+        _allowed_hosts.append(_ngrok_host)
+    _transport_security = TransportSecuritySettings(
+        enable_dns_rebinding_protection=False,
+        allowed_hosts=_allowed_hosts,
+    )
+    mcp = FastMCP("AbletonMPCX", transport_security=_transport_security)
+except (ImportError, TypeError):
+    # Older FastMCP versions without transport_security support
+    mcp = FastMCP("AbletonMPCX")
 
 # --- Connection settings ---
 ABLETON_HOST = "localhost"
 ABLETON_PORT = 9877
-
-mcp = FastMCP("AbletonMPCX")
 
 
 # ---------------------------------------------------------------------------
