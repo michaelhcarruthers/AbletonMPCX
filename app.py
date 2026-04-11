@@ -13,6 +13,8 @@ Running:
 
     # 3. Open browser
     #    http://localhost:8080
+
+    # ChatGPT Desktop — connect to: http://localhost:8080/mcp
 """
 from __future__ import annotations
 
@@ -139,6 +141,8 @@ SYSTEM_PROMPT = (
 # ---------------------------------------------------------------------------
 
 app = FastAPI(title="AMCPX Chat")
+
+app.mount("/mcp", mcp.streamable_http_app())
 
 _STATIC_DIR = Path(__file__).parent / "static"
 app.mount("/static", StaticFiles(directory=str(_STATIC_DIR)), name="static")
