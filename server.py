@@ -9,6 +9,14 @@ Set AMCPX_TOOL_GROUPS in .env to load only specific groups, e.g.:
 
 If AMCPX_TOOL_GROUPS is not set, all dispatcher modules are loaded along
 with the implementation modules they depend on.
+
+Run modes:
+    # HTTP (ChatGPT Desktop) — default
+    python server.py
+    # Connect ChatGPT Desktop to: http://localhost:8081/mcp
+
+    # stdio (Claude Desktop / CLI)
+    python server.py --transport stdio
 """
 from __future__ import annotations
 
@@ -95,4 +103,34 @@ if "tools.audit" in _modules_to_load:
     _start_observer()
 
 if __name__ == "__main__":
-    mcp.run()
+    import argparse
+
+    parser = argparse.ArgumentParser(description="AMCPX MCP Server")
+    parser.add_argument(
+        "--transport",
+        choices=["stdio", "http"],
+        default="http",
+        help="Transport mode: stdio (for Claude Desktop / CLI) or http (for ChatGPT Desktop). Default: http",
+    )
+    parser.add_argument(
+        "--host",
+        default="0.0.0.0",
+        help="Host to bind when using HTTP transport. Default: 0.0.0.0",
+    )
+    parser.add_argument(
+        "--port",
+        type=int,
+        default=8081,
+        help="Port to bind when using HTTP transport. Default: 8081",
+    )
+    args = parser.parse_args()
+
+    if args.transport == "stdio":
+        mcp.run()
+    else:
+        mcp.run(
+            transport="streamable-http",
+            host=args.host,
+            port=args.port,
+            path="/mcp",
+        )
