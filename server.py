@@ -11,12 +11,16 @@ If AMCPX_TOOL_GROUPS is not set, all dispatcher modules are loaded along
 with the implementation modules they depend on.
 
 Run modes:
-    # HTTP (ChatGPT Desktop) — default
+    # stdio (Claude Desktop) — auto-detected when stdin is not a TTY
+    python server.py
+
+    # HTTP (ChatGPT Desktop) — auto-detected when run from a terminal
     python server.py
     # Connect ChatGPT Desktop to: http://localhost:8081/mcp
 
-    # stdio (Claude Desktop / CLI)
+    # Force a specific transport
     python server.py --transport stdio
+    python server.py --transport http
 """
 from __future__ import annotations
 
@@ -104,13 +108,14 @@ if "tools.audit" in _modules_to_load:
 
 if __name__ == "__main__":
     import argparse
+    import sys
 
     parser = argparse.ArgumentParser(description="AMCPX MCP Server")
     parser.add_argument(
         "--transport",
         choices=["stdio", "http"],
-        default="http",
-        help="Transport mode: stdio (for Claude Desktop / CLI) or http (for ChatGPT Desktop). Default: http",
+        default=None,
+        help="Transport mode: stdio (Claude Desktop) or http (ChatGPT Desktop). Auto-detected if not set.",
     )
     parser.add_argument(
         "--host",
@@ -124,6 +129,14 @@ if __name__ == "__main__":
         help="Port to bind when using HTTP transport. Default: 8081",
     )
     args = parser.parse_args()
+
+    # Auto-detect transport if not explicitly set:
+    # Claude Desktop spawns server.py as a subprocess with a non-TTY stdin → stdio
+    # Running manually from a terminal → http (for ChatGPT Desktop)
+    if args.transport is None:
+        args.transport = "stdio" if not sys.stdin.isatty() else "http"
+
+    logger.info("AMCPX transport: %s", args.transport)
 
     if args.transport == "stdio":
         mcp.run()
