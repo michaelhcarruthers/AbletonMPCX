@@ -1,11 +1,16 @@
 /**
- * amcpx_analyzer_server.js
+ * amcpx_analyzer_server_v2.js
  * Node for Max — AMCPX Analyzer TCP server
  *
- * Receives named meter messages from Max:
+ * Receives named meter / tonal messages from Max:
  *   meter_peak <db>
  *   meter_rms <db>
- *   band_sub / band_bass / band_low_mid / band_mid / band_presence / band_air <db>
+ *   band_sub <db>
+ *   band_bass <db>
+ *   band_low_mid <db>
+ *   band_mid <db>
+ *   band_presence <db>
+ *   band_air <db>
  *   spectral_centroid <hz>
  *   spectral_tilt <value>
  *   dominant_peak_hz <hz>
@@ -38,8 +43,7 @@ const measurements = {
     lufs_integrated: -Infinity,
     crest_factor_db: -Infinity,
     clip_count: 0,
-    last_updated: null,
-    measuring: true, // default on, since the Max patch metro starts automatically
+
     bands: {
         sub: -Infinity,
         bass: -Infinity,
@@ -48,9 +52,13 @@ const measurements = {
         presence: -Infinity,
         air: -Infinity,
     },
+
     spectral_centroid_hz: -Infinity,
     spectral_tilt: -Infinity,
     dominant_peak_hz: -Infinity,
+
+    last_updated: null,
+    measuring: true,
 };
 
 const rmsBuffer = [];
@@ -63,20 +71,21 @@ function resetMeasurements() {
     measurements.lufs_integrated = -Infinity;
     measurements.crest_factor_db = -Infinity;
     measurements.clip_count = 0;
-    measurements.last_updated = null;
+
     measurements.bands.sub = -Infinity;
     measurements.bands.bass = -Infinity;
     measurements.bands.low_mid = -Infinity;
     measurements.bands.mid = -Infinity;
     measurements.bands.presence = -Infinity;
     measurements.bands.air = -Infinity;
+
     measurements.spectral_centroid_hz = -Infinity;
     measurements.spectral_tilt = -Infinity;
     measurements.dominant_peak_hz = -Infinity;
+
+    measurements.last_updated = null;
     rmsBuffer.length = 0;
     lastPeakWasClipping = false;
-    // Note: measuring flag is intentionally preserved across reset so that
-    // clearing data does not interrupt an active measurement session.
 }
 
 function safeNum(val) {
@@ -128,6 +137,17 @@ function updateClipCount(peakDb) {
     lastPeakWasClipping = isClipping;
 }
 
+function getBandsForJson() {
+    return {
+        sub: safeNum(measurements.bands.sub),
+        bass: safeNum(measurements.bands.bass),
+        low_mid: safeNum(measurements.bands.low_mid),
+        mid: safeNum(measurements.bands.mid),
+        presence: safeNum(measurements.bands.presence),
+        air: safeNum(measurements.bands.air),
+    };
+}
+
 function getMeasurementsForJson() {
     return {
         peak_db: safeNum(measurements.peak_db),
@@ -145,17 +165,6 @@ function getMeasurementsForJson() {
     };
 }
 
-function getBandsForJson() {
-    return {
-        sub: safeNum(measurements.bands.sub),
-        bass: safeNum(measurements.bands.bass),
-        low_mid: safeNum(measurements.bands.low_mid),
-        mid: safeNum(measurements.bands.mid),
-        presence: safeNum(measurements.bands.presence),
-        air: safeNum(measurements.bands.air),
-    };
-}
-
 function classifyBand(db) {
     if (!Number.isFinite(db)) return "unknown";
     if (db >= -18) return "high";
@@ -168,6 +177,7 @@ function classifyBand(db) {
 function computeFlags() {
     const b = measurements.bands;
     const flags = [];
+
     if (Number.isFinite(b.low_mid) && b.low_mid > -24) flags.push("low_mid_buildup");
     if (Number.isFinite(b.air) && b.air < -48) flags.push("needs_air");
     if (Number.isFinite(b.air) && b.air < -54) flags.push("air_low");
@@ -175,6 +185,7 @@ function computeFlags() {
     if (Number.isFinite(b.bass) && b.bass > -20) flags.push("bass_heavy");
     if (Number.isFinite(measurements.spectral_tilt) && measurements.spectral_tilt < -8) flags.push("dark_tilt");
     if (Number.isFinite(measurements.spectral_tilt) && measurements.spectral_tilt > 8) flags.push("bright_tilt");
+
     return flags;
 }
 
@@ -197,36 +208,18 @@ function getTonalBalanceForJson() {
     };
 }
 
-function hasValidTonalData() {
-    return (
-        Number.isFinite(measurements.bands.sub) ||
-        Number.isFinite(measurements.bands.bass) ||
-        Number.isFinite(measurements.bands.low_mid) ||
-        Number.isFinite(measurements.bands.mid) ||
-        Number.isFinite(measurements.bands.presence) ||
-        Number.isFinite(measurements.bands.air) ||
-        Number.isFinite(measurements.spectral_centroid_hz) ||
-        Number.isFinite(measurements.spectral_tilt) ||
-        Number.isFinite(measurements.dominant_peak_hz)
-    );
-}
-
 function getAnalyzerSummary() {
     const tonal = getTonalBalanceForJson();
     const flags = tonal.flags;
-    const hasData = hasValidTonalData();
 
-    let overall_tilt = null;
+    let overall_tilt = "balanced";
     if (Number.isFinite(measurements.spectral_tilt)) {
         if (measurements.spectral_tilt < -8) overall_tilt = "dark";
         else if (measurements.spectral_tilt > 8) overall_tilt = "bright";
-        else overall_tilt = "balanced";
     }
 
-    let suggestion_focus = null;
-    if (!hasData) {
-        suggestion_focus = "Analyzer is connected but no tonal data is available yet.";
-    } else if (flags.includes("low_mid_buildup") && flags.includes("needs_air")) {
+    let suggestion_focus = "No strong tonal warning right now.";
+    if (flags.includes("low_mid_buildup") && flags.includes("needs_air")) {
         suggestion_focus = "Check low-mid buildup and top-end openness. Likely mud plus lack of air.";
     } else if (flags.includes("low_mid_buildup")) {
         suggestion_focus = "Check bass body, piano warmth, and other low-mid sources.";
@@ -236,12 +229,9 @@ function getAnalyzerSummary() {
         suggestion_focus = "Low end looks heavy. Check bass weight and kick balance.";
     } else if (flags.includes("presence_forward")) {
         suggestion_focus = "Presence region may be pushing forward. Check upper mids for edge.";
-    } else {
-        suggestion_focus = "No strong tonal warning right now.";
     }
 
     return {
-        status: hasData ? "ok" : "no_data",
         overall_tilt,
         bands: tonal.bands,
         flags,
@@ -260,12 +250,10 @@ function getAnalyzerSummary() {
 
 maxApi.addHandler("meter_peak", (...args) => {
     const val = Number(args[0]);
-
     if (!Number.isFinite(val)) {
         maxApi.post(`AMCPX Analyzer: invalid meter_peak payload: ${JSON.stringify(args)}`);
         return;
     }
-
     if (!measurements.measuring) return;
 
     measurements.peak_db = val;
@@ -276,12 +264,10 @@ maxApi.addHandler("meter_peak", (...args) => {
 
 maxApi.addHandler("meter_rms", (...args) => {
     const val = Number(args[0]);
-
     if (!Number.isFinite(val)) {
         maxApi.post(`AMCPX Analyzer: invalid meter_rms payload: ${JSON.stringify(args)}`);
         return;
     }
-
     if (!measurements.measuring) return;
 
     measurements.rms_db = val;
@@ -293,12 +279,10 @@ maxApi.addHandler("meter_rms", (...args) => {
 function addBandHandler(messageName, bandKey) {
     maxApi.addHandler(messageName, (...args) => {
         const val = Number(args[0]);
-
         if (!Number.isFinite(val)) {
             maxApi.post(`AMCPX Analyzer: invalid ${messageName} payload: ${JSON.stringify(args)}`);
             return;
         }
-
         if (!measurements.measuring) return;
 
         measurements.bands[bandKey] = val;
@@ -315,12 +299,10 @@ addBandHandler("band_air", "air");
 
 maxApi.addHandler("spectral_centroid", (...args) => {
     const val = Number(args[0]);
-
     if (!Number.isFinite(val)) {
         maxApi.post(`AMCPX Analyzer: invalid spectral_centroid payload: ${JSON.stringify(args)}`);
         return;
     }
-
     if (!measurements.measuring) return;
 
     measurements.spectral_centroid_hz = val;
@@ -329,12 +311,10 @@ maxApi.addHandler("spectral_centroid", (...args) => {
 
 maxApi.addHandler("spectral_tilt", (...args) => {
     const val = Number(args[0]);
-
     if (!Number.isFinite(val)) {
         maxApi.post(`AMCPX Analyzer: invalid spectral_tilt payload: ${JSON.stringify(args)}`);
         return;
     }
-
     if (!measurements.measuring) return;
 
     measurements.spectral_tilt = val;
@@ -343,12 +323,10 @@ maxApi.addHandler("spectral_tilt", (...args) => {
 
 maxApi.addHandler("dominant_peak_hz", (...args) => {
     const val = Number(args[0]);
-
     if (!Number.isFinite(val)) {
         maxApi.post(`AMCPX Analyzer: invalid dominant_peak_hz payload: ${JSON.stringify(args)}`);
         return;
     }
-
     if (!measurements.measuring) return;
 
     measurements.dominant_peak_hz = val;
@@ -360,7 +338,9 @@ maxApi.addHandler("debug_state", () => {
 });
 
 maxApi.addHandler("debug_handlers", () => {
-    maxApi.post("AMCPX Analyzer: handlers loaded for meter_peak, meter_rms, band_sub, band_bass, band_low_mid, band_mid, band_presence, band_air, spectral_centroid, spectral_tilt, dominant_peak_hz, debug_state, debug_handlers");
+    maxApi.post(
+        "AMCPX Analyzer: handlers loaded for meter_peak, meter_rms, band_sub, band_bass, band_low_mid, band_mid, band_presence, band_air, spectral_centroid, spectral_tilt, dominant_peak_hz, debug_state, debug_handlers"
+    );
 });
 
 // ---------------------------------------------------------------------------
@@ -394,6 +374,12 @@ async function handleCommand(command) {
                 rms_db: safeNum(measurements.rms_db),
             };
 
+        case "get_tonal_balance":
+            return getTonalBalanceForJson();
+
+        case "get_analyzer_summary":
+            return getAnalyzerSummary();
+
         case "reset":
             resetMeasurements();
             return { reset: true, measuring: measurements.measuring };
@@ -409,12 +395,6 @@ async function handleCommand(command) {
             maxApi.outlet("set_measuring", 0);
             stampUpdated();
             return getMeasurementsForJson();
-
-        case "get_tonal_balance":
-            return getTonalBalanceForJson();
-
-        case "get_analyzer_summary":
-            return getAnalyzerSummary();
 
         default:
             throw new Error(`Unknown command: ${command}`);

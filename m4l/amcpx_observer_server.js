@@ -94,16 +94,13 @@ async function liveGetCount(path, prop) {
 
 async function updateSelectedTrack() {
     try {
+        // Use canonical_parent path to get the index directly from the LOM,
+        // avoiding the O(n) name-match which breaks on duplicate track names.
         const name = await liveGet("live_set view selected_track", "name");
-        const trackCount = await liveGetCount("live_set", "tracks");
-        let index = null;
-        for (let i = 0; i < trackCount; i++) {
-            const tname = await liveGet(`live_set tracks ${i}`, "name");
-            if (tname === name) {
-                index = i;
-                break;
-            }
-        }
+        const pathStr = await liveGet("live_set view selected_track", "canonical_parent");
+        // pathStr is e.g. "live_set tracks 2" — extract the trailing integer
+        const match = String(pathStr).match(/tracks\s+(\d+)$/);
+        const index = match ? parseInt(match[1], 10) : null;
         state.selected_track_index = index;
         state.selected_track_name = String(name);
         state.last_updated = new Date().toISOString();
@@ -127,10 +124,10 @@ async function updateSelectedDevice() {
 async function updateSelectedParameter() {
     try {
         const name = await liveGet(
-            "live_set view selected_track view selected_device selected_parameter", "name"
+            "live_set view selected_track view selected_parameter", "name"
         );
         const value = await liveGet(
-            "live_set view selected_track view selected_device selected_parameter", "value"
+            "live_set view selected_track view selected_parameter", "value"
         );
         state.selected_parameter_name = String(name);
         state.selected_parameter_value = parseFloat(value);
@@ -175,15 +172,16 @@ maxApi.addHandler("current_song_time", (...args) => {
 // Command handlers — called from TCP clients
 // ---------------------------------------------------------------------------
 
-function getPlayheadBars(beats, timeSigNumerator) {
+function getPlayheadBars(beats) {
+    // Assumes 4/4 time for bar calculation.
+    // For non-4/4 projects, use current_song_time (beats) directly.
     if (beats === null || beats === undefined) return null;
-    const beatsPerBar = (timeSigNumerator && timeSigNumerator > 0) ? timeSigNumerator : 4;
-    const bar = Math.floor(beats / beatsPerBar) + 1;
-    const beatInBar = (beats % beatsPerBar) + 1;
+    const bar = Math.floor(beats / 4) + 1;
+    const beatInBar = (beats % 4) + 1;
     return { bar, beat_in_bar: Math.round(beatInBar * 100) / 100 };
 }
 
-async function handleCommand(command, params) {
+function handleCommand(command, params) {
     switch (command) {
         case "ping":
             return { status: "pong", version: VERSION };
@@ -218,42 +216,6 @@ async function handleCommand(command, params) {
                 bar: bars ? bars.bar : null,
                 beat_in_bar: bars ? bars.beat_in_bar : null,
                 last_updated: state.last_updated,
-            };
-        }
-
-        case "get_context": {
-            const tempo        = await liveGet("live_set", "tempo");
-            const timeSigNum   = await liveGet("live_set", "signature_numerator");
-            const timeSigDen   = await liveGet("live_set", "signature_denominator");
-            const isPlaying    = await liveGet("live_set", "is_playing");
-            const loopOn       = await liveGet("live_set", "loop_on");
-            const loopStart    = await liveGet("live_set", "loop_start");
-            const loopLength   = await liveGet("live_set", "loop_length");
-            const songName     = await liveGet("live_set", "name");
-
-            const tempoNum     = parseFloat(tempo);
-            const numNum       = parseInt(timeSigNum);
-            const denNum       = parseInt(timeSigDen);
-            const loopStartNum = parseFloat(loopStart);
-            const loopLenNum   = parseFloat(loopLength);
-            const beatsPerBar  = (numNum && numNum > 0) ? numNum : 4;
-
-            const bars = getPlayheadBars(state.current_song_time, numNum);
-
-            return {
-                tempo: tempoNum,
-                time_sig_numerator: numNum,
-                time_sig_denominator: denNum,
-                is_playing: Boolean(isPlaying),
-                current_bar: bars ? bars.bar : null,
-                current_beat: bars ? bars.beat_in_bar : null,
-                loop_enabled: Boolean(loopOn),
-                loop_start_bar: Math.floor(loopStartNum / beatsPerBar) + 1,
-                loop_end_bar: Math.floor((loopStartNum + loopLenNum) / beatsPerBar) + 1,
-                selected_track_index: state.selected_track_index,
-                selected_track_name: state.selected_track_name,
-                set_id: `${songName}@${Math.round(tempoNum)}bpm`,
-                timestamp: new Date().toISOString(),
             };
         }
 
@@ -311,7 +273,7 @@ function handleConnection(socket) {
 
                 let response;
                 try {
-                    const result = await handleCommand(command, params);
+                    const result = handleCommand(command, params);
                     response = JSON.stringify({ status: "ok", result });
                 } catch (e) {
                     maxApi.post(`AMCPX Observer error [${command}]: ${e.message}`);

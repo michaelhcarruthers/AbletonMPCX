@@ -1,0 +1,10 @@
+[04/08/26 15:26:42] WARNING  Tool already exists: setup_resampling_route                    tool_manager.py:70
+                    WARNING  Tool already exists: teardown_resampling_route                 tool_manager.py:70
+INFO:     Will watch for changes in these directories: ['/Users/rnikec/Projects/AMCPX']
+INFO:     Uvicorn running on http://0.0.0.0:8080 (Press CTRL+C to quit)
+INFO:     Started reloader process [10537] using StatReload
+[04/08/26 15:26:42] WARNING  Tool already exists: setup_resampling_route                    tool_manager.py:70
+                    WARNING  Tool already exists: teardown_resampling_route                 tool_manager.py:70
+INFO:     Started server process [10540]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
