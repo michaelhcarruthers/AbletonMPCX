@@ -5,13 +5,11 @@ from helpers import mcp
 
 from tools.performance import (
     add_performance_fx,
-    setup_fx_chain,
-    setup_fx_chain_basic,
-    list_macro_definitions,
-    check_macro_readiness,
     perform_macro,
     set_macro_intensity,
     perform_macro_live,
+    setup_performance_rack,
+    get_rack_macros,
 )
 from tools.audit import (
     capture_device_macro_snapshot,
@@ -50,24 +48,16 @@ def _action_macro_intensity(**kwargs):
     return set_macro_intensity(**kwargs)
 
 
-def _action_macro_check(**kwargs):
-    return check_macro_readiness(**kwargs)
-
-
-def _action_macro_list(**kwargs):
-    return list_macro_definitions()
-
-
 def _action_fx_add(**kwargs):
     return add_performance_fx(**kwargs)
 
 
-def _action_fx_chain_setup(**kwargs):
-    return setup_fx_chain(**kwargs)
+def _action_setup_rack(**kwargs):
+    return setup_performance_rack(**kwargs)
 
 
-def _action_fx_chain_basic(**kwargs):
-    return setup_fx_chain_basic(**kwargs)
+def _action_get_rack_macros(**kwargs):
+    return get_rack_macros(**kwargs)
 
 
 def _action_adjust(**kwargs):
@@ -142,11 +132,9 @@ _ACTIONS = {
     "macro_perform": _action_macro_perform,
     "macro_live": _action_macro_live,
     "macro_intensity": _action_macro_intensity,
-    "macro_check": _action_macro_check,
-    "macro_list": _action_macro_list,
     "fx_add": _action_fx_add,
-    "fx_chain_setup": _action_fx_chain_setup,
-    "fx_chain_basic": _action_fx_chain_basic,
+    "setup_rack": _action_setup_rack,
+    "get_rack_macros": _action_get_rack_macros,
     "adjust": _action_adjust,
     "batch_set": _action_batch_set,
     "animate": _action_animate,
@@ -168,7 +156,7 @@ _ACTIONS = {
 
 @mcp.tool()
 def device_tool(action: str, **kwargs) -> dict:
-    """Device, macro, and automation workflows. Actions: macro_perform, macro_live, macro_intensity, macro_check, macro_list, fx_add, fx_chain_setup, fx_chain_basic, adjust, batch_set, animate, snapshot_capture, snapshot_apply, find, remove_by_name, randomize, randomize_rack, mixer_set, mixer_get, browser_tree, browser_items, load_item, load_plugin, add_native."""
+    """Device, macro, and automation workflows. Actions: macro_perform, macro_live, macro_intensity, fx_add, setup_rack, get_rack_macros, adjust, batch_set, animate, snapshot_capture, snapshot_apply, find, remove_by_name, randomize, randomize_rack, mixer_set, mixer_get, browser_tree, browser_items, load_item, load_plugin, add_native."""
     if action not in _ACTIONS:
         return {
             "status": "error",
