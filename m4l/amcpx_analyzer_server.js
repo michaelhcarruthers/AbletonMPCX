@@ -342,9 +342,59 @@ maxApi.addHandler("debug_handlers", () => {
     maxApi.post("AMCPX Analyzer: handlers loaded for meter_peak, meter_rms, band_sub, band_bass, band_low_mid, band_mid, band_presence, band_air, spectral_centroid, spectral_tilt, dominant_peak_hz, debug_state, debug_handlers");
 });
 
-// ---------------------------------------------------------------------------
-// Command handlers
-// ---------------------------------------------------------------------------
+function getContextBands() {
+    const b = measurements.bands;
+    // Map existing 6 bands into 5 context groups (sub+bass→low, low_mid, mid, presence→high_mid, air→high)
+    const entries = [
+        { key: "low",      dbs: [b.sub, b.bass] },
+        { key: "low_mid",  dbs: [b.low_mid] },
+        { key: "mid",      dbs: [b.mid] },
+        { key: "high_mid", dbs: [b.presence] },
+        { key: "high",     dbs: [b.air] },
+    ];
+
+    const powers = {};
+    for (const { key, dbs } of entries) {
+        const valid = dbs.filter(v => Number.isFinite(v));
+        if (valid.length === 0) return null;
+        // Convert dB to linear power (10^(dB/10)) before averaging and normalizing
+        const linSum = valid.reduce((s, db) => s + Math.pow(10, db / 10), 0);
+        powers[key] = linSum / valid.length;
+    }
+
+    const total = Object.values(powers).reduce((s, v) => s + v, 0);
+    if (total === 0) return null;
+
+    const result = {};
+    for (const [k, v] of Object.entries(powers)) {
+        result[k] = Math.round((v / total) * 10000) / 10000;
+    }
+    return result;
+}
+
+function classifySpectralTilt() {
+    const t = measurements.spectral_tilt;
+    if (!Number.isFinite(t)) return null;
+    // Thresholds in dB/octave: > +8 = bright (high-frequency heavy),
+    // < -8 = dark (low-frequency heavy), otherwise balanced.
+    if (t < -8) return "dark";
+    if (t > 8) return "bright";
+    return "balanced";
+}
+
+function getContextSuggestionFocus() {
+    const flags = computeFlags();
+    if (flags.includes("low_mid_buildup") && flags.includes("needs_air")) {
+        return "Check low-mid buildup and top-end openness.";
+    }
+    if (flags.includes("low_mid_buildup")) return "Check low-mid buildup.";
+    if (flags.includes("needs_air")) return "Top end looks rolled off.";
+    if (flags.includes("bass_heavy")) return "Low end looks heavy.";
+    if (flags.includes("presence_forward")) return "Presence region may be pushing forward.";
+    return null;
+}
+
+
 
 async function handleCommand(command) {
     switch (command) {
@@ -394,6 +444,19 @@ async function handleCommand(command) {
 
         case "get_analyzer_summary":
             return getAnalyzerSummary();
+
+        case "get_context": {
+            const dataValid = measurements.last_updated !== null && Number.isFinite(measurements.lufs_integrated);
+            return {
+                lufs: safeNum(measurements.lufs_integrated),
+                peak_dbfs: safeNum(measurements.peak_db),
+                spectral_tilt: classifySpectralTilt(),
+                bands: getContextBands(),
+                suggestion_focus: dataValid ? getContextSuggestionFocus() : null,
+                data_valid: dataValid,
+                last_updated: measurements.last_updated,
+            };
+        }
 
         default:
             throw new Error(`Unknown command: ${command}`);

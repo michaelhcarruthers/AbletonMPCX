@@ -41,6 +41,7 @@ from tools.realtime_analyzer import (
     m4l_get_crest_factor,
     m4l_reset_analyzer,
     m4l_measure_for_seconds,
+    get_session_context,
 )
 
 # ---------------------------------------------------------------------------
@@ -182,6 +183,10 @@ def _action_m4l_measure(**kwargs):
     return m4l_measure_for_seconds(**kwargs)
 
 
+def _action_session_context(**kwargs):
+    return get_session_context()
+
+
 def _action_mix_balance(**kwargs):
     return analyze_mix_balance(**kwargs)
 
@@ -224,13 +229,14 @@ _ACTIONS = {
     "m4l_crest": _action_m4l_crest,
     "m4l_reset": _action_m4l_reset,
     "m4l_measure": _action_m4l_measure,
+    "session_context": _action_session_context,
     "mix_balance": _action_mix_balance,
 }
 
 
 @mcp.tool()
 def analysis_tool(action: str, **kwargs) -> dict:
-    """Analysis, feel, reference, and theory workflows. Actions: feel, humanize, humanize_auto, humanize_batch, humanize_from_ref, reference_clip_save, reference_clip_compare, reference_mix_save, reference_mix_compare, reference_audio_save, reference_audio_compare, reference_audio_sections, reference_list, reference_delete, audio_analyse, mix_state, suggestions, key_check, key_check_batch, loudness, onsets, spectral, beat_track, envelope, spectrum_bands, spectrum_overview, m4l_ping, m4l_levels, m4l_lufs, m4l_peak, m4l_crest, m4l_reset, m4l_measure, mix_balance."""
+    """Analysis, feel, reference, and theory workflows. Actions: feel, humanize, humanize_auto, humanize_batch, humanize_from_ref, reference_clip_save, reference_clip_compare, reference_mix_save, reference_mix_compare, reference_audio_save, reference_audio_compare, reference_audio_sections, reference_list, reference_delete, audio_analyse, mix_state, suggestions, key_check, key_check_batch, loudness, onsets, spectral, beat_track, envelope, spectrum_bands, spectrum_overview, m4l_ping, m4l_levels, m4l_lufs, m4l_peak, m4l_crest, m4l_reset, m4l_measure, session_context, mix_balance."""
     if action not in _ACTIONS:
         return {
             "status": "error",

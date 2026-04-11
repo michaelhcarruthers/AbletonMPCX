@@ -13,6 +13,7 @@ import time
 from typing import Any
 
 from helpers import mcp
+from tools.observer_bridge import _send_observer
 
 # ---------------------------------------------------------------------------
 # Transport — connects to the M4L Analyzer device on port 9880
@@ -117,3 +118,71 @@ def m4l_measure_for_seconds(duration: float = 5.0) -> dict:
     _send_analyzer("start_measuring")
     time.sleep(duration)
     return _send_analyzer("stop_measuring")
+
+
+def get_session_context() -> dict:
+    """Get unified session context: transport state from Observer + signal levels from Analyzer.
+
+    Always returns transport. Analyzer fields are present but null if device is offline.
+    Use this as the first call before any timing-aware or mix-aware action.
+    """
+    # 1. Transport context from Observer (required — error if offline)
+    try:
+        observer_data = _send_observer("get_context")
+    except RuntimeError as e:
+        return {
+            "status": "error",
+            "error": "Observer offline: {}".format(str(e)),
+        }
+
+    # 2. Signal context from Analyzer (optional — graceful null if offline)
+    try:
+        analyzer_data = _send_analyzer("get_context")
+        analyzer_available = True
+        analyzer_error = None
+    except RuntimeError as e:
+        analyzer_data = None
+        analyzer_available = False
+        analyzer_error = str(e)
+
+    # 3. Merge into one flat response
+    result: dict[str, Any] = {
+        "set_id": observer_data.get("set_id"),
+        "tempo": observer_data.get("tempo"),
+        "time_sig_numerator": observer_data.get("time_sig_numerator"),
+        "time_sig_denominator": observer_data.get("time_sig_denominator"),
+        "is_playing": observer_data.get("is_playing"),
+        "current_bar": observer_data.get("current_bar"),
+        "current_beat": observer_data.get("current_beat"),
+        "loop_enabled": observer_data.get("loop_enabled"),
+        "loop_start_bar": observer_data.get("loop_start_bar"),
+        "loop_end_bar": observer_data.get("loop_end_bar"),
+        "selected_track_index": observer_data.get("selected_track_index"),
+        "selected_track_name": observer_data.get("selected_track_name"),
+        "observer_timestamp": observer_data.get("timestamp"),
+        "analyzer_available": analyzer_available,
+    }
+
+    if analyzer_available:
+        result.update({
+            "analyzer_timestamp": analyzer_data.get("last_updated"),
+            "lufs": analyzer_data.get("lufs"),
+            "peak_dbfs": analyzer_data.get("peak_dbfs"),
+            "spectral_tilt": analyzer_data.get("spectral_tilt"),
+            "bands": analyzer_data.get("bands"),
+            "suggestion_focus": analyzer_data.get("suggestion_focus"),
+            "data_valid": analyzer_data.get("data_valid"),
+        })
+    else:
+        result.update({
+            "analyzer_error": analyzer_error,
+            "analyzer_timestamp": None,
+            "lufs": None,
+            "peak_dbfs": None,
+            "spectral_tilt": None,
+            "bands": None,
+            "suggestion_focus": None,
+            "data_valid": False,
+        })
+
+    return result
