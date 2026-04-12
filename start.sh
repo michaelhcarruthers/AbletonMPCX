@@ -12,7 +12,7 @@ SERVER_PID=$!
 
 echo "Waiting for server..."
 for i in $(seq 1 30); do
-  if curl -s http://localhost:8080/mcp > /dev/null 2>&1; then
+  if curl -s -o /dev/null -w '%{http_code}' http://localhost:8080/mcp | grep -qE '(200|405|400)'; then
     echo "Server ready."
     break
   fi
