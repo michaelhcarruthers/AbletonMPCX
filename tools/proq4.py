@@ -21,7 +21,7 @@ import math
 from helpers import _send
 
 # ---------------------------------------------------------------------------
-# Frequency scaling  (logarithmic, 13.75 Hz – 96 000 Hz)
+# Frequency scaling  (logarithmic, 10 Hz – 30 000 Hz)
 # ---------------------------------------------------------------------------
 
 _FREQ_MIN_HZ = 10.0
@@ -128,11 +128,15 @@ def set_proq4_band(
         Gain in dB (e.g. -3.0). Range: ±30 dB.
     q : float | None
         Q / bandwidth value (e.g. 1.0). Range: 0.025–40.
+        Note: band 6 does not expose a Q parameter; the value will be noted as
+        skipped in the response rather than silently ignored.
     shape : str | None
         Filter shape: 'bell', 'low_shelf', 'high_shelf', 'low_cut', 'high_cut',
         'notch', 'band_pass', 'tilt_shelf'.
     enabled : bool | None
         Enable or disable the band.
+        Note: band 5 does not expose an enable/disable parameter; the value will
+        be noted as skipped in the response rather than silently ignored.
     is_return_track : bool
         Set True if targeting a return track.
 
@@ -164,11 +168,14 @@ def set_proq4_band(
         applied["gain_db"] = gain_db
         applied["gain_normalized"] = round(norm, 6)
 
-    if q is not None and param_map.get("q") is not None:
-        norm = q_to_proq4(q)
-        updates.append({"parameter_index": param_map["q"], "value": norm})
-        applied["q"] = q
-        applied["q_normalized"] = round(norm, 6)
+    if q is not None:
+        if param_map.get("q") is not None:
+            norm = q_to_proq4(q)
+            updates.append({"parameter_index": param_map["q"], "value": norm})
+            applied["q"] = q
+            applied["q_normalized"] = round(norm, 6)
+        else:
+            applied["q_skipped"] = f"Band {band} does not expose a Q parameter"
 
     if shape is not None:
         shape_key = shape.lower().replace(" ", "_")
@@ -180,9 +187,12 @@ def set_proq4_band(
         updates.append({"parameter_index": param_map["shape"], "value": _SHAPE_VALUES[shape_key]})
         applied["shape"] = shape
 
-    if enabled is not None and param_map.get("enabled") is not None:
-        updates.append({"parameter_index": param_map["enabled"], "value": 1.0 if enabled else 0.0})
-        applied["enabled"] = enabled
+    if enabled is not None:
+        if param_map.get("enabled") is not None:
+            updates.append({"parameter_index": param_map["enabled"], "value": 1.0 if enabled else 0.0})
+            applied["enabled"] = enabled
+        else:
+            applied["enabled_skipped"] = f"Band {band} does not expose an enable/disable parameter"
 
     if not updates:
         return {
