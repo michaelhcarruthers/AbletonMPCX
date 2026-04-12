@@ -132,7 +132,8 @@ def set_proq4_band(
         skipped in the response rather than silently ignored.
     shape : str | None
         Filter shape: 'bell', 'low_shelf', 'high_shelf', 'low_cut', 'high_cut',
-        'notch', 'band_pass', 'tilt_shelf'.
+        'notch', 'band_pass', 'tilt_shelf'. Spaces are accepted in place of
+        underscores (e.g. 'low shelf' is equivalent to 'low_shelf').
     enabled : bool | None
         Enable or disable the band.
         Note: band 5 does not expose an enable/disable parameter; the value will
