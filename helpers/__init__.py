@@ -9,17 +9,21 @@ import logging
 import math
 import os
 import pathlib
-import urllib.parse
-import urllib.request
 import socket
 import threading
 import time
+import urllib.error
+import urllib.parse
+import urllib.request
 from contextlib import contextmanager
 from typing import Any
 
 logger = logging.getLogger(__name__)
 
 from mcp.server.fastmcp import FastMCP
+
+_NGROK_API_URL = "http://127.0.0.1:4040/api/tunnels"
+_NGROK_API_TIMEOUT = 1.5
 
 
 def _detect_ngrok_host() -> str | None:
@@ -33,16 +37,16 @@ def _detect_ngrok_host() -> str | None:
         manual = os.environ.get("NGROK_HOST", "").strip()
         if manual:
             return manual
-        req = urllib.request.urlopen(
-            "http://127.0.0.1:4040/api/tunnels", timeout=1.5
-        )
+        req = urllib.request.urlopen(_NGROK_API_URL, timeout=_NGROK_API_TIMEOUT)
         data = json.loads(req.read().decode("utf-8"))
         for tunnel in data.get("tunnels", []):
             public_url = tunnel.get("public_url", "")
             if public_url.startswith("https://"):
                 return urllib.parse.urlparse(public_url).hostname
-    except Exception:
-        pass
+    except (urllib.error.URLError, json.JSONDecodeError, KeyError, ValueError) as exc:
+        logger.debug("ngrok auto-detection failed: %s", exc)
+    except Exception as exc:
+        logger.debug("ngrok auto-detection unexpected error: %s", exc)
     return None
 
 
