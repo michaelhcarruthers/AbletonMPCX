@@ -1,9 +1,7 @@
 """Analysis dispatcher — routes analysis, feel, reference, and theory workflows."""
 from __future__ import annotations
 
-from helpers import mcp
-
-from tools.audit import (
+from helpers import mcp, _send
     analyze_clip_feel,
     humanize_dilla,
     humanize_notes,
@@ -26,7 +24,6 @@ from tools.session import analyse_mix_state
 from tools.theory import check_key, check_key_batch
 from tools.diagnostics import analyze_mix_balance, diagnose_mix
 from tools.project_analysis import debug_mix_compare, final_review_mode
-from helpers import _send
 from tools.analysis import (
     get_loudness,
     get_onsets,
