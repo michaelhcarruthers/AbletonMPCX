@@ -144,7 +144,7 @@ SYSTEM_PROMPT = (
 # FastAPI app
 # ---------------------------------------------------------------------------
 
-app = FastAPI(title="AMCPX Chat")
+app = FastAPI(title="AMCPX Chat", redirect_slashes=False)
 
 app.mount("/mcp", mcp.streamable_http_app())
 
