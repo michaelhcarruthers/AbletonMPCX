@@ -1,9 +1,7 @@
 """Analysis dispatcher — routes analysis, feel, reference, and theory workflows."""
 from __future__ import annotations
 
-from helpers import mcp
-
-from tools.audit import (
+from helpers import mcp, _send
     analyze_clip_feel,
     humanize_dilla,
     humanize_notes,
@@ -25,6 +23,7 @@ from tools.audit import (
 from tools.session import analyse_mix_state
 from tools.theory import check_key, check_key_batch
 from tools.diagnostics import analyze_mix_balance, diagnose_mix
+from tools.project_analysis import debug_mix_compare, final_review_mode
 from tools.analysis import (
     get_loudness,
     get_onsets,
@@ -195,6 +194,71 @@ def _action_mix_diagnose(**kwargs):
     return diagnose_mix()
 
 
+def _action_mix_debug(**kwargs):
+    """
+    Workflow 1 – Debug Mode: 3-track mix comparison.
+
+    Accepted kwargs
+    ---------------
+    track_indices : list[int] | None
+        0-based indices of the tracks to compare (exactly 3).
+        If omitted, the first 3 tracks in the session are used.
+    labels : list[str] | None
+        Optional custom labels (e.g. ["A", "B", "C"] or track names).
+    """
+    track_indices = kwargs.get("track_indices")
+    labels = kwargs.get("labels")
+
+    all_tracks = _send("get_tracks", {"slim": False})
+    if not isinstance(all_tracks, list):
+        return {"status": "error", "error": "Could not retrieve tracks from session."}
+
+    if track_indices:
+        selected = [t for t in all_tracks if t.get("index", t.get("track_index")) in track_indices]
+    else:
+        selected = all_tracks[:3]
+
+    return debug_mix_compare(selected, labels=labels)
+
+
+def _action_mix_final_review(**kwargs):
+    """
+    Workflow 2 – Final Review Mode: album cohesion + sequencing.
+
+    Accepted kwargs
+    ---------------
+    track_indices : list[int] | None
+        0-based indices of the tracks to include.
+        If omitted, all session tracks are used.
+    track_names : list[str] | None
+        Optional display names overriding the track names in the session.
+    anchor_index : int | None
+        0-based index *within the selected tracks list* to use as the anchor.
+    sequence : list[int] | None
+        Current intended sequence as 0-based indices into the selected list.
+    """
+    track_indices = kwargs.get("track_indices")
+    track_names = kwargs.get("track_names")
+    anchor_index = kwargs.get("anchor_index")
+    sequence = kwargs.get("sequence")
+
+    all_tracks = _send("get_tracks", {"slim": False})
+    if not isinstance(all_tracks, list):
+        return {"status": "error", "error": "Could not retrieve tracks from session."}
+
+    if track_indices:
+        selected = [t for t in all_tracks if t.get("index", t.get("track_index")) in track_indices]
+    else:
+        selected = all_tracks
+
+    return final_review_mode(
+        selected,
+        track_names=track_names,
+        anchor_index=anchor_index,
+        sequence=sequence,
+    )
+
+
 # ---------------------------------------------------------------------------
 # Dispatcher
 # ---------------------------------------------------------------------------
@@ -236,12 +300,14 @@ _ACTIONS = {
     "session_context": _action_session_context,
     "mix_balance": _action_mix_balance,
     "mix_diagnose": _action_mix_diagnose,
+    "mix_debug": _action_mix_debug,
+    "mix_final_review": _action_mix_final_review,
 }
 
 
 @mcp.tool()
 def analysis_tool(action: str, **kwargs) -> dict:
-    """Analysis, feel, reference, and theory workflows. Actions: feel, humanize, humanize_auto, humanize_batch, humanize_from_ref, reference_clip_save, reference_clip_compare, reference_mix_save, reference_mix_compare, reference_audio_save, reference_audio_compare, reference_audio_sections, reference_list, reference_delete, audio_analyse, mix_state, suggestions, key_check, key_check_batch, loudness, onsets, spectral, beat_track, envelope, spectrum_bands, spectrum_overview, m4l_ping, m4l_levels, m4l_lufs, m4l_peak, m4l_crest, m4l_reset, m4l_measure, session_context, mix_balance, mix_diagnose."""
+    """Analysis, feel, reference, and theory workflows. Actions: feel, humanize, humanize_auto, humanize_batch, humanize_from_ref, reference_clip_save, reference_clip_compare, reference_mix_save, reference_mix_compare, reference_audio_save, reference_audio_compare, reference_audio_sections, reference_list, reference_delete, audio_analyse, mix_state, suggestions, key_check, key_check_batch, loudness, onsets, spectral, beat_track, envelope, spectrum_bands, spectrum_overview, m4l_ping, m4l_levels, m4l_lufs, m4l_peak, m4l_crest, m4l_reset, m4l_measure, session_context, mix_balance, mix_diagnose, mix_debug, mix_final_review."""
     if action not in _ACTIONS:
         return {
             "status": "error",
