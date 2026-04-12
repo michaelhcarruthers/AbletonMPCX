@@ -1938,12 +1938,49 @@ class AbletonMPCX(ControlSurface):
         return {}
 
     def _cmd_set_clip_gain(self, params):
+        """Set the gain of an audio clip. Accepts 'gain' (linear 0.0–1.0) directly.
+        dB conversion is handled in tools/clips.py before this is called."""
         clip = self._get_clip(int(params["track_index"]), int(params["slot_index"]))
         gain = float(params["gain"])
+        # Clamp to valid range
+        gain = max(0.0, min(1.0, gain))
         def fn():
             clip.gain = gain
         self._run_on_main_thread(fn)
-        return {}
+        return {"gain": gain}
+
+    def _cmd_set_clip_gain_bulk(self, params):
+        """Apply clip gain to multiple clips in a single main-thread call.
+
+        params:
+            updates: list of {track_index, slot_index, gain} dicts
+                     where gain is linear 0.0–1.0 (already converted from dB by caller)
+
+        Returns a summary of applied and failed updates.
+        """
+        updates = params.get("updates", [])
+        applied = []
+        failed = []
+
+        def fn():
+            for u in updates:
+                ti = int(u["track_index"])
+                si = int(u["slot_index"])
+                gain = max(0.0, min(1.0, float(u["gain"])))
+                try:
+                    clip = self._get_clip(ti, si)
+                    clip.gain = gain
+                    applied.append({"track_index": ti, "slot_index": si, "gain": gain})
+                except Exception as e:
+                    failed.append({"track_index": ti, "slot_index": si, "error": str(e)})
+
+        self._run_on_main_thread(fn)
+        return {
+            "applied_count": len(applied),
+            "failed_count": len(failed),
+            "applied": applied,
+            "failed": failed,
+        }
 
     def _cmd_set_clip_warping(self, params):
         clip = self._get_clip(int(params["track_index"]), int(params["slot_index"]))
