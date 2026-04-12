@@ -2,7 +2,8 @@
 from __future__ import annotations
 
 from helpers import mcp, _send
-from tools.analysis import (
+
+from tools.audit import (
     analyze_clip_feel,
     humanize_dilla,
     humanize_notes,
@@ -196,8 +197,7 @@ def _action_mix_diagnose(**kwargs):
 
 
 def _action_mix_debug(**kwargs):
-    """
-    Workflow 1 – Debug Mode: 3-track mix comparison.
+    """Workflow 1 - Debug Mode: 3-track mix comparison.
 
     Accepted kwargs
     ---------------
@@ -223,8 +223,7 @@ def _action_mix_debug(**kwargs):
 
 
 def _action_mix_final_review(**kwargs):
-    """
-    Workflow 2 – Final Review Mode: album cohesion + sequencing.
+    """Workflow 2 - Final Review Mode: album cohesion + sequencing.
 
     Accepted kwargs
     ---------------
@@ -237,7 +236,7 @@ def _action_mix_final_review(**kwargs):
         0-based index *within the selected tracks list* to use as the anchor.
     sequence : list[int] | None
         Current intended sequence as 0-based indices into the selected list.
-    """
+    """    
     track_indices = kwargs.get("track_indices")
     track_names = kwargs.get("track_names")
     anchor_index = kwargs.get("anchor_index")
@@ -305,7 +304,6 @@ _ACTIONS = {
     "mix_final_review": _action_mix_final_review,
 }
 
-
 @mcp.tool()
 def analysis_tool(action: str, **kwargs) -> dict:
     """Analysis, feel, reference, and theory workflows. Actions: feel, humanize, humanize_auto, humanize_batch, humanize_from_ref, reference_clip_save, reference_clip_compare, reference_mix_save, reference_mix_compare, reference_audio_save, reference_audio_compare, reference_audio_sections, reference_list, reference_delete, audio_analyse, mix_state, suggestions, key_check, key_check_batch, loudness, onsets, spectral, beat_track, envelope, spectrum_bands, spectrum_overview, m4l_ping, m4l_levels, m4l_lufs, m4l_peak, m4l_crest, m4l_reset, m4l_measure, session_context, mix_balance, mix_diagnose, mix_debug, mix_final_review."""
@@ -316,7 +314,7 @@ def analysis_tool(action: str, **kwargs) -> dict:
             "valid_actions": sorted(_ACTIONS.keys()),
         }
     try:
-        # Unwrap if Claude passed kwargs as a nested dict literal
+        # Unwrap if kwargs were passed as a nested dict literal
         if "kwargs" in kwargs and isinstance(kwargs["kwargs"], dict):
             kwargs = {**kwargs["kwargs"]}
         return _ACTIONS[action](**kwargs)
