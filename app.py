@@ -1,8 +1,8 @@
 """
-AMCPX MCP Server — FastAPI entry point for ChatGPT Desktop.
+AMCPX MCP Server — entry point for ChatGPT Desktop.
 
-Registers all tool modules against the shared FastMCP instance and exposes
-the MCP endpoint at /mcp for ChatGPT Desktop to connect to.
+Registers all tool modules against the shared FastMCP instance and serves
+the MCP endpoint at /mcp via FastMCP's built-in streamable-http transport.
 
 Running:
     # 1. Copy and fill .env
@@ -18,7 +18,6 @@ from __future__ import annotations
 import logging
 
 from dotenv import load_dotenv
-from fastapi import FastAPI
 
 load_dotenv(override=False)
 
@@ -62,19 +61,9 @@ from tools.audit import _start_observer
 _start_observer()
 
 # ---------------------------------------------------------------------------
-# FastAPI app — MCP endpoint only
-# ---------------------------------------------------------------------------
-
-app = FastAPI(title="AMCPX MCP Server", redirect_slashes=False)
-
-app.mount("/mcp", mcp.streamable_http_app())
-
-# ---------------------------------------------------------------------------
 # Entry point
 # ---------------------------------------------------------------------------
 
 if __name__ == "__main__":
-    import uvicorn
-
     logging.basicConfig(level=logging.INFO)
-    uvicorn.run("app:app", host="0.0.0.0", port=8080, reload=True)
+    mcp.run(transport="streamable-http", host="0.0.0.0", port=8080)
