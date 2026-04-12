@@ -4,7 +4,7 @@ AbletonMPCX MCP Server — entry point.
 Starts the FastMCP server and imports all domain tool modules so that every
 @mcp.tool() decorator registers against the shared ``mcp`` instance.
 
-Set AMCPX_TOOL_GROUPS in .env to load only specific groups, e.g.:
+Set AMCPX_TOOL_GROUPS in .env to load only specific groups, e.g.: 
     AMCPX_TOOL_GROUPS=base,session,mixer,clips,arrangement,devices
 
 If AMCPX_TOOL_GROUPS is not set, all dispatcher modules are loaded along
@@ -16,7 +16,7 @@ Run modes:
 
     # HTTP (ChatGPT Desktop) — auto-detected when run from a terminal
     python server.py
-    # Connect ChatGPT Desktop to: http://localhost:8081/mcp
+    # Connect ChatGPT Desktop to: http://localhost:8080/mcp
 
     # Force a specific transport
     python server.py --transport stdio
@@ -117,17 +117,6 @@ if __name__ == "__main__":
         default=None,
         help="Transport mode: stdio (Claude Desktop) or http (ChatGPT Desktop). Auto-detected if not set.",
     )
-    parser.add_argument(
-        "--host",
-        default="0.0.0.0",
-        help="Host to bind when using HTTP transport. Default: 0.0.0.0",
-    )
-    parser.add_argument(
-        "--port",
-        type=int,
-        default=8081,
-        help="Port to bind when using HTTP transport. Default: 8081",
-    )
     args = parser.parse_args()
 
     # Auto-detect transport if not explicitly set:
@@ -141,6 +130,4 @@ if __name__ == "__main__":
     if args.transport == "stdio":
         mcp.run()
     else:
-        import uvicorn
-        app = mcp.streamable_http_app(path="/mcp")
-        uvicorn.run(app, host=args.host, port=args.port)
+        mcp.run(transport="streamable-http")
