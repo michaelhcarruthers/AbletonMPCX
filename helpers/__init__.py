@@ -12,6 +12,7 @@ import pathlib
 import socket
 import threading
 import time
+import urllib.error
 import urllib.parse
 import urllib.request
 from contextlib import contextmanager
@@ -21,40 +22,43 @@ logger = logging.getLogger(__name__)
 
 from mcp.server.fastmcp import FastMCP
 
+_NGROK_API_URL = "http://127.0.0.1:4040/api/tunnels"
+_NGROK_API_TIMEOUT = 1.5
+
 
 def _detect_ngrok_host() -> str | None:
-    """Return the public ngrok hostname, or None if not available.
+    """Return the active ngrok public hostname, or None if not available.
 
-    Checks NGROK_HOST env-var first (manual override), then queries the
-    local ngrok introspection API at http://127.0.0.1:4040/api/tunnels.
-    Never raises — all errors are silently swallowed.
+    Checks the ``NGROK_HOST`` env-var first (manual override).  Falls back to
+    querying the local ngrok introspection API at ``http://127.0.0.1:4040/api/tunnels``
+    and extracting the hostname from the first ``https://`` tunnel found.
     """
     try:
         manual = os.environ.get("NGROK_HOST", "").strip()
         if manual:
             return manual
-        with urllib.request.urlopen(
-            "http://127.0.0.1:4040/api/tunnels", timeout=1.5
-        ) as resp:
-            data = json.loads(resp.read())
+        req = urllib.request.urlopen(_NGROK_API_URL, timeout=_NGROK_API_TIMEOUT)
+        data = json.loads(req.read().decode("utf-8"))
         for tunnel in data.get("tunnels", []):
-            url = tunnel.get("public_url", "")
-            if url.startswith("https://"):
-                return urllib.parse.urlparse(url).hostname
-    except Exception:
-        pass
+            public_url = tunnel.get("public_url", "")
+            if public_url.startswith("https://"):
+                return urllib.parse.urlparse(public_url).hostname
+    except (urllib.error.URLError, json.JSONDecodeError, KeyError, ValueError) as exc:
+        logger.debug("ngrok auto-detection failed: %s", exc)
+    except Exception as exc:
+        logger.debug("ngrok auto-detection unexpected error: %s", exc)
     return None
 
 
 try:
     from mcp.server.transport_security import TransportSecuritySettings
     _allowed_hosts = ["localhost", "127.0.0.1"]
-    _detected = _detect_ngrok_host()
-    if _detected:
-        _allowed_hosts.append(_detected)
-        logger.info("AMCPX ngrok host auto-detected: %s", _detected)
+    _detected_host = _detect_ngrok_host()
+    if _detected_host:
+        _allowed_hosts.append(_detected_host)
+        logger.info("AMCPX ngrok host: %s", _detected_host)
     else:
-        logger.debug("ngrok not detected; MCP restricted to localhost")
+        logger.debug("ngrok not detected; allowed_hosts: %s", _allowed_hosts)
     _transport_security = TransportSecuritySettings(
         enable_dns_rebinding_protection=False,
         allowed_hosts=_allowed_hosts,
