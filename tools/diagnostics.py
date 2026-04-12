@@ -1011,7 +1011,7 @@ def _detect_bus_processing(devices: list[dict]) -> tuple[bool, list[str]]:
 def _is_vocal_track(name: str) -> bool:
     """Return True if the track name suggests it is a vocal track."""
     tokens = re.split(r"[\s_\-/\\\.]+", name.lower())
-    return any(t in {"vocal", "vox", "voice", "voc", "bvox", "bgvox"} for t in tokens)
+    return any(t in {"vocal", "vox", "voice", "voc", "bvox", "bgvox", "bg", "backing", "bv"} for t in tokens)
 
 
 def _is_drum_track(name: str) -> bool:
@@ -1292,8 +1292,9 @@ def diagnose_mix() -> dict:
         ],
         "approach": (
             "Adjust one likely contributor, then re-run analysis before touching anything else. "
-            "Small manual moves ({} to {}) accumulate; avoid multi-track cuts in the first pass.".format(
-                _MOVE_PROCESSED, _MOVE_UNPROCESSED
+            "Small manual moves ({processed} to {unprocessed}) accumulate; "
+            "avoid multi-track cuts in the first pass.".format(
+                processed=_MOVE_PROCESSED, unprocessed=_MOVE_UNPROCESSED
             )
         ),
     }
@@ -1576,7 +1577,10 @@ def _build_what_not_to_change(
 
     drum_tracks = [t for t in tracks if _is_drum_track(t.get("name", ""))]
     if drum_tracks:
-        drum_names = ", ".join(t.get("name", "") for t in drum_tracks[:3])
+        shown = drum_tracks[:3]
+        drum_names = ", ".join(t.get("name", "") for t in shown)
+        if len(drum_tracks) > 3:
+            drum_names += " (and {} more)".format(len(drum_tracks) - 3)
         if not any(_is_drum_track(n) for n in rec_track_names):
             guidance.append({
                 "element": "Drums ({})".format(drum_names),
