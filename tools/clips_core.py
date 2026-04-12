@@ -235,10 +235,16 @@ def set_clip_gain(
         return gain_linear, _gain_to_db(gain_linear), is_midi
 
     def _apply_single(ti: int, si: int, new_db: float) -> dict:
-        """Read current gain, apply deadband check, write if needed. Returns result dict."""
-        current_linear, current_db, is_midi = _read_current_gain_db(ti, si)
+        info = _send("get_clip_info", {"track_index": ti, "slot_index": si})
+        is_midi = info.get("is_midi_clip", False)
+        raw = info.get("gain")
+        if raw is None:
+            return {"track_index": ti, "slot_index": si, "skipped": True, "reason": "gain_read_failed"}
         if is_midi:
             return {"track_index": ti, "slot_index": si, "skipped": True, "reason": "midi_clip"}
+
+        current_linear = float(raw)
+        current_db = _gain_to_db(current_linear)
         delta_db = new_db - current_db
         if abs(delta_db) < _DEADBAND_DB:
             return {
@@ -248,13 +254,15 @@ def set_clip_gain(
                 "new_gain_db": round(new_db, 2),
                 "delta_db": round(delta_db, 2),
             }
+
         new_linear = _clamp_gain(_db_to_gain(new_db))
+        actual_db = _gain_to_db(new_linear)  # reflects the 0–1 clamp, no extra round trip
         _send("set_clip_gain", {"track_index": ti, "slot_index": si, "gain": new_linear})
         return {
             "track_index": ti, "slot_index": si, "skipped": False,
             "old_gain_db": round(current_db, 2),
-            "new_gain_db": round(new_db, 2),
-            "delta_db": round(delta_db, 2),
+            "new_gain_db": round(actual_db, 2),
+            "delta_db": round(actual_db - current_db, 2),
             "new_gain_linear": round(new_linear, 4),
         }
 
