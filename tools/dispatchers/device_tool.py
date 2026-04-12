@@ -156,7 +156,35 @@ _ACTIONS = {
 
 @mcp.tool()
 def device_tool(action: str, **kwargs) -> dict:
-    """Device, macro, and automation workflows. Actions: macro_perform, macro_live, macro_intensity, fx_add, setup_rack, get_rack_macros, adjust, batch_set, animate, snapshot_capture, snapshot_apply, find, remove_by_name, randomize, randomize_rack, mixer_set, mixer_get, browser_tree, browser_items, load_item, load_plugin, add_native."""
+    """Device, macro, and automation workflows.
+
+    READ-ONLY actions (never create tracks or add devices):
+      find          – inspect a device by name; returns found/not_found, never mutates.
+      get_rack_macros – read macro knob names and values from a rack.
+      mixer_get     – read mixer device state (volume, pan, sends).
+      browser_tree  – browse the Live device browser tree (read-only).
+      browser_items – list browser items at a path (read-only).
+
+    MUTATING actions (modify the Live set — use only when explicitly adding/changing):
+      add_native    – add a native Ableton device to a track.
+      load_item     – load a browser item onto a track.
+      load_plugin   – load a VST/AU plugin device onto a track.
+      setup_rack    – add an Audio Effect Rack and name its macros.
+      fx_add        – add a performance effect (reverb_throw/filter_sweep/delay_echo_out/stutter);
+                      requires the device to already exist on the track — use add_native first.
+      adjust        – set a single device parameter value.
+      batch_set     – set multiple device parameters at once.
+      animate       – animate device parameters over time.
+      mixer_set     – set mixer snapshot (volume, pan, sends).
+      remove_by_name – remove a device by name.
+      randomize     – randomize device parameters.
+      randomize_rack – randomize rack macro knob values.
+      macro_perform – animate rack macro knobs (real-time gesture).
+      macro_live    – alias for macro_perform.
+      macro_intensity – set rack macro knob values instantly.
+      snapshot_capture – capture a device macro snapshot.
+      snapshot_apply – apply a captured device macro snapshot.
+    """
     if action not in _ACTIONS:
         return {
             "status": "error",
