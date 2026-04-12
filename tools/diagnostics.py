@@ -934,6 +934,103 @@ def _db_from_linear(linear: float) -> float:
     return 20.0 * math.log10(max(linear, 1e-10))
 
 
+# ---------------------------------------------------------------------------
+# Mix-analysis helpers (used by diagnose_mix)
+# ---------------------------------------------------------------------------
+
+# Instrument keywords with strong 200–600 Hz presence
+_LOW_MID_HIGH_OVERLAP: frozenset[str] = frozenset({
+    "piano", "ep", "rhodes", "wurli", "wurlitzer", "clav", "clavi",
+    "organ", "pad", "pads", "string", "strings", "cello", "viola", "violin",
+    "guitar", "acoustic", "keys", "synth", "lead", "arp", "arpeggio",
+    "choir", "brass", "horns", "horn", "trombone", "trumpet",
+    "sax", "saxophone", "woodwind", "mellotron",
+    "rhythm", "chords", "chord", "acc", "accordion",
+    "vocal", "vox", "voice", "voc",
+})
+
+# Instrument keywords with moderate 200–600 Hz presence
+_LOW_MID_MED_OVERLAP: frozenset[str] = frozenset({
+    "bass", "upright", "electric", "kick", "snare", "tom", "toms",
+    "drum", "drums", "loop", "perc", "beat", "groove",
+})
+
+# Instrument keywords with low 200–600 Hz presence
+_LOW_MID_LOW_OVERLAP: frozenset[str] = frozenset({
+    "sub", "hh", "hihat", "hi-hat", "cymbal", "overhead",
+    "clap", "fx", "foley", "sfx", "atmo", "atmosphere",
+    "air", "reverb", "delay", "verb",
+})
+
+# Device name substrings that indicate bus-style or mastering-style processing
+_BUS_PROCESSING_KEYWORDS: tuple[str, ...] = (
+    "ssl", "api", "bus comp", "bus glue", "glue comp", "glue compressor",
+    "master", "ozone", "pro-l", "l2", "l3", "l1", "maximizer",
+    "sonnox", "neve", "shadow hills", "fairchild", "distressor",
+    "multi-band", "multiband", "mb-7",
+)
+
+_LOW_MID_HZ_LABEL = "200–600 Hz"
+_MOVE_PROCESSED = "-0.5 dB"
+_MOVE_UNPROCESSED = "-1.0 dB"
+
+
+def _classify_low_mid_overlap(track_name: str) -> float:
+    """
+    Estimate a track's spectral overlap with the 200–600 Hz band (0.0–1.0)
+    from its name keywords.  Returns 0.8 for high-overlap instruments, 0.4
+    for medium, 0.1 for low, and 0.35 for unknown/ambiguous names.
+    """
+    tokens = re.split(r"[\s_\-/\\\.]+", track_name.lower())
+    score = 0.0
+    for tok in tokens:
+        if tok in _LOW_MID_HIGH_OVERLAP:
+            score = max(score, 0.8)
+        elif tok in _LOW_MID_MED_OVERLAP:
+            score = max(score, 0.4)
+        elif tok in _LOW_MID_LOW_OVERLAP:
+            score = max(score, 0.1)
+    return score if score > 0.0 else 0.35
+
+
+def _detect_bus_processing(devices: list[dict]) -> tuple[bool, list[str]]:
+    """
+    Detect bus-style or mastering-style processing on a track.
+    Returns (has_bus_processing, list_of_matching_device_names).
+    """
+    matches: list[str] = []
+    for d in devices:
+        dev_name = d.get("name", "").lower()
+        for kw in _BUS_PROCESSING_KEYWORDS:
+            if kw in dev_name:
+                matches.append(d.get("name", kw))
+                break
+    return bool(matches), matches
+
+
+def _is_vocal_track(name: str) -> bool:
+    """Return True if the track name suggests it is a vocal track."""
+    tokens = re.split(r"[\s_\-/\\\.]+", name.lower())
+    return any(t in {"vocal", "vox", "voice", "voc", "bvox", "bgvox", "bg", "backing", "bv"} for t in tokens)
+
+
+def _is_drum_track(name: str) -> bool:
+    """Return True if the track name suggests it is a drum/percussion track."""
+    tokens = re.split(r"[\s_\-/\\\.]+", name.lower())
+    return any(
+        t in {"drum", "drums", "kick", "snare", "hh", "hihat", "cymbal", "overhead", "perc", "beat"}
+        for t in tokens
+    )
+
+
+def _staging_score(db: float, min_db: float, max_db: float) -> float:
+    """Normalise a track's dB level to a 0.0–1.0 staging score (higher = more forward)."""
+    db_range = max_db - min_db
+    if db_range < 0.5:
+        return 0.5
+    return max(0.0, min(1.0, (db - min_db) / db_range))
+
+
 @mcp.tool()
 def diagnose_track(track_index: int) -> dict:
     """Run a full diagnostic on a single track and return structured findings."""
@@ -1029,7 +1126,17 @@ def diagnose_track(track_index: int) -> dict:
 
 @mcp.tool()
 def diagnose_mix() -> dict:
-    """Run a diagnostic across the entire mix and return structured findings."""
+    """
+    Run a comprehensive mix diagnostic.
+
+    Returns separate loudness and balance findings, a weighted per-track
+    contribution ranking, structured per-track recommendation objects,
+    'what not to change yet' guidance, and re-check loop instructions.
+
+    Legacy fields (warnings, info, recommendations, overall_health,
+    tracks_checked) are preserved for backward compatibility.
+    """
+    # ── 1. Collect track data ─────────────────────────────────────────
     tracks = _send("get_tracks", {"slim": False})
     if not isinstance(tracks, list):
         return {
@@ -1038,59 +1145,454 @@ def diagnose_mix() -> dict:
             "recommendations": [],
             "overall_health": 0,
             "tracks_checked": 0,
+            "loudness_diagnosis": {},
+            "balance_diagnosis": {},
+            "most_likely_contributors": [],
+            "track_recommendations": [],
+            "what_not_to_change": [],
+            "recheck_loop": {},
         }
 
     warnings: list[dict] = []
     info: list[str] = []
-    recommendations: list[str] = []
     penalty = 0
 
+    # ── 2. Per-track clipping / device checks (legacy behaviour) ──────
     for t in tracks:
         idx = t.get("index", t.get("track_index", "?"))
         name = t.get("name", "Unnamed")
         mixer = t.get("mixer_device", {}) or {}
         volume = mixer.get("volume")
 
-        # Clipping/near-clipping
         if volume is not None:
             db = _db_from_linear(volume)
             if db > 0:
-                warnings.append({"track_index": idx, "track_name": name, "warning": "Volume above 0 dBFS ({:+.1f} dB)".format(db)})
+                warnings.append({
+                    "track_index": idx, "track_name": name,
+                    "warning": "Volume above 0 dBFS ({:+.1f} dB)".format(db),
+                })
                 penalty += 10
             elif db > -1.0:
-                warnings.append({"track_index": idx, "track_name": name, "warning": "Near-clipping ({:+.1f} dB)".format(db)})
+                warnings.append({
+                    "track_index": idx, "track_name": name,
+                    "warning": "Near-clipping ({:+.1f} dB)".format(db),
+                })
                 penalty += 5
 
-        # No devices
         devices = t.get("devices", [])
         if not devices:
-            warnings.append({"track_index": idx, "track_name": name, "warning": "No devices on track"})
+            warnings.append({
+                "track_index": idx, "track_name": name,
+                "warning": "No devices on track",
+            })
             penalty += 3
 
-    # Master bus
+    # ── 3. Master bus check ───────────────────────────────────────────
     try:
         master = _send("get_mixer_device", {"track_index": -1})
         master_vol = master.get("volume") if isinstance(master, dict) else None
         if master_vol is not None:
             db = _db_from_linear(master_vol)
             if db > 0:
-                warnings.append({"track_index": -1, "track_name": "Master", "warning": "Master bus above 0 dBFS ({:+.1f} dB)".format(db)})
+                warnings.append({
+                    "track_index": -1, "track_name": "Master",
+                    "warning": "Master bus above 0 dBFS ({:+.1f} dB)".format(db),
+                })
                 penalty += 20
             else:
                 info.append("Master bus: {:+.1f} dB".format(db))
     except Exception as e:
-        logger.warning("Could not complete mix health check: %s", e)
-    else:
-        recommendations.append("Address clipping tracks first, then review devices and routing")
+        logger.warning("Could not read master bus: %s", e)
+
+    # ── 4. Try to get LUFS / peak / spectral data from M4L analyzer ───
+    lufs: float | None = None
+    peak_dbfs: float | None = None
+    spectral_tilt: float | None = None
+    analyzer_available = False
+    try:
+        from tools.realtime_analyzer import (
+            m4l_get_lufs,
+            m4l_get_peak_level,
+            get_session_context,
+        )
+        lufs_result = m4l_get_lufs()
+        if isinstance(lufs_result, dict) and lufs_result.get("lufs") is not None:
+            lufs = float(lufs_result["lufs"])
+            analyzer_available = True
+        peak_result = m4l_get_peak_level()
+        if isinstance(peak_result, dict) and peak_result.get("peak_dbfs") is not None:
+            peak_dbfs = float(peak_result["peak_dbfs"])
+        ctx = get_session_context()
+        if isinstance(ctx, dict) and ctx.get("spectral_tilt") is not None:
+            spectral_tilt = float(ctx["spectral_tilt"])
+    except Exception as e:
+        logger.debug("M4L analyzer not available for mix diagnosis: %s", e)
+
+    # ── 5. Loudness diagnosis (separate from balance) ─────────────────
+    loudness_diagnosis: dict = _build_loudness_diagnosis(lufs, peak_dbfs, analyzer_available)
+    is_conservative = loudness_diagnosis.get("_is_conservative", False)
+
+    # ── 6. Balance / spectral congestion diagnosis ────────────────────
+    balance_diagnosis, low_mid_congested = _build_balance_diagnosis(
+        spectral_tilt, tracks, analyzer_available
+    )
+
+    # ── 7. Score and rank tracks by contribution to low-mid congestion ─
+    track_dbs: list[float] = []
+    for t in tracks:
+        v = (t.get("mixer_device") or {}).get("volume")
+        if v is not None:
+            track_dbs.append(_db_from_linear(v))
+    min_db = min(track_dbs) if track_dbs else -40.0
+    max_db = max(track_dbs) if track_dbs else 0.0
+
+    scored_tracks: list[dict] = []
+    for t in tracks:
+        name = t.get("name", "Unnamed")
+        idx = t.get("index", t.get("track_index", "?"))
+        v = (t.get("mixer_device") or {}).get("volume")
+        devices = t.get("devices", [])
+        db = _db_from_linear(v) if v is not None else min_db
+        staging = _staging_score(db, min_db, max_db)
+        lm_overlap = _classify_low_mid_overlap(name)
+        has_bus_proc, bus_proc_devs = _detect_bus_processing(devices)
+        contribution = round(0.5 * staging + 0.5 * lm_overlap, 3)
+        scored_tracks.append({
+            "name": name,
+            "index": idx,
+            "db": round(db, 1),
+            "staging_score": round(staging, 2),
+            "low_mid_overlap_score": round(lm_overlap, 2),
+            "has_bus_processing": has_bus_proc,
+            "bus_proc_devices": bus_proc_devs,
+            "contribution_score": contribution,
+            "device_names": [d.get("name", "") for d in devices],
+        })
+    scored_tracks.sort(key=lambda x: x["contribution_score"], reverse=True)
+
+    # ── 8. Build structured per-track recommendation objects ──────────
+    track_recommendations = _build_track_recommendations(
+        scored_tracks, low_mid_congested
+    )
+
+    # ── 9. "What not to change yet" guidance ─────────────────────────
+    what_not_to_change = _build_what_not_to_change(tracks, track_recommendations)
+
+    # ── 10. Re-check loop instructions ───────────────────────────────
+    recheck_loop = {
+        "instruction": (
+            "After applying any suggested move, re-run analysis on the same loud section "
+            "and compare the following:"
+        ),
+        "validation_targets": [
+            "perceived congestion — does the mix feel less dense?",
+            "separation of melodic layers — can individual elements be heard more clearly?",
+            "vocal clarity — do vocals feel clearer without increasing their level?",
+            "master metering — useful reference, but should not be the sole validation target",
+        ],
+        "approach": (
+            "Adjust one likely contributor, then re-run analysis before touching anything else. "
+            "Small manual moves ({processed} to {unprocessed}) accumulate; "
+            "avoid multi-track cuts in the first pass.".format(
+                processed=_MOVE_PROCESSED, unprocessed=_MOVE_UNPROCESSED
+            )
+        ),
+    }
+
+    # ── 11. Legacy recommendations field (backward-compatible) ────────
+    legacy_recommendations: list[str] = []
+    if warnings:
+        legacy_recommendations.append(
+            "Address clipping tracks first, then review devices and routing"
+        )
+    if low_mid_congested and track_recommendations:
+        first = track_recommendations[0]
+        legacy_recommendations.append(
+            "Most likely contributor to low-mid congestion: {} — try {} fader".format(
+                first["track"], first["proposed_move"]
+            )
+        )
+    if not legacy_recommendations:
+        legacy_recommendations.append(
+            "No critical issues found — review balance findings for fine-tuning"
+        )
 
     overall_health = max(0, 100 - penalty)
+
+    # Remove internal-only key before returning
+    loudness_diagnosis.pop("_is_conservative", None)
+
     return {
+        # Legacy / backward-compatible fields
         "warnings": warnings,
         "info": info,
-        "recommendations": recommendations,
+        "recommendations": legacy_recommendations,
         "overall_health": overall_health,
         "tracks_checked": len(tracks),
+        # New structured fields
+        "loudness_diagnosis": loudness_diagnosis,
+        "balance_diagnosis": balance_diagnosis,
+        "most_likely_contributors": scored_tracks[:5],
+        "track_recommendations": track_recommendations,
+        "what_not_to_change": what_not_to_change,
+        "recheck_loop": recheck_loop,
     }
+
+
+def _build_loudness_diagnosis(
+    lufs: float | None,
+    peak_dbfs: float | None,
+    analyzer_available: bool,
+) -> dict:
+    """
+    Build the loudness diagnosis section.
+    Separates objective loudness from perceived / internal-balance issues.
+    Includes a private '_is_conservative' key for internal use.
+    """
+    if not analyzer_available or lufs is None:
+        return {
+            "summary": "no LUFS data available",
+            "lufs": None,
+            "peak_dbfs": None,
+            "interpretation": (
+                "M4L Analyzer not available. Cannot assess objective loudness. "
+                "Volume and peak checks from track faders are still available in 'warnings'."
+            ),
+            "_is_conservative": False,
+        }
+
+    if lufs < -20:
+        return {
+            "summary": "quiet overall, likely internal balance issue",
+            "lufs": round(lufs, 1),
+            "peak_dbfs": round(peak_dbfs, 1) if peak_dbfs is not None else None,
+            "interpretation": (
+                "Master metrics are conservative (LUFS: {:.1f}). "
+                "The mix is not objectively loud. Any perception of loudness or congestion "
+                "is most likely an internal balance issue — density, masking, or low-mid "
+                "accumulation across multiple tracks — not a master-level problem.".format(lufs)
+            ),
+            "_is_conservative": True,
+        }
+    if lufs < -14:
+        return {
+            "summary": "moderate overall level",
+            "lufs": round(lufs, 1),
+            "peak_dbfs": round(peak_dbfs, 1) if peak_dbfs is not None else None,
+            "interpretation": (
+                "Master level is moderate (LUFS: {:.1f}). "
+                "Review spectral balance before adjusting master level.".format(lufs)
+            ),
+            "_is_conservative": False,
+        }
+    return {
+        "summary": "elevated overall level",
+        "lufs": round(lufs, 1),
+        "peak_dbfs": round(peak_dbfs, 1) if peak_dbfs is not None else None,
+        "interpretation": (
+            "Master level is elevated (LUFS: {:.1f}). "
+            "Check for peaks and limiting before further compression.".format(lufs)
+        ),
+        "_is_conservative": False,
+    }
+
+
+def _build_balance_diagnosis(
+    spectral_tilt: float | None,
+    tracks: list[dict],
+    analyzer_available: bool,
+) -> tuple[dict, bool]:
+    """
+    Build the spectral balance diagnosis section.
+    Returns (balance_diagnosis_dict, low_mid_congested_bool).
+    """
+    if spectral_tilt is not None:
+        if spectral_tilt < -0.3:
+            return (
+                {
+                    "summary": "body-heavy / low-mid dense",
+                    "spectral_tilt": round(spectral_tilt, 3),
+                    "congested_band": _LOW_MID_HZ_LABEL,
+                    "interpretation": (
+                        "The spectral balance is weighted toward the lower-mid region "
+                        "({band}). This can cause muddiness, masking of melodic layers, "
+                        "and make vocals feel buried — even when master levels are conservative. "
+                        "This is a balance problem, not a loudness problem.".format(band=_LOW_MID_HZ_LABEL)
+                    ),
+                },
+                True,
+            )
+        if spectral_tilt > 0.3:
+            return (
+                {
+                    "summary": "bright / top-heavy balance",
+                    "spectral_tilt": round(spectral_tilt, 3),
+                    "congested_band": None,
+                    "interpretation": (
+                        "The spectral balance has a bright tilt. "
+                        "This is not a low-mid congestion issue."
+                    ),
+                },
+                False,
+            )
+        return (
+            {
+                "summary": "relatively balanced spectrum",
+                "spectral_tilt": round(spectral_tilt, 3),
+                "congested_band": None,
+                "interpretation": "Spectral tilt is neutral. No obvious congestion band detected.",
+            },
+            False,
+        )
+
+    # No analyzer — fall back to heuristic track-name count
+    lm_high_count = sum(
+        1 for t in tracks if _classify_low_mid_overlap(t.get("name", "")) >= 0.7
+    )
+    if lm_high_count >= 3:
+        return (
+            {
+                "summary": "body-heavy / low-mid dense (heuristic)",
+                "spectral_tilt": None,
+                "congested_band": _LOW_MID_HZ_LABEL,
+                "interpretation": (
+                    "{count} or more tracks appear to have strong {band} overlap "
+                    "(e.g. piano, keys, guitars, pads, vocals). "
+                    "Without an analyzer reading this is a heuristic estimate, but if the "
+                    "mix feels dense or vocals feel buried, this region is the likely cause.".format(
+                        count=lm_high_count, band=_LOW_MID_HZ_LABEL
+                    )
+                ),
+            },
+            True,
+        )
+    return (
+        {
+            "summary": "spectral balance unknown",
+            "spectral_tilt": None,
+            "congested_band": None,
+            "interpretation": (
+                "M4L Analyzer not available and not enough tracks with clear spectral "
+                "signatures to form a heuristic estimate. "
+                "Use analysis_tool with action='spectrum_overview' for a snapshot."
+            ),
+        },
+        False,
+    )
+
+
+def _build_track_recommendations(
+    scored_tracks: list[dict],
+    low_mid_congested: bool,
+) -> list[dict]:
+    """
+    Build structured per-track recommendation objects for the most likely
+    contributors to low-mid congestion.  Only populated when congestion is
+    detected.  Excludes pure drum tracks and vocal tracks from the first-pass
+    candidates (they have separate guidance in 'what_not_to_change').
+    """
+    if not low_mid_congested:
+        return []
+
+    candidates = [
+        st for st in scored_tracks
+        if not _is_drum_track(st["name"]) and not _is_vocal_track(st["name"])
+    ][:3]
+
+    recs: list[dict] = []
+    for st in candidates:
+        is_processed = st["has_bus_processing"]
+        proposed_move = _MOVE_PROCESSED if is_processed else _MOVE_UNPROCESSED
+        score = st["contribution_score"]
+        if is_processed:
+            confidence = "low"
+        elif score > 0.65:
+            confidence = "high"
+        else:
+            confidence = "medium"
+
+        processing_desc = (
+            "has bus/mastering-style processing ({})".format(
+                ", ".join(st["bus_proc_devices"])
+            )
+            if is_processed
+            else "no bus-style processing noted"
+        )
+        expected_effect = (
+            "slightly less body congestion, more separation between layers"
+            if not is_processed
+            else (
+                "marginal reduction in congestion; processed tracks respond "
+                "less predictably to raw fader moves"
+            )
+        )
+        recs.append({
+            "track": st["name"],
+            "reason": "overlap with low-mid congestion ({})".format(_LOW_MID_HZ_LABEL),
+            "band": _LOW_MID_HZ_LABEL,
+            "processing_state": processing_desc,
+            "proposed_move": "{} fader".format(proposed_move),
+            "expected_effect": expected_effect,
+            "confidence": confidence,
+        })
+    return recs
+
+
+def _build_what_not_to_change(
+    tracks: list[dict],
+    track_recommendations: list[dict],
+) -> list[dict]:
+    """
+    Build the 'what not to change yet' guidance list.  Always includes master
+    bus; conditionally includes vocals and drums when they are not flagged as
+    primary contributors.
+    """
+    guidance: list[dict] = [
+        {
+            "element": "Master bus",
+            "guidance": "Leave the master bus alone initially.",
+            "reason": (
+                "Adjusting the master bus changes the overall level of everything equally "
+                "and does not fix internal balance. Diagnose and adjust individual "
+                "tracks first, then re-evaluate the master if needed."
+            ),
+        },
+    ]
+
+    rec_track_names = {r["track"] for r in track_recommendations}
+
+    vocal_tracks = [t for t in tracks if _is_vocal_track(t.get("name", ""))]
+    if vocal_tracks:
+        vocal_names = ", ".join(t.get("name", "") for t in vocal_tracks)
+        if not any(_is_vocal_track(n) for n in rec_track_names):
+            guidance.append({
+                "element": "Vocals ({})".format(vocal_names),
+                "guidance": "Avoid adjusting vocals unless they are clearly the masking source.",
+                "reason": (
+                    "Vocals are not flagged as primary contributors to low-mid congestion. "
+                    "Pulling vocals to fix density usually creates a hole in the mix rather "
+                    "than resolving the underlying balance issue."
+                ),
+            })
+
+    drum_tracks = [t for t in tracks if _is_drum_track(t.get("name", ""))]
+    if drum_tracks:
+        shown = drum_tracks[:3]
+        drum_names = ", ".join(t.get("name", "") for t in shown)
+        if len(drum_tracks) > 3:
+            drum_names += " (and {} more)".format(len(drum_tracks) - 3)
+        if not any(_is_drum_track(n) for n in rec_track_names):
+            guidance.append({
+                "element": "Drums ({})".format(drum_names),
+                "guidance": "Avoid touching drums unless they are actually contributing to the congested band.",
+                "reason": (
+                    "Drum tracks are not the primary low-mid offenders based on spectral "
+                    "overlap scoring. Reducing drums to fix congestion typically costs "
+                    "energy and transient feel without addressing the root cause."
+                ),
+            })
+
+    return guidance
 
 
 # ---------------------------------------------------------------------------
