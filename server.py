@@ -141,9 +141,6 @@ if __name__ == "__main__":
     if args.transport == "stdio":
         mcp.run()
     else:
-        mcp.run(
-            transport="streamable-http",
-            host=args.host,
-            port=args.port,
-            path="/mcp",
-        )
+        import uvicorn
+        app = mcp.streamable_http_app(path="/mcp")
+        uvicorn.run(app, host=args.host, port=args.port)
