@@ -30,7 +30,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-load_dotenv()
+load_dotenv(override=False)
 
 # ---------------------------------------------------------------------------
 # Import the MCP instance and register all tool modules (same as server.py)
@@ -43,7 +43,11 @@ import tools.session_snapshots   # noqa: F401
 import tools.session_suggestions # noqa: F401
 import tools.session_recording   # noqa: F401
 import tools.tracks              # noqa: F401
-import tools.clips               # noqa: F401
+import tools.clips_core          # noqa: F401
+import tools.clips_playback      # noqa: F401
+import tools.clips_envelopes     # noqa: F401
+import tools.clips_notes         # noqa: F401
+import tools.clips_arrangement   # noqa: F401
 import tools.devices             # noqa: F401
 import tools.staging             # noqa: F401
 import tools.morph               # noqa: F401
