@@ -12,18 +12,49 @@ import pathlib
 import socket
 import threading
 import time
+import urllib.parse
+import urllib.request
 from contextlib import contextmanager
 from typing import Any
 
 logger = logging.getLogger(__name__)
 
 from mcp.server.fastmcp import FastMCP
+
+
+def _detect_ngrok_host() -> str | None:
+    """Return the public ngrok hostname, or None if not available.
+
+    Checks NGROK_HOST env-var first (manual override), then queries the
+    local ngrok introspection API at http://127.0.0.1:4040/api/tunnels.
+    Never raises — all errors are silently swallowed.
+    """
+    try:
+        manual = os.environ.get("NGROK_HOST", "").strip()
+        if manual:
+            return manual
+        with urllib.request.urlopen(
+            "http://127.0.0.1:4040/api/tunnels", timeout=1.5
+        ) as resp:
+            data = json.loads(resp.read())
+        for tunnel in data.get("tunnels", []):
+            url = tunnel.get("public_url", "")
+            if url.startswith("https://"):
+                return urllib.parse.urlparse(url).hostname
+    except Exception:
+        pass
+    return None
+
+
 try:
     from mcp.server.transport_security import TransportSecuritySettings
-    _ngrok_host = os.environ.get("NGROK_HOST", "").strip()
     _allowed_hosts = ["localhost", "127.0.0.1"]
-    if _ngrok_host:
-        _allowed_hosts.append(_ngrok_host)
+    _detected = _detect_ngrok_host()
+    if _detected:
+        _allowed_hosts.append(_detected)
+        logger.info("AMCPX ngrok host auto-detected: %s", _detected)
+    else:
+        logger.debug("ngrok not detected; MCP restricted to localhost")
     _transport_security = TransportSecuritySettings(
         enable_dns_rebinding_protection=False,
         allowed_hosts=_allowed_hosts,
