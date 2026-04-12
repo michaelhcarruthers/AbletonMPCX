@@ -66,4 +66,4 @@ _start_observer()
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
-    mcp.run(transport="streamable-http", host="0.0.0.0", port=8080)
+    mcp.run(transport="streamable-http")
