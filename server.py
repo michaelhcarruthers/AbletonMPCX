@@ -29,7 +29,7 @@ import logging
 import os
 
 from dotenv import load_dotenv
-load_dotenv()
+load_dotenv(override=False)
 
 from helpers import mcp  # noqa: F401 — creates the FastMCP instance
 
