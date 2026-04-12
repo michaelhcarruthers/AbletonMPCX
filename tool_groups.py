@@ -121,7 +121,19 @@ TOOL_GROUP_MODULES: dict[str, list[str]] = {
         "tools.tracks",
     ],
     "clips": [
-        "tools.clips",                # already in base, safe to repeat (importlib won't re-execute)
+        "tools.clips_core",
+    ],
+    "clips_playback": [
+        "tools.clips_playback",
+    ],
+    "clips_envelopes": [
+        "tools.clips_envelopes",
+    ],
+    "clips_notes": [
+        "tools.clips_notes",
+    ],
+    "clips_arrangement": [
+        "tools.clips_arrangement",
     ],
     "devices": [
         "tools.devices",
@@ -167,7 +179,11 @@ TOOL_GROUP_MODULES: dict[str, list[str]] = {
         "tools.session_suggestions",
         "tools.session_recording",
         "tools.tracks",
-        "tools.clips",
+        "tools.clips_core",
+        "tools.clips_playback",
+        "tools.clips_envelopes",
+        "tools.clips_notes",
+        "tools.clips_arrangement",
         "tools.devices",
         "tools.staging",
         "tools.morph",
