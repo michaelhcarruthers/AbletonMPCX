@@ -146,7 +146,7 @@ SYSTEM_PROMPT = (
 
 app = FastAPI(title="AMCPX Chat")
 
-app.mount("/mcp/", mcp.streamable_http_app())
+app.mount("/", mcp.streamable_http_app())
 
 _STATIC_DIR = Path(__file__).parent / "static"
 app.mount("/static", StaticFiles(directory=str(_STATIC_DIR)), name="static")
