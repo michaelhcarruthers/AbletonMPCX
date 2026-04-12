@@ -34,6 +34,7 @@ from tools.analysis import (
     get_envelope,
 )
 from tools.spectrum import get_spectrum_bands, get_spectrum_overview
+from tools.proq4 import set_proq4_band
 from tools.realtime_analyzer import (
     m4l_analyzer_ping,
     m4l_get_levels,
@@ -259,6 +260,10 @@ def _action_mix_final_review(**kwargs):
     )
 
 
+def _action_proq4_band(**kwargs):
+    return set_proq4_band(**kwargs)
+
+
 # ---------------------------------------------------------------------------
 # Dispatcher
 # ---------------------------------------------------------------------------
@@ -302,11 +307,12 @@ _ACTIONS = {
     "mix_diagnose": _action_mix_diagnose,
     "mix_debug": _action_mix_debug,
     "mix_final_review": _action_mix_final_review,
+    "proq4_band": _action_proq4_band,
 }
 
 @mcp.tool()
 def analysis_tool(action: str, **kwargs) -> dict:
-    """Analysis, feel, reference, and theory workflows. Actions: feel, humanize, humanize_auto, humanize_batch, humanize_from_ref, reference_clip_save, reference_clip_compare, reference_mix_save, reference_mix_compare, reference_audio_save, reference_audio_compare, reference_audio_sections, reference_list, reference_delete, audio_analyse, mix_state, suggestions, key_check, key_check_batch, loudness, onsets, spectral, beat_track, envelope, spectrum_bands, spectrum_overview, m4l_ping, m4l_levels, m4l_lufs, m4l_peak, m4l_crest, m4l_reset, m4l_measure, session_context, mix_balance, mix_diagnose, mix_debug, mix_final_review."""
+    """Analysis, feel, reference, and theory workflows. Actions: feel, humanize, humanize_auto, humanize_batch, humanize_from_ref, reference_clip_save, reference_clip_compare, reference_mix_save, reference_mix_compare, reference_audio_save, reference_audio_compare, reference_audio_sections, reference_list, reference_delete, audio_analyse, mix_state, suggestions, key_check, key_check_batch, loudness, onsets, spectral, beat_track, envelope, spectrum_bands, spectrum_overview, m4l_ping, m4l_levels, m4l_lufs, m4l_peak, m4l_crest, m4l_reset, m4l_measure, session_context, mix_balance, mix_diagnose, mix_debug, mix_final_review, proq4_band."""
     if action not in _ACTIONS:
         return {
             "status": "error",
