@@ -5,14 +5,14 @@ set -e
 
 cd /Users/rnikec/Projects/AMCPX
 
-echo "Starting AMCPX server on port 8080..."
+echo "Starting AMCPX server on port 8081..."
 source venv/bin/activate
-python app.py &
+python3 server.py &
 SERVER_PID=$!
 
 echo "Waiting for server..."
 for i in $(seq 1 30); do
-  if curl -s -o /dev/null -w '%{http_code}' http://localhost:8080/mcp | grep -qE '(200|405|400)'; then
+  if curl -s -o /dev/null -w '%{http_code}' http://localhost:8081/mcp | grep -qE '(200|405|406|400)'; then
     echo "Server ready."
     break
   fi
@@ -20,15 +20,15 @@ for i in $(seq 1 30); do
 done
 
 echo "Starting ngrok tunnel..."
-ngrok http 8080 &
+grok http 8081 &
 NGROK_PID=$!
 
 sleep 2
 
-NGROK_URL=$(curl -s http://localhost:4040/api/tunnels | python3 -c "import sys,json; tunnels=json.load(sys.stdin)['tunnels']; print(next(t['public_url'] for t in tunnels if t['public_url'].startswith('https')))") 2>/dev/null || echo "(check http://localhost:4040)"
+NGROK_URL=$(curl -s http://localhost:4040/api/tunnels | python3 -c "import sys,json; tunnels=json.load(sys.stdin)['tunnels']; print(next(t['public_url'] for t in tunnels if t['public_url'].startswith('https')))" exampl)
 echo ""
 echo "====================================="
-echo "  MCP endpoint (local):  http://localhost:8080/mcp"
+echo "  MCP endpoint (local):  http://localhost:8081/mcp"
 echo "  MCP endpoint (public): $NGROK_URL/mcp"
 echo "====================================="
 echo ""
