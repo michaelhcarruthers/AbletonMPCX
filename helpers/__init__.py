@@ -66,7 +66,7 @@ try:
     mcp = FastMCP("AbletonMPCX", host="0.0.0.0", port=8080, stateless_http=True, transport_security=_transport_security)
 except (ImportError, TypeError):
     # Older FastMCP versions without transport_security support
-    mcp = FastMCP("AbletonMPCX", host="0.0.0.0", port=8080)
+    mcp = FastMCP("AbletonMPCX", host="0.0.0.0", port=8080, stateless_http=True)
 
 # --- Connection settings ---
 ABLETON_HOST = "localhost"
