@@ -217,6 +217,7 @@ def _get_all_clips() -> list[dict]:
     return []
 
 
+@mcp.tool()
 def gain_analyze(
     target_clip_db: float = -6.0,
     headroom_db: float = 6.0,
@@ -293,6 +294,7 @@ def gain_analyze(
     }
 
 
+@mcp.tool()
 def gain_trim_clips(
     target_clip_db: float = -6.0,
     only_above_target: bool = True,
@@ -381,6 +383,7 @@ def gain_trim_clips(
     }
 
 
+@mcp.tool()
 def gain_protect_headroom(
     headroom_db: float = 6.0,
     dry_run: bool = False,
