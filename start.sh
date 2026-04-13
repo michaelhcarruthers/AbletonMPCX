@@ -17,15 +17,15 @@ for i in $(seq 1 30); do
     break
   fi
   sleep 0.5
-done
+end
 
 echo "Starting ngrok tunnel..."
-grok http 8081 &
+ngrok http 8081 &
 NGROK_PID=$!
 
 sleep 2
 
-NGROK_URL=$(curl -s http://localhost:4040/api/tunnels | python3 -c "import sys,json; tunnels=json.load(sys.stdin)['tunnels']; print(next(t['public_url'] for t in tunnels if t['public_url'].startswith('https')))" exampl)
+NGROK_URL=$(curl -s http://localhost:4040/api/tunnels | python3 -c "import sys,json; tunnels=json.load(sys.stdin)['tunnels']; print(next(t['public_url'] for t in tunnels if t['public_url'].startswith('https')))"))
 echo ""
 echo "====================================="
 echo "  MCP endpoint (local):  http://localhost:8081/mcp"
