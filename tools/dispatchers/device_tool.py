@@ -31,6 +31,11 @@ from tools.devices import (
     load_plugin_device,
     add_native_device,
 )
+from tools.staging import (
+    gain_analyze,
+    gain_trim_clips,
+    gain_protect_headroom,
+)
 
 # ---------------------------------------------------------------------------
 # Action implementations (thin wrappers)
@@ -124,6 +129,18 @@ def _action_add_native(**kwargs):
     return add_native_device(**kwargs)
 
 
+def _action_gain_analyze(**kwargs):
+    return gain_analyze(**kwargs)
+
+
+def _action_gain_trim_clips(**kwargs):
+    return gain_trim_clips(**kwargs)
+
+
+def _action_gain_protect_headroom(**kwargs):
+    return gain_protect_headroom(**kwargs)
+
+
 # ---------------------------------------------------------------------------
 # Dispatcher
 # ---------------------------------------------------------------------------
@@ -151,12 +168,15 @@ _ACTIONS = {
     "load_item": _action_load_item,
     "load_plugin": _action_load_plugin,
     "add_native": _action_add_native,
+    "gain_analyze": _action_gain_analyze,
+    "gain_trim_clips": _action_gain_trim_clips,
+    "gain_protect_headroom": _action_gain_protect_headroom,
 }
 
 
 @mcp.tool()
 def device_tool(action: str, **kwargs) -> dict:
-    """Device, macro, and automation workflows. Actions: macro_perform, macro_live, macro_intensity, fx_add, setup_rack, get_rack_macros, adjust, batch_set, animate, snapshot_capture, snapshot_apply, find, remove_by_name, randomize, randomize_rack, mixer_set, mixer_get, browser_tree, browser_items, load_item, load_plugin, add_native."""
+    """Device, macro, and automation workflows. Actions: macro_perform, macro_live, macro_intensity, fx_add, setup_rack, get_rack_macros, adjust, batch_set, animate, snapshot_capture, snapshot_apply, find, remove_by_name, randomize, randomize_rack, mixer_set, mixer_get, browser_tree, browser_items, load_item, load_plugin, add_native, gain_analyze, gain_trim_clips, gain_protect_headroom."""
     if action not in _ACTIONS:
         return {
             "status": "error",
